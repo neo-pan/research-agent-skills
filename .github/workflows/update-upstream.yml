@@ -1,0 +1,67 @@
+name: Update Upstream Skills
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-upstream:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: recursive
+
+      - name: Update upstream submodule
+        run: ./scripts/update_upstream.sh
+
+      - name: Check skill pack
+        run: ./scripts/check.sh
+
+      - name: Create pull request and enable auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/update-upstream-skills
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet --exit-code; then
+            echo "No upstream update available."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "${BRANCH}"
+          git add upstream/mattpocock-skills
+          git commit -m "Update upstream skills"
+          git push --force-with-lease origin "${BRANCH}"
+
+          cat > /tmp/update-upstream-pr-body.md <<'EOF'
+          Manual upstream skill update.
+
+          This PR updates the pinned Matt Pocock skills submodule and verifies
+          the selected skill links with `./scripts/check.sh`.
+          EOF
+
+          if gh pr view "${BRANCH}" >/dev/null 2>&1; then
+            pr_url="$(gh pr view "${BRANCH}" --json url --jq .url)"
+          else
+            pr_url="$(
+              gh pr create \
+                --base main \
+                --head "${BRANCH}" \
+                --title "Update upstream skills" \
+                --body-file /tmp/update-upstream-pr-body.md
+            )"
+          fi
+
+          echo "Pull request: ${pr_url}"
+          gh pr merge "${BRANCH}" --auto --merge --delete-branch
