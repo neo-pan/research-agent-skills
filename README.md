@@ -13,10 +13,11 @@ candidate search.
 | Path | Purpose |
 |---|---|
 | `upstream/mattpocock-skills` | Pinned submodule for Matt Pocock's skills. |
-| `selected-skills.toml` | Canonical selected upstream skill list. |
+| `selected-skills.conf` | Canonical selected skill manifest. |
 | `skills/` | Generated symlinks for selected skills. |
 | `local/` | Personal local skills, maintained separately from upstream. |
 | `scripts/link_selected_skills.sh` | Rebuilds `skills/` symlinks from the selected list. |
+| `scripts/check.sh` | Validates the manifest, skill sources, and generated links. |
 | `scripts/update_upstream.sh` | Explicitly updates the upstream submodule and relinks. |
 
 ## Setup
@@ -24,10 +25,14 @@ candidate search.
 ```bash
 git submodule update --init --recursive
 ./scripts/link_selected_skills.sh
+./scripts/check.sh
 ```
 
 Projects can then link individual skills from this repository's `skills/`
 directory, or link the whole directory into a project-specific skill surface.
+Different agents discover skills differently; use this repository's `skills/`
+directory as the prepared source and follow the target agent or project
+convention for exposing those skill directories.
 
 ## Update Upstream
 
@@ -42,6 +47,11 @@ git commit -m "Update Matt Pocock skills"
 
 The submodule commit is part of this repository's state, so different machines
 can reproduce the same selected skill versions after cloning.
+
+On GitHub, the `Update Upstream Skills` workflow can be run manually to open or
+update a pull request for the same upstream submodule update and enable GitHub
+auto-merge. To make merge wait for approval, protect `main` with a required pull
+request review and enable auto-merge for the repository.
 
 ## Selected Upstream Skills
 

@@ -2,8 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UPSTREAM_DIR="${ROOT_DIR}/upstream/mattpocock-skills"
 SKILLS_DIR="${ROOT_DIR}/skills"
+MANIFEST="${ROOT_DIR}/selected-skills.conf"
+
+UPSTREAM_PATH="$(git config --file "${MANIFEST}" --get upstream.mattpocock.path)"
+UPSTREAM_DIR="${ROOT_DIR}/${UPSTREAM_PATH}"
 
 if [[ ! -d "${UPSTREAM_DIR}/.git" && ! -f "${UPSTREAM_DIR}/.git" ]]; then
   cat >&2 <<EOF
@@ -16,27 +19,12 @@ EOF
   exit 1
 fi
 
-selected_skills=(
-  "skills/engineering/grill-with-docs"
-  "skills/engineering/domain-modeling"
-  "skills/engineering/codebase-design"
-  "skills/engineering/improve-codebase-architecture"
-  "skills/engineering/diagnosing-bugs"
-  "skills/engineering/tdd"
-  "skills/engineering/to-prd"
-  "skills/engineering/to-issues"
-  "skills/engineering/prototype"
-  "skills/productivity/grill-me"
-  "skills/productivity/handoff"
-  "skills/productivity/writing-great-skills"
-)
-
-local_skills=(
-  "local/phase-review"
-)
+mapfile -t selected_skills < <(git config --file "${MANIFEST}" --get-all upstream.mattpocock.skill || true)
+mapfile -t local_skills < <(git config --file "${MANIFEST}" --get-all local.skill || true)
 
 mkdir -p "${SKILLS_DIR}"
 touch "${SKILLS_DIR}/.gitkeep"
+find "${SKILLS_DIR}" -maxdepth 1 -type l -delete
 
 for skill_path in "${selected_skills[@]}"; do
   source_path="${UPSTREAM_DIR}/${skill_path}"
