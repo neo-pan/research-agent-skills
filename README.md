@@ -8,6 +8,10 @@ development, experiment orchestration, debugging, architecture, and handoff
 work. It is not intended to directly participate in TileLang-Ascend kernel
 candidate search.
 
+Install only the skills listed in `selected-skills.conf`. Do not scan or install
+all skills under `upstream/mattpocock-skills`; that submodule is only a pinned
+source for the selected upstream entries.
+
 ## Layout
 
 | Path | Purpose |
@@ -17,6 +21,7 @@ candidate search.
 | `skills/` | Generated symlinks for selected skills. |
 | `local/` | Personal local skills, maintained separately from upstream. |
 | `scripts/link_selected_skills.sh` | Rebuilds `skills/` symlinks from the selected list. |
+| `scripts/install_selected_skills.sh` | Installs selected skill links into a target skill directory. |
 | `scripts/check.sh` | Validates the manifest, skill sources, and generated links. |
 | `scripts/update_upstream.sh` | Explicitly updates the upstream submodule and relinks. |
 
@@ -28,11 +33,22 @@ git submodule update --init --recursive
 ./scripts/check.sh
 ```
 
-Projects can then link individual skills from this repository's `skills/`
-directory, or link the whole directory into a project-specific skill surface.
-Different agents discover skills differently; use this repository's `skills/`
-directory as the prepared source and follow the target agent or project
-convention for exposing those skill directories.
+Install the selected skills into an agent or project skill directory:
+
+```bash
+./scripts/install_selected_skills.sh <target-skills-dir>
+```
+
+If no target is provided, the script installs into
+`${CODEX_HOME:-$HOME/.codex}/skills`. Different agents discover skills
+differently; use `skills/` as the prepared selected source and follow the target
+agent or project convention for exposing those skill directories.
+
+For shallow clones, initialize submodules before installing:
+
+```bash
+git submodule update --init --recursive
+```
 
 ## Update Upstream
 

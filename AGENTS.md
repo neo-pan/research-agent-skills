@@ -10,6 +10,9 @@ across local projects.
   environment details.
 - Treat `selected-skills.conf` as the source of truth for exposed skills.
   Update it before relinking skills.
+- Installers must install only skills listed in `selected-skills.conf` or
+  exposed through generated `skills/` symlinks. Do not scan
+  `upstream/mattpocock-skills` to install every upstream skill.
 - Treat `skills/` as generated symlinks. Do not commit generated skill links;
   only `skills/.gitkeep` is tracked.
 - Treat `upstream/mattpocock-skills` as a third-party submodule. Do not edit
