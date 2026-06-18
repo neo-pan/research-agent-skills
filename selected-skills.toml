@@ -1,0 +1,20 @@
+[upstream.mattpocock]
+repo = "https://github.com/mattpocock/skills"
+path = "upstream/mattpocock-skills"
+commit_policy = "pinned-submodule"
+
+skills = [
+  "skills/engineering/grill-with-docs",
+  "skills/engineering/domain-modeling",
+  "skills/engineering/codebase-design",
+  "skills/engineering/improve-codebase-architecture",
+  "skills/engineering/diagnosing-bugs",
+  "skills/engineering/tdd",
+  "skills/engineering/to-prd",
+  "skills/engineering/to-issues",
+  "skills/engineering/prototype",
+  "skills/productivity/grill-me",
+  "skills/productivity/handoff",
+  "skills/productivity/writing-great-skills",
+]
+

@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated symlinks created by scripts/link_selected_skills.sh.
+skills/*
+!skills/.gitkeep
+
