@@ -18,3 +18,7 @@ skills = [
   "skills/productivity/writing-great-skills",
 ]
 
+[local]
+skills = [
+  "local/phase-review",
+]

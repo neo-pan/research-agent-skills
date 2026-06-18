@@ -31,6 +31,10 @@ selected_skills=(
   "skills/productivity/writing-great-skills"
 )
 
+local_skills=(
+  "local/phase-review"
+)
+
 mkdir -p "${SKILLS_DIR}"
 touch "${SKILLS_DIR}/.gitkeep"
 
@@ -47,5 +51,18 @@ for skill_path in "${selected_skills[@]}"; do
   ln -sfn "${source_path}" "${target_path}"
 done
 
-echo "Linked ${#selected_skills[@]} selected skills under ${SKILLS_DIR}"
+for skill_path in "${local_skills[@]}"; do
+  source_path="${ROOT_DIR}/${skill_path}"
+  skill_name="$(basename "${skill_path}")"
+  target_path="${SKILLS_DIR}/${skill_name}"
 
+  if [[ ! -d "${source_path}" ]]; then
+    echo "Missing local skill: ${skill_path}" >&2
+    exit 1
+  fi
+
+  ln -sfn "${source_path}" "${target_path}"
+done
+
+total_count=$((${#selected_skills[@]} + ${#local_skills[@]}))
+echo "Linked ${total_count} skills under ${SKILLS_DIR}"

@@ -15,7 +15,7 @@ candidate search.
 | `upstream/mattpocock-skills` | Pinned submodule for Matt Pocock's skills. |
 | `selected-skills.toml` | Canonical selected upstream skill list. |
 | `skills/` | Generated symlinks for selected skills. |
-| `local/` | Personal local skills or notes, maintained separately from upstream. |
+| `local/` | Personal local skills, maintained separately from upstream. |
 | `scripts/link_selected_skills.sh` | Rebuilds `skills/` symlinks from the selected list. |
 | `scripts/update_upstream.sh` | Explicitly updates the upstream submodule and relinks. |
 
@@ -43,7 +43,7 @@ git commit -m "Update Matt Pocock skills"
 The submodule commit is part of this repository's state, so different machines
 can reproduce the same selected skill versions after cloning.
 
-## Selected Skills
+## Selected Upstream Skills
 
 The current selected upstream skills are:
 
@@ -60,3 +60,9 @@ The current selected upstream skills are:
 - `handoff`
 - `writing-great-skills`
 
+## Local Skills
+
+The current local skills are:
+
+- `phase-review` - manual independent gate for research engineering plans,
+  implementation phases, evidence, and final readiness.
