@@ -176,25 +176,116 @@ md_field_value() {
 markdown_has_content() {
   local file="$1"
   [[ -f "${file}" ]] || return 1
-  grep -Ev '^[[:space:]]*$|^[[:space:]]*#|^[[:space:]]*<!--|^[[:space:]]*\|.*\|[[:space:]]*$|^[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*(\|[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*)*$' "${file}" | grep -q '[[:alnum:]]'
+  awk '
+    function flush_pending() {
+      if (pending_table != "") {
+        if (meaningful_table_row(pending_table)) found = 1
+        pending_table = ""
+      }
+    }
+    function trim_cell(value) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      return value
+    }
+    function is_table_row(line) {
+      return line ~ /^[[:space:]]*\|.*\|[[:space:]]*$/
+    }
+    function is_table_separator(line) {
+      return line ~ /^[[:space:]]*\|[[:space:]-]+\|[[:space:]|:-]*$/
+    }
+    function meaningful_table_row(line, parts, count, i, cell, meaningful) {
+      if (!is_table_row(line)) return 0
+      if (is_table_separator(line)) return 0
+      count = split(line, parts, "|")
+      meaningful = 0
+      for (i = 2; i < count; i++) {
+        cell = trim_cell(parts[i])
+        if (cell == "" || cell == "-" || cell == "..." || cell ~ /^(TBD|TODO|N\/A)$/) continue
+        if (cell ~ /[[:alnum:]]/) meaningful++
+      }
+      return meaningful >= 2
+    }
+    {
+      line = $0
+      if (is_table_row(line)) {
+        if (is_table_separator(line)) {
+          pending_table = ""
+          next
+        }
+        flush_pending()
+        pending_table = line
+        next
+      }
+      flush_pending()
+      if (line ~ /^[[:space:]]*$/) next
+      if (line ~ /^[[:space:]]*#/) next
+      if (line ~ /^[[:space:]]*<!--/) next
+      if (line ~ /^[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*(\|[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*)*$/) next
+      if (line ~ /[[:alnum:]]/) found = 1
+    }
+    END {
+      flush_pending()
+      exit(found ? 0 : 1)
+    }
+  ' "${file}"
 }
 
 markdown_section_has_content() {
   local file="$1"
   local heading_regex="$2"
   awk -v heading="${heading_regex}" '
+    function flush_pending() {
+      if (pending_table != "") {
+        if (meaningful_table_row(pending_table)) found = 1
+        pending_table = ""
+      }
+    }
+    function trim_cell(value) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      return value
+    }
+    function is_table_row(line) {
+      return line ~ /^[[:space:]]*\|.*\|[[:space:]]*$/
+    }
+    function is_table_separator(line) {
+      return line ~ /^[[:space:]]*\|[[:space:]-]+\|[[:space:]|:-]*$/
+    }
+    function meaningful_table_row(line, parts, count, i, cell, meaningful) {
+      if (!is_table_row(line)) return 0
+      if (is_table_separator(line)) return 0
+      count = split(line, parts, "|")
+      meaningful = 0
+      for (i = 2; i < count; i++) {
+        cell = trim_cell(parts[i])
+        if (cell == "" || cell == "-" || cell == "..." || cell ~ /^(TBD|TODO|N\/A)$/) continue
+        if (cell ~ /[[:alnum:]]/) meaningful++
+      }
+      return meaningful >= 2
+    }
     BEGIN { in_section = 0; found = 0 }
-    $0 ~ heading { in_section = 1; next }
-    in_section && /^##[[:space:]]+/ { in_section = 0 }
+    $0 ~ heading { in_section = 1; pending_table = ""; next }
+    in_section && /^##[[:space:]]+/ { flush_pending(); in_section = 0 }
     in_section {
       line = $0
+      if (is_table_row(line)) {
+        if (is_table_separator(line)) {
+          pending_table = ""
+          next
+        }
+        flush_pending()
+        pending_table = line
+        next
+      }
+      flush_pending()
       if (line ~ /^[[:space:]]*$/) next
       if (line ~ /^[[:space:]]*#/) next
       if (line ~ /^[[:space:]]*<!--/) next
-      if (line ~ /^[[:space:]]*\|.*\|[[:space:]]*$/) next
       if (line ~ /[[:alnum:]]/) found = 1
     }
-    END { exit(found ? 0 : 1) }
+    END {
+      flush_pending()
+      exit(found ? 0 : 1)
+    }
   ' "${file}"
 }
 
