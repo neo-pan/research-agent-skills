@@ -82,7 +82,7 @@ cp "${ROOT_DIR}/local/research-dev-loop/templates/artifact-manifest.json" .rdl/s
 printf '{ broken\n' > .rdl/sessions/r1/state.json
 assert_fails status-corrupt.json "${RDL}" status
 assert_file_contains status-corrupt.json '"status": "error"'
-assert_file_contains status-corrupt.json '"code":"corrupted_state"'
+assert_file_contains status-corrupt.json '"code":"invalid_state_json"'
 
 repo2="${tmp_root}/repo2"
 mkdir -p "${repo2}/.rdl/sessions/bad"
@@ -90,6 +90,66 @@ printf '{ broken\n' > "${repo2}/.rdl/sessions/bad/state.json"
 cd "${repo2}"
 assert_fails doctor-corrupt.json "${RDL}" doctor
 assert_file_contains doctor-corrupt.json '"status": "error"'
-assert_file_contains doctor-corrupt.json '"code":"corrupted_state"'
+assert_file_contains doctor-corrupt.json '"code":"invalid_state_json"'
+
+repo3="${tmp_root}/repo3"
+mkdir -p "${repo3}/.rdl/sessions/bad"
+cat > "${repo3}/.rdl/sessions/bad/state.json" <<'JSON'
+{
+  "schema_version": 2,
+  "session_id": "bad",
+  "mode": "research",
+  "phase": "plan",
+  "round": 1,
+  "status": "closed-positive",
+  "mission_file": "mission.md",
+  "guard_session_id": null,
+  "last_guard_command_id": null
+}
+JSON
+cd "${repo3}"
+assert_fails doctor-unsupported.json "${RDL}" doctor
+assert_file_contains doctor-unsupported.json '"status": "error"'
+assert_file_contains doctor-unsupported.json '"code":"unsupported_schema"'
+
+repo4="${tmp_root}/repo4"
+mkdir -p "${repo4}/.rdl/sessions/bad"
+cat > "${repo4}/.rdl/sessions/bad/state.json" <<'JSON'
+{
+  "schema_version": 1,
+  "session_id": "bad",
+  "mode": "research",
+  "phase": "plan",
+  "round": 1,
+  "status": "nonsense",
+  "mission_file": "mission.md",
+  "guard_session_id": null,
+  "last_guard_command_id": null
+}
+JSON
+cd "${repo4}"
+assert_fails doctor-invalid-status.json "${RDL}" doctor
+assert_file_contains doctor-invalid-status.json '"status": "error"'
+assert_file_contains doctor-invalid-status.json '"code":"invalid_status"'
+
+repo5="${tmp_root}/repo5"
+mkdir -p "${repo5}/.rdl/sessions/done"
+cat > "${repo5}/.rdl/sessions/done/state.json" <<'JSON'
+{
+  "schema_version": 1,
+  "session_id": "done",
+  "mode": "research",
+  "phase": "complete",
+  "round": 1,
+  "status": "closed-positive",
+  "mission_file": "mission.md",
+  "guard_session_id": null,
+  "last_guard_command_id": null
+}
+JSON
+cd "${repo5}"
+"${RDL}" status > status-closed.json
+assert_file_contains status-closed.json '"status": "ok"'
+assert_file_contains status-closed.json '"next_action": "rdl start research <mission.md>"'
 
 echo "round1 tests ok"

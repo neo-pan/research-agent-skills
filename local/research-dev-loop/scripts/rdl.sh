@@ -211,7 +211,7 @@ PY
   grep -q '"artifacts"[[:space:]]*:' "${file}"
 }
 
-find_session_for_read() {
+find_active_session_for_start() {
   local action="$1"
   FOUND_SESSION_DIR=""
   mapfile -t dirs < <(session_dirs)
@@ -220,29 +220,23 @@ find_session_for_read() {
   fi
 
   local active=()
-  local corrupted=()
   local dir
   for dir in "${dirs[@]}"; do
     local state_file="${dir}/state.json"
     if [[ ! -f "${state_file}" ]]; then
-      corrupted+=("${dir}")
-      continue
+      emit_problem "error" "${action}" "" "" "" 0 "repair or abandon the corrupted RDL session" \
+        "missing_state" "${state_file}" "Session state is missing." "Repair the RDL session metadata or remove the incomplete session."
+      exit 1
     fi
     if ! valid_json_file "${state_file}"; then
-      corrupted+=("${dir}")
-      continue
+      emit_problem "error" "${action}" "" "" "" 0 "repair or abandon the corrupted RDL session" \
+        "corrupted_state" "${state_file}" "Session state is invalid JSON." "Repair the RDL session metadata or remove the corrupted session."
+      exit 1
     fi
     if [[ "$(json_value "${state_file}" "status")" == "active" ]]; then
       active+=("${dir}")
     fi
   done
-
-  if [[ "${#corrupted[@]}" -gt 0 ]]; then
-    local file="${corrupted[0]}/state.json"
-    emit_problem "error" "${action}" "" "" "" 0 "repair or abandon the corrupted RDL session" \
-      "corrupted_state" "${file}" "Session state is missing or invalid." "Repair the RDL session metadata or start from a clean session."
-    exit 1
-  fi
 
   if [[ "${#active[@]}" -eq 0 ]]; then
     return 1
@@ -254,6 +248,51 @@ find_session_for_read() {
   fi
 
   FOUND_SESSION_DIR="${active[0]}"
+}
+
+find_session_for_audit() {
+  local action="$1"
+  FOUND_SESSION_DIR=""
+  mapfile -t dirs < <(session_dirs)
+  if [[ "${#dirs[@]}" -eq 0 ]]; then
+    return 1
+  fi
+
+  local active=()
+  local dir
+  for dir in "${dirs[@]}"; do
+    local state_file="${dir}/state.json"
+    local errors=()
+    local blockers=()
+    validate_session "${dir}" errors blockers
+    if [[ "${#errors[@]}" -gt 0 ]]; then
+      local session_id mode phase round
+      session_id="$(json_value "${state_file}" "session_id")"
+      mode="$(json_value "${state_file}" "mode")"
+      phase="$(json_value "${state_file}" "phase")"
+      round="$(json_number "${state_file}" "round")"
+      emit_problem "error" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "repair RDL session metadata" "${errors[@]}"
+      exit 1
+    fi
+
+    local status
+    status="$(json_value "${state_file}" "status")"
+    if [[ "${status}" == "active" ]]; then
+      active+=("${dir}")
+    fi
+  done
+
+  if [[ "${#active[@]}" -gt 1 ]]; then
+    emit_problem "error" "${action}" "" "" "" 0 "close or abandon duplicate active sessions" \
+      "multiple_active_sessions" "${SESSIONS_DIR}" "More than one active RDL session exists." "Close or abandon all but one active session."
+    exit 1
+  fi
+  if [[ "${#active[@]}" -eq 1 ]]; then
+    FOUND_SESSION_DIR="${active[0]}"
+    return 0
+  fi
+
+  return 1
 }
 
 render_prompt() {
@@ -320,7 +359,7 @@ cmd_start() {
   done
 
   local existing_dir=""
-  if find_session_for_read start; then
+  if find_active_session_for_start start; then
     existing_dir="${FOUND_SESSION_DIR}"
     emit_problem "blocked" "start" "" "" "" 0 "rdl status" \
       "active_session_exists" "${existing_dir}/state.json" "An active RDL session already exists." "Run rdl status, then close or abandon the active session before starting another."
@@ -396,7 +435,7 @@ cmd_status() {
   done
 
   local session_dir
-  if ! find_session_for_read status; then
+  if ! find_session_for_audit status; then
     emit_ok "status" "" "" "" 0 "rdl start research <mission.md>"
     return 0
   fi
@@ -523,7 +562,7 @@ cmd_doctor() {
   done
 
   local session_dir
-  if ! find_session_for_read doctor; then
+  if ! find_session_for_audit doctor; then
     emit_problem "blocked" "doctor" "" "" "" 0 "rdl start research <mission.md>" \
       "no_active_session" "${SESSIONS_DIR}" "No active RDL session exists." "Start an RDL session."
     return 2
