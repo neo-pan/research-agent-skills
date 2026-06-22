@@ -16,6 +16,9 @@ Usage:
   rdl start build <mission-or-plan.md> [--session-id <id>] [--json]
   rdl status [--json]
   rdl doctor [--json]
+  rdl review [--json]
+  rdl decide <decision-type> [--json]
+  rdl next [--json]
 EOF
 }
 
@@ -153,6 +156,21 @@ json_number() {
   local file="$1"
   local key="$2"
   sed -n 's/^[[:space:]]*"'"${key}"'"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${file}" | head -n 1
+}
+
+trim() {
+  local value="${1-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "${value}"
+}
+
+md_field_value() {
+  local file="$1"
+  local field="$2"
+  local line
+  line="$(grep -m 1 "^${field}:" "${file}" || true)"
+  trim "${line#*:}"
 }
 
 valid_json_file() {
@@ -315,6 +333,10 @@ render_prompt() {
   done < "${TEMPLATE_DIR}/prompt.md" > "${target}"
 }
 
+round_path() {
+  printf 'rounds/%03d' "$1"
+}
+
 copy_or_template_mission() {
   local source="$1"
   local target="$2"
@@ -323,6 +345,41 @@ copy_or_template_mission() {
   else
     cp "${TEMPLATE_DIR}/mission.md" "${target}"
   fi
+}
+
+load_active_session() {
+  local action="$1"
+  if ! find_session_for_audit "${action}"; then
+    emit_problem "blocked" "${action}" "" "" "" 0 "rdl start research <mission.md>" \
+      "no_active_session" "${SESSIONS_DIR}" "No active RDL session exists." "Start an RDL session."
+    return 2
+  fi
+  return 0
+}
+
+validate_active_session() {
+  local action="$1"
+  local session_dir="$2"
+  local state_file="${session_dir}/state.json"
+  local session_id mode phase round
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  phase="$(json_value "${state_file}" "phase")"
+  round="$(json_number "${state_file}" "round")"
+
+  local errors=()
+  local blockers=()
+  validate_session "${session_dir}" errors blockers
+
+  if [[ "${#errors[@]}" -gt 0 ]]; then
+    emit_problem "error" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "repair RDL session metadata" "${errors[@]}"
+    return 1
+  fi
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "complete missing RDL records" "${blockers[@]}"
+    return 2
+  fi
+  return 0
 }
 
 cmd_start() {
@@ -613,6 +670,279 @@ cmd_doctor() {
   emit_ok "doctor" "${session_id}" "${mode}" "${phase}" "${round:-0}" "rdl review"
 }
 
+valid_decision_type() {
+  case "$1" in
+    continue|pivot|narrow|broaden|diagnose|build|profile|rerun|accept|reject|close-positive|close-negative|close-inconclusive)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_review_file() {
+  local file="$1"
+  local -n blockers_ref="$2"
+  if [[ ! -f "${file}" ]]; then
+    add_blocker blockers_ref "missing_review" "${file}" "review.md is missing." "Run rdl review and complete the review record."
+    return
+  fi
+
+  local field value
+  local required_fields=(
+    "Reviewer"
+    "Review Mode"
+    "Review Scope"
+    "Artifacts Reviewed"
+    "Verdict"
+    "Decision Reviewed"
+    "Evidence Reviewed"
+    "Blocking Evidence Gaps"
+    "Implementation Findings"
+    "Evaluation Integrity Findings"
+    "Overclaim Risks"
+    "Readiness Level"
+    "Recommended Decision"
+  )
+  for field in "${required_fields[@]}"; do
+    value="$(md_field_value "${file}" "${field}")"
+    if [[ -z "${value}" || "${value}" == *"|"* ]]; then
+      add_blocker blockers_ref "missing_review_field" "${file}#${field}" "${field} is missing or still a placeholder." "Complete ${field} in review.md."
+    fi
+  done
+
+  value="$(md_field_value "${file}" "Review Mode")"
+  case "${value}" in
+    manual|checklist|phase-review|subagent|project-adapter) ;;
+    *) add_blocker blockers_ref "invalid_review_mode" "${file}#Review Mode" "Review Mode is unsupported." "Use manual, checklist, phase-review, subagent, or project-adapter." ;;
+  esac
+
+  value="$(md_field_value "${file}" "Verdict")"
+  case "${value}" in
+    PASS|PASS_WITH_NOTES|BLOCKED|INCONCLUSIVE) ;;
+    *) add_blocker blockers_ref "invalid_review_verdict" "${file}#Verdict" "Verdict is unsupported." "Use PASS, PASS_WITH_NOTES, BLOCKED, or INCONCLUSIVE." ;;
+  esac
+}
+
+validate_decision_file() {
+  local file="$1"
+  local expected_closes="$2"
+  local -n blockers_ref="$3"
+  if [[ ! -f "${file}" ]]; then
+    add_blocker blockers_ref "missing_decision" "${file}" "decision.md is missing." "Run rdl decide <decision-type> and complete the decision record."
+    return
+  fi
+
+  local decision closes next_loop field value
+  local required_fields=(
+    "Decision"
+    "Closes"
+    "Evidence"
+    "Uncertainty"
+    "What this rules out"
+    "What remains unknown"
+    "Recommended next loop"
+    "Next smallest step"
+  )
+  for field in "${required_fields[@]}"; do
+    value="$(md_field_value "${file}" "${field}")"
+    if [[ -z "${value}" || "${value}" == *"|"* ]]; then
+      add_blocker blockers_ref "missing_decision_field" "${file}#${field}" "${field} is missing or still a placeholder." "Complete ${field} in decision.md."
+    fi
+  done
+
+  decision="$(md_field_value "${file}" "Decision")"
+  if ! valid_decision_type "${decision}"; then
+    add_blocker blockers_ref "invalid_decision_type" "${file}#Decision" "Decision type is unsupported." "Use a planned RDL decision type."
+  fi
+
+  closes="$(md_field_value "${file}" "Closes")"
+  if [[ "${closes}" != "${expected_closes}" ]]; then
+    add_blocker blockers_ref "invalid_closes" "${file}#Closes" "Closes must be ${expected_closes} for this session mode." "Set Closes: ${expected_closes}."
+  fi
+
+  next_loop="$(md_field_value "${file}" "Recommended next loop")"
+  case "${next_loop}" in
+    research|build|none) ;;
+    *) add_blocker blockers_ref "invalid_recommended_next_loop" "${file}#Recommended next loop" "Recommended next loop is unsupported." "Use research, build, or none." ;;
+  esac
+}
+
+cmd_review() {
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --json)
+        shift
+        ;;
+      *)
+        die_result "review" "unknown_option" "" "unknown option: $1" "Run rdl --help."
+        ;;
+    esac
+  done
+
+  local session_dir
+  load_active_session review || return $?
+  session_dir="${FOUND_SESSION_DIR}"
+  validate_active_session review "${session_dir}" || return $?
+
+  local state_file="${session_dir}/state.json"
+  local session_id mode phase round
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  phase="$(json_value "${state_file}" "phase")"
+  round="$(json_number "${state_file}" "round")"
+
+  local round_dir="${session_dir}/$(round_path "${round}")"
+  local review_file="${round_dir}/review.md"
+  if [[ ! -f "${review_file}" ]]; then
+    cp "${TEMPLATE_DIR}/review.md" "${review_file}"
+    emit_ok "review" "${session_id}" "${mode}" "${phase}" "${round}" "${review_file}"
+    return 0
+  fi
+
+  local blockers=()
+  validate_review_file "${review_file}" blockers
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "review" "${session_id}" "${mode}" "${phase}" "${round}" "complete review.md" "${blockers[@]}"
+    return 2
+  fi
+
+  emit_ok "review" "${session_id}" "${mode}" "${phase}" "${round}" "rdl decide <decision-type>"
+}
+
+cmd_decide() {
+  local decision_type="${1-}"
+  if [[ "$#" -lt 1 ]]; then
+    die_result "decide" "missing_decision_type" "" "decide requires a decision type." "rdl decide continue"
+  fi
+  shift
+  if ! valid_decision_type "${decision_type}"; then
+    die_result "decide" "invalid_decision_type" "" "unsupported decision type: ${decision_type}" "Use a planned RDL decision type."
+  fi
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --json)
+        shift
+        ;;
+      *)
+        die_result "decide" "unknown_option" "" "unknown option: $1" "Run rdl --help."
+        ;;
+    esac
+  done
+
+  local session_dir
+  load_active_session decide || return $?
+  session_dir="${FOUND_SESSION_DIR}"
+  validate_active_session decide "${session_dir}" || return $?
+
+  local state_file="${session_dir}/state.json"
+  local session_id mode phase round expected_closes
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  phase="$(json_value "${state_file}" "phase")"
+  round="$(json_number "${state_file}" "round")"
+  if [[ "${mode}" == "research" ]]; then
+    expected_closes="claim"
+  else
+    expected_closes="capability"
+  fi
+
+  local round_dir="${session_dir}/$(round_path "${round}")"
+  local decision_file="${round_dir}/decision.md"
+  if [[ ! -f "${decision_file}" ]]; then
+    cp "${TEMPLATE_DIR}/decision.md" "${decision_file}"
+    sed -i "s/^Decision:.*/Decision: ${decision_type}/" "${decision_file}"
+    sed -i "s/^Closes:.*/Closes: ${expected_closes}/" "${decision_file}"
+    emit_ok "decide" "${session_id}" "${mode}" "${phase}" "${round}" "${decision_file}"
+    return 0
+  fi
+
+  local blockers=()
+  validate_decision_file "${decision_file}" "${expected_closes}" blockers
+  if [[ "$(md_field_value "${decision_file}" "Decision")" != "${decision_type}" ]]; then
+    add_blocker blockers "decision_type_mismatch" "${decision_file}#Decision" "Decision does not match the requested decision type." "Run rdl decide with the recorded decision type or update decision.md."
+  fi
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "decide" "${session_id}" "${mode}" "${phase}" "${round}" "complete decision.md" "${blockers[@]}"
+    return 2
+  fi
+
+  emit_ok "decide" "${session_id}" "${mode}" "${phase}" "${round}" "rdl next"
+}
+
+cmd_next() {
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --json)
+        shift
+        ;;
+      *)
+        die_result "next" "unknown_option" "" "unknown option: $1" "Run rdl --help."
+        ;;
+    esac
+  done
+
+  local session_dir
+  load_active_session next || return $?
+  session_dir="${FOUND_SESSION_DIR}"
+  validate_active_session next "${session_dir}" || return $?
+
+  local state_file="${session_dir}/state.json"
+  local session_id mode phase round expected_closes
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  phase="$(json_value "${state_file}" "phase")"
+  round="$(json_number "${state_file}" "round")"
+  if [[ "${mode}" == "research" ]]; then
+    expected_closes="claim"
+  else
+    expected_closes="capability"
+  fi
+
+  local round_dir="${session_dir}/$(round_path "${round}")"
+  local review_file="${round_dir}/review.md"
+  local decision_file="${round_dir}/decision.md"
+  local blockers=()
+  validate_review_file "${review_file}" blockers
+  validate_decision_file "${decision_file}" "${expected_closes}" blockers
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "next" "${session_id}" "${mode}" "${phase}" "${round}" "complete current round review and decision" "${blockers[@]}"
+    return 2
+  fi
+
+  local next_round=$((round + 1))
+  local next_round_dir="${session_dir}/$(round_path "${next_round}")"
+  if [[ -e "${next_round_dir}" ]]; then
+    emit_problem "blocked" "next" "${session_id}" "${mode}" "${phase}" "${round}" "inspect existing next round" \
+      "next_round_exists" "$(round_path "${next_round}")" "Next round directory already exists." "Inspect the existing next round before advancing."
+    return 2
+  fi
+
+  local decision next_loop previous_decision now
+  decision="$(md_field_value "${decision_file}" "Decision")"
+  next_loop="$(md_field_value "${decision_file}" "Recommended next loop")"
+  previous_decision="${decision}; closes ${expected_closes}; recommended next loop ${next_loop}"
+  now="$(now_utc)"
+  mkdir -p "${next_round_dir}"
+  render_prompt "${mode}" "${next_round}" "Continue ${mode} session ${session_id}" "${previous_decision}" "${next_round_dir}/prompt.md"
+
+  sed -i "s/^[[:space:]]*\"round\"[[:space:]]*:.*/  \"round\": ${next_round},/" "${state_file}"
+  sed -i "s/^[[:space:]]*\"phase\"[[:space:]]*:.*/  \"phase\": \"plan\",/" "${state_file}"
+  sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
+
+  {
+    printf '\n## Round %s Decision\n\n' "${round}"
+    printf '%s\n' "- Decision: ${decision}"
+    printf '%s\n' "- Closes: ${expected_closes}"
+    printf '%s\n' "- Recommended next loop: ${next_loop}"
+    printf '%s\n' "- Next round: $(printf '%03d' "${next_round}")"
+  } >> "${session_dir}/decision-ledger.md"
+
+  emit_ok "next" "${session_id}" "${mode}" "plan" "${next_round}" "${next_round_dir}/prompt.md"
+}
+
 main() {
   local command="${1-}"
   if [[ -z "${command}" || "${command}" == "-h" || "${command}" == "--help" ]]; then
@@ -630,6 +960,15 @@ main() {
       ;;
     doctor)
       cmd_doctor "$@"
+      ;;
+    review)
+      cmd_review "$@"
+      ;;
+    decide)
+      cmd_decide "$@"
+      ;;
+    next)
+      cmd_next "$@"
       ;;
     *)
       die_result "unknown" "unknown_command" "" "unknown command: ${command}" "Run rdl --help."
