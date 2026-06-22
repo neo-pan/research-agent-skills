@@ -152,4 +152,100 @@ cd "${repo5}"
 assert_file_contains status-closed.json '"status": "ok"'
 assert_file_contains status-closed.json '"next_action": "rdl start research <mission.md>"'
 
+repo6="${tmp_root}/repo6"
+mkdir -p "${repo6}/.rdl/sessions/bad"
+cat > "${repo6}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cat > "${repo6}/.rdl/sessions/bad/state.json" <<'JSON'
+{
+  "schema_version": 2,
+  "session_id": "bad",
+  "mode": "research",
+  "phase": "plan",
+  "round": 1,
+  "status": "closed-positive",
+  "mission_file": "mission.md",
+  "guard_session_id": null,
+  "last_guard_command_id": null
+}
+JSON
+cd "${repo6}"
+assert_fails start-unsupported.json "${RDL}" start research mission.md --session-id new
+assert_file_contains start-unsupported.json '"status": "error"'
+assert_file_contains start-unsupported.json '"code":"unsupported_schema"'
+[[ ! -e .rdl/sessions/new ]] || fail "start created a new session despite unsupported existing schema"
+
+repo7="${tmp_root}/repo7"
+mkdir -p "${repo7}/.rdl/sessions/bad"
+cat > "${repo7}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cat > "${repo7}/.rdl/sessions/bad/state.json" <<'JSON'
+{
+  "schema_version": 1,
+  "session_id": "bad",
+  "mode": "research",
+  "phase": "plan",
+  "round": 1,
+  "status": "nonsense",
+  "mission_file": "mission.md",
+  "guard_session_id": null,
+  "last_guard_command_id": null
+}
+JSON
+cd "${repo7}"
+assert_fails start-invalid-status.json "${RDL}" start research mission.md --session-id new
+assert_file_contains start-invalid-status.json '"status": "error"'
+assert_file_contains start-invalid-status.json '"code":"invalid_status"'
+[[ ! -e .rdl/sessions/new ]] || fail "start created a new session despite invalid existing status"
+
+repo8="${tmp_root}/repo8"
+mkdir -p "${repo8}/.rdl/sessions/done" "${repo8}/.rdl/sessions/old"
+cat > "${repo8}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cat > "${repo8}/.rdl/sessions/done/state.json" <<'JSON'
+{
+  "schema_version": 1,
+  "session_id": "done",
+  "mode": "research",
+  "phase": "complete",
+  "round": 1,
+  "status": "closed-positive",
+  "mission_file": "mission.md",
+  "guard_session_id": null,
+  "last_guard_command_id": null
+}
+JSON
+cat > "${repo8}/.rdl/sessions/old/state.json" <<'JSON'
+{
+  "schema_version": 1,
+  "session_id": "old",
+  "mode": "build",
+  "phase": "complete",
+  "round": 1,
+  "status": "abandoned",
+  "mission_file": "mission.md",
+  "guard_session_id": null,
+  "last_guard_command_id": null
+}
+JSON
+cd "${repo8}"
+"${RDL}" start research mission.md --session-id new > start-after-closed.json
+assert_file_contains start-after-closed.json '"status": "ok"'
+assert_file_contains start-after-closed.json '"session_id": "new"'
+[[ -d .rdl/sessions/new ]] || fail "start did not create a new session after valid closed sessions"
+
+repo9="${tmp_root}/repo9"
+mkdir -p "${repo9}/.rdl/sessions/bad"
+cat > "${repo9}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cd "${repo9}"
+assert_fails start-missing-state.json "${RDL}" start research mission.md --session-id new
+assert_file_contains start-missing-state.json '"status": "error"'
+assert_file_contains start-missing-state.json '"code":"missing_state"'
+[[ ! -e .rdl/sessions/new ]] || fail "start created a new session despite missing existing state"
+
 echo "round1 tests ok"

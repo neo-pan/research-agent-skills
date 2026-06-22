@@ -223,14 +223,17 @@ find_active_session_for_start() {
   local dir
   for dir in "${dirs[@]}"; do
     local state_file="${dir}/state.json"
-    if [[ ! -f "${state_file}" ]]; then
-      emit_problem "error" "${action}" "" "" "" 0 "repair or abandon the corrupted RDL session" \
-        "missing_state" "${state_file}" "Session state is missing." "Repair the RDL session metadata or remove the incomplete session."
-      exit 1
-    fi
-    if ! valid_json_file "${state_file}"; then
-      emit_problem "error" "${action}" "" "" "" 0 "repair or abandon the corrupted RDL session" \
-        "corrupted_state" "${state_file}" "Session state is invalid JSON." "Repair the RDL session metadata or remove the corrupted session."
+    local errors=()
+    validate_state_file "${dir}" errors
+    if [[ "${#errors[@]}" -gt 0 ]]; then
+      local session_id="" mode="" phase="" round=""
+      if [[ -f "${state_file}" ]] && valid_json_file "${state_file}"; then
+        session_id="$(json_value "${state_file}" "session_id")"
+        mode="$(json_value "${state_file}" "mode")"
+        phase="$(json_value "${state_file}" "phase")"
+        round="$(json_number "${state_file}" "round")"
+      fi
+      emit_problem "error" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "repair RDL session metadata" "${errors[@]}"
       exit 1
     fi
     if [[ "$(json_value "${state_file}" "status")" == "active" ]]; then
@@ -263,14 +266,15 @@ find_session_for_audit() {
   for dir in "${dirs[@]}"; do
     local state_file="${dir}/state.json"
     local errors=()
-    local blockers=()
-    validate_session "${dir}" errors blockers
+    validate_state_file "${dir}" errors
     if [[ "${#errors[@]}" -gt 0 ]]; then
-      local session_id mode phase round
-      session_id="$(json_value "${state_file}" "session_id")"
-      mode="$(json_value "${state_file}" "mode")"
-      phase="$(json_value "${state_file}" "phase")"
-      round="$(json_number "${state_file}" "round")"
+      local session_id="" mode="" phase="" round=""
+      if [[ -f "${state_file}" ]] && valid_json_file "${state_file}"; then
+        session_id="$(json_value "${state_file}" "session_id")"
+        mode="$(json_value "${state_file}" "mode")"
+        phase="$(json_value "${state_file}" "phase")"
+        round="$(json_number "${state_file}" "round")"
+      fi
       emit_problem "error" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "repair RDL session metadata" "${errors[@]}"
       exit 1
     fi
@@ -458,18 +462,17 @@ add_blocker() {
   target+=("$@")
 }
 
-validate_session() {
+validate_state_file() {
   local session_dir="$1"
-  local -n errors_ref="$2"
-  local -n blockers_ref="$3"
+  local -n state_errors_ref="$2"
 
   local state_file="${session_dir}/state.json"
   if [[ ! -f "${state_file}" ]]; then
-    add_blocker errors_ref "missing_state" "${state_file}" "state.json is missing." "Restore state.json or abandon the session."
+    add_blocker state_errors_ref "missing_state" "${state_file}" "state.json is missing." "Restore state.json or abandon the session."
     return
   fi
   if ! valid_json_file "${state_file}"; then
-    add_blocker errors_ref "invalid_state_json" "${state_file}" "state.json is not valid JSON." "Repair state.json explicitly."
+    add_blocker state_errors_ref "invalid_state_json" "${state_file}" "state.json is not valid JSON." "Repair state.json explicitly."
     return
   fi
 
@@ -483,28 +486,46 @@ validate_session() {
   mission_file="$(json_value "${state_file}" "mission_file")"
 
   if [[ "${schema}" != "1" ]]; then
-    add_blocker errors_ref "unsupported_schema" "${state_file}" "schema_version must be 1." "Use a supported RDL session or migrate explicitly."
+    add_blocker state_errors_ref "unsupported_schema" "${state_file}" "schema_version must be 1." "Use a supported RDL session or migrate explicitly."
   fi
   if [[ -z "${session_id}" ]]; then
-    add_blocker errors_ref "missing_session_id" "${state_file}" "session_id is missing." "Repair state.json explicitly."
+    add_blocker state_errors_ref "missing_session_id" "${state_file}" "session_id is missing." "Repair state.json explicitly."
   fi
   if [[ "${mode}" != "research" && "${mode}" != "build" ]]; then
-    add_blocker errors_ref "invalid_mode" "${state_file}" "mode must be research or build." "Repair state.json explicitly."
+    add_blocker state_errors_ref "invalid_mode" "${state_file}" "mode must be research or build." "Repair state.json explicitly."
   fi
   case "${phase}" in
     plan|work|evidence|interpret|review|decide|complete) ;;
-    *) add_blocker errors_ref "invalid_phase" "${state_file}" "phase is unsupported." "Repair state.json explicitly." ;;
+    *) add_blocker state_errors_ref "invalid_phase" "${state_file}" "phase is unsupported." "Repair state.json explicitly." ;;
   esac
   if [[ -z "${round}" || "${round}" -lt 1 ]]; then
-    add_blocker errors_ref "invalid_round" "${state_file}" "round must be a positive number." "Repair state.json explicitly."
+    add_blocker state_errors_ref "invalid_round" "${state_file}" "round must be a positive number." "Repair state.json explicitly."
   fi
   case "${status}" in
     active|closed-positive|closed-negative|closed-inconclusive|abandoned) ;;
-    *) add_blocker errors_ref "invalid_status" "${state_file}" "status is unsupported." "Repair state.json explicitly." ;;
+    *) add_blocker state_errors_ref "invalid_status" "${state_file}" "status is unsupported." "Repair state.json explicitly." ;;
   esac
   if [[ -z "${mission_file}" ]]; then
-    add_blocker errors_ref "missing_mission_file_field" "${state_file}" "mission_file is missing." "Repair state.json explicitly."
-  elif [[ ! -f "${session_dir}/${mission_file}" ]]; then
+    add_blocker state_errors_ref "missing_mission_file_field" "${state_file}" "mission_file is missing." "Repair state.json explicitly."
+  fi
+}
+
+validate_session() {
+  local session_dir="$1"
+  local -n errors_ref="$2"
+  local -n blockers_ref="$3"
+
+  local state_file="${session_dir}/state.json"
+  validate_state_file "${session_dir}" errors_ref
+  if [[ "${#errors_ref[@]}" -gt 0 ]]; then
+    return
+  fi
+
+  local round mission_file
+  round="$(json_number "${state_file}" "round")"
+  mission_file="$(json_value "${state_file}" "mission_file")"
+
+  if [[ ! -f "${session_dir}/${mission_file}" ]]; then
     add_blocker blockers_ref "missing_mission_file" "${mission_file}" "mission file does not exist." "Restore the mission file or repair the session."
   fi
 
