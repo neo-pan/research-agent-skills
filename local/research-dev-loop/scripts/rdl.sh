@@ -203,7 +203,7 @@ markdown_has_content() {
         if (cell == "" || cell == "-" || cell == "..." || cell ~ /^(TBD|TODO|N\/A)$/) continue
         if (cell ~ /[[:alnum:]]/) meaningful++
       }
-      return meaningful >= 2
+      return meaningful >= 1
     }
     {
       line = $0
@@ -260,7 +260,7 @@ markdown_section_has_content() {
         if (cell == "" || cell == "-" || cell == "..." || cell ~ /^(TBD|TODO|N\/A)$/) continue
         if (cell ~ /[[:alnum:]]/) meaningful++
       }
-      return meaningful >= 2
+      return meaningful >= 1
     }
     BEGIN { in_section = 0; found = 0 }
     $0 ~ heading { in_section = 1; pending_table = ""; next }
