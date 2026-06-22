@@ -1117,6 +1117,56 @@ validate_close_evidence_discipline() {
   fi
 }
 
+prior_continue_decision_exists() {
+  local session_dir="$1"
+  local current_round="$2"
+  local round_number
+  for ((round_number = 1; round_number < current_round; round_number++)); do
+    local decision_file="${session_dir}/$(round_path "${round_number}")/decision.md"
+    if [[ -f "${decision_file}" && "$(md_field_value "${decision_file}" "Decision")" == "continue" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+repeated_negative_acknowledged() {
+  local decision_file="$1"
+  local progress_file="$2"
+  local pattern='repeated negative|repeated failure|continue justified'
+
+  if [[ -f "${decision_file}" ]] && grep -Eiq "${pattern}" "${decision_file}"; then
+    return 0
+  fi
+  if [[ -f "${progress_file}" ]] && grep -Eiq "${pattern}" "${progress_file}"; then
+    return 0
+  fi
+  return 1
+}
+
+validate_repeated_negative_evidence() {
+  local session_dir="$1"
+  local round_dir="$2"
+  local current_round="$3"
+  local -n repeated_blockers_ref="$4"
+  local evidence_file="${round_dir}/evidence.md"
+  local decision_file="${round_dir}/decision.md"
+  local progress_file="${session_dir}/progress.md"
+
+  [[ -f "${evidence_file}" ]] || return
+  if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Repeated Negative Evidence[[:space:]]*$'; then
+    return
+  fi
+  if ! prior_continue_decision_exists "${session_dir}" "${current_round}"; then
+    return
+  fi
+  if repeated_negative_acknowledged "${decision_file}" "${progress_file}"; then
+    return
+  fi
+
+  add_blocker repeated_blockers_ref "unacknowledged_repeated_negative_evidence" "${evidence_file}#Repeated Negative Evidence" "Repeated negative evidence after a continue decision must be acknowledged before closing." "Record why continuation or closure is justified in decision.md or progress.md, or close negative/inconclusive."
+}
+
 progress_open_questions_ready() {
   local progress_file="$1"
   local outcome="$2"
@@ -1436,6 +1486,7 @@ cmd_close() {
   validate_close_evidence_discipline "${round_dir}" blockers
   validate_progress_close_readiness "${session_dir}" "${outcome}" blockers
   validate_close_artifact_citations "${session_dir}" "${round_dir}" blockers
+  validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" blockers
 
   if [[ -f "${decision_file}" && "$(md_field_value "${decision_file}" "Decision")" != "${expected_decision}" ]]; then
     add_blocker blockers "invalid_close_decision" "${decision_file}#Decision" "Close outcome requires Decision: ${expected_decision}." "Run rdl decide ${expected_decision} or update decision.md."

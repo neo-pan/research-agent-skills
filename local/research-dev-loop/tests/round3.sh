@@ -130,6 +130,16 @@ Interpretation: fixture evidence supports closing the claim.
 INTERPRETATION
 }
 
+append_repeated_negative_evidence() {
+  local evidence_file="$1"
+  cat >> "${evidence_file}" <<'EVIDENCE'
+
+## Repeated Negative Evidence
+
+The same negative fixture result repeated after the prior continue decision.
+EVIDENCE
+}
+
 complete_build_records() {
   local round_dir="$1"
   cat > "${round_dir}/intent.md" <<'INTENT'
@@ -315,6 +325,35 @@ write_bad_deferred_progress() {
 | Question | Owner | Blocking? | Resolution |
 |---|---|---|---|
 PROGRESS
+}
+
+prepare_two_round_repeated_negative_close() {
+  local repo="$1"
+  local session_id="$2"
+  local outcome="${3:-positive}"
+  mkdir -p "${repo}"
+  cat > "${repo}/mission.md" <<'MISSION'
+# Mission
+
+Repeated negative fixture.
+MISSION
+  cd "${repo}"
+  "${RDL}" start research mission.md --session-id "${session_id}" > /dev/null
+  "${RDL}" review > /dev/null
+  complete_review ".rdl/sessions/${session_id}/rounds/001/review.md"
+  "${RDL}" decide continue > /dev/null
+  complete_decision ".rdl/sessions/${session_id}/rounds/001/decision.md" continue claim
+  complete_research_records ".rdl/sessions/${session_id}/rounds/001"
+  complete_manifest ".rdl/sessions/${session_id}/artifact-manifest.json"
+  "${RDL}" next > /dev/null
+  "${RDL}" review > /dev/null
+  complete_review ".rdl/sessions/${session_id}/rounds/002/review.md"
+  "${RDL}" decide "close-${outcome}" > /dev/null
+  complete_decision ".rdl/sessions/${session_id}/rounds/002/decision.md" "close-${outcome}" claim
+  complete_research_records ".rdl/sessions/${session_id}/rounds/002"
+  append_repeated_negative_evidence ".rdl/sessions/${session_id}/rounds/002/evidence.md"
+  complete_final_report ".rdl/sessions/${session_id}/final-report.md" "${outcome}" "fixture claim"
+  write_ready_progress ".rdl/sessions/${session_id}/progress.md"
 }
 
 tmp_root="$(mktemp -d)"
@@ -504,6 +543,42 @@ write_ready_progress .rdl/sessions/close_manifest_citation/progress.md
 "${RDL}" close positive > close-manifest-citation.json
 assert_file_contains close-manifest-citation.json '"status": "ok"'
 assert_file_contains .rdl/sessions/close_manifest_citation/state.json '"status": "closed-positive"'
+
+repo_repeated_block="${tmp_root}/close-repeated-block"
+prepare_two_round_repeated_negative_close "${repo_repeated_block}" repeated_block positive
+assert_fails close-repeated-block.json "${RDL}" close positive
+assert_file_contains close-repeated-block.json '"status": "blocked"'
+assert_file_contains close-repeated-block.json '"code":"unacknowledged_repeated_negative_evidence"'
+assert_file_contains .rdl/sessions/repeated_block/state.json '"status": "active"'
+
+repo_repeated_decision="${tmp_root}/close-repeated-decision"
+prepare_two_round_repeated_negative_close "${repo_repeated_decision}" repeated_decision positive
+cat >> .rdl/sessions/repeated_decision/rounds/002/decision.md <<'DECISION'
+
+Repeated negative evidence acknowledged; continue justified by the bounded fixture close rationale.
+DECISION
+"${RDL}" close positive > close-repeated-decision.json
+assert_file_contains close-repeated-decision.json '"status": "ok"'
+assert_file_contains .rdl/sessions/repeated_decision/state.json '"status": "closed-positive"'
+
+repo_repeated_progress="${tmp_root}/close-repeated-progress"
+prepare_two_round_repeated_negative_close "${repo_repeated_progress}" repeated_progress positive
+cat >> .rdl/sessions/repeated_progress/progress.md <<'PROGRESS'
+
+## Repeated Negative Evidence Acknowledgement
+
+Repeated failure acknowledged; close rationale explains why the session can end.
+PROGRESS
+"${RDL}" close positive > close-repeated-progress.json
+assert_file_contains close-repeated-progress.json '"status": "ok"'
+assert_file_contains .rdl/sessions/repeated_progress/state.json '"status": "closed-positive"'
+
+repo_no_repeated="${tmp_root}/close-no-repeated-section"
+prepare_two_round_repeated_negative_close "${repo_no_repeated}" no_repeated positive
+sed -i '/^## Repeated Negative Evidence$/,$d' .rdl/sessions/no_repeated/rounds/002/evidence.md
+"${RDL}" close positive > close-no-repeated-section.json
+assert_file_contains close-no-repeated-section.json '"status": "ok"'
+assert_file_contains .rdl/sessions/no_repeated/state.json '"status": "closed-positive"'
 
 repo_abandon="${tmp_root}/abandon"
 mkdir -p "${repo_abandon}"
