@@ -969,6 +969,7 @@ validate_final_report() {
     "Claim or Capability Closed"
     "Evidence Cited"
     "Missing Evidence and Confounders"
+    "Negative, Null, or Inconclusive Results"
     "Open Questions"
     "Deferred Items"
     "Close Checklist"
@@ -983,14 +984,115 @@ validate_final_report() {
     add_blocker report_blockers_ref "incomplete_close_checklist" "${report_file}#Close Checklist" "Close checklist still has unchecked items." "Check every close checklist item that is true for this close record."
   fi
 
-  if ! awk -v expected="${outcome}" '
-    function lower(value) { return tolower(value) }
+  local recorded_outcome normalized_recorded expected_status
+  recorded_outcome="$(awk '
+    function trim(value) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      return value
+    }
     /^[[:space:]]*##[[:space:]]+Outcome[[:space:]]*$/ { in_section = 1; next }
-    in_section && /^##[[:space:]]+/ { in_section = 0 }
-    in_section && lower($0) ~ "(^|[^[:alnum:]])" expected "([^[:alnum:]]|$)" { found = 1 }
-    END { exit(found ? 0 : 1) }
-  ' "${report_file}"; then
+    in_section && /^##[[:space:]]+/ { exit }
+    in_section {
+      line = trim($0)
+      if (line == "" || line ~ /^<!--/) next
+      print line
+      exit
+    }
+  ' "${report_file}")"
+  normalized_recorded="$(trim "${recorded_outcome}")"
+  normalized_recorded="${normalized_recorded,,}"
+  case "${normalized_recorded}" in
+    positive|negative|inconclusive)
+      normalized_recorded="closed-${normalized_recorded}"
+      ;;
+  esac
+  expected_status="closed-${outcome}"
+  if [[ "${normalized_recorded}" != "${expected_status}" ]]; then
     add_blocker report_blockers_ref "close_outcome_mismatch" "${report_file}#Outcome" "Final report outcome must match ${outcome}." "Update final-report.md Outcome or run rdl close with the recorded outcome."
+  fi
+}
+
+artifact_manifest_ids() {
+  local manifest="$1"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '(.artifacts // [])[]? | .id // empty' "${manifest}" 2>/dev/null
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "${manifest}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+for artifact in data.get("artifacts", []):
+    artifact_id = artifact.get("id")
+    if artifact_id:
+        print(artifact_id)
+PY
+    return
+  fi
+  sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${manifest}"
+}
+
+extract_id_tokens() {
+  grep -Eo '`?[A-Z][A-Z0-9]*-?[0-9][A-Z0-9-]*`?' | tr -d '`' | sort -u || true
+}
+
+markdown_section_content() {
+  local file="$1"
+  local heading_regex="$2"
+  awk -v heading="${heading_regex}" '
+    $0 ~ heading { in_section = 1; next }
+    in_section && /^##[[:space:]]+/ { exit }
+    in_section { print }
+  ' "${file}"
+}
+
+validate_close_artifact_citations() {
+  local session_dir="$1"
+  local round_dir="$2"
+  local -n citation_target_ref="$3"
+  local manifest_file="${session_dir}/artifact-manifest.json"
+  local decision_file="${round_dir}/decision.md"
+  local evidence_file="${round_dir}/evidence.md"
+  local report_file="${session_dir}/final-report.md"
+
+  [[ -f "${manifest_file}" ]] || return
+
+  declare -A manifest_ids=()
+  local id
+  while IFS= read -r id; do
+    [[ -n "${id}" ]] && manifest_ids["${id}"]=1
+  done < <(artifact_manifest_ids "${manifest_file}")
+
+  local ids=()
+  if [[ -f "${decision_file}" ]]; then
+    mapfile -t ids < <(printf '%s\n' "$(md_field_value "${decision_file}" "Evidence")" | extract_id_tokens)
+    for id in "${ids[@]}"; do
+      if [[ -n "${id}" && -z "${manifest_ids[${id}]+present}" ]]; then
+        add_blocker citation_target_ref "missing_artifact_citation" "${manifest_file}#${id}" "${decision_file}#Evidence cites artifact ID ${id}, but artifact-manifest.json has no matching artifact." "Add ${id} to artifact-manifest.json or remove the citation."
+      fi
+    done
+  fi
+
+  if [[ -f "${evidence_file}" ]]; then
+    mapfile -t ids < <(markdown_section_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Evidence Artifacts[[:space:]]*$' | extract_id_tokens)
+    for id in "${ids[@]}"; do
+      if [[ -n "${id}" && -z "${manifest_ids[${id}]+present}" ]]; then
+        add_blocker citation_target_ref "missing_artifact_citation" "${manifest_file}#${id}" "${evidence_file}#Evidence Artifacts cites artifact ID ${id}, but artifact-manifest.json has no matching artifact." "Add ${id} to artifact-manifest.json or remove the citation."
+      fi
+    done
+  fi
+
+  if [[ -f "${report_file}" ]]; then
+    mapfile -t ids < <(markdown_section_content "${report_file}" '^[[:space:]]*##[[:space:]]+Evidence Cited[[:space:]]*$' | extract_id_tokens)
+    for id in "${ids[@]}"; do
+      if [[ -n "${id}" && -z "${manifest_ids[${id}]+present}" ]]; then
+        add_blocker citation_target_ref "missing_artifact_citation" "${manifest_file}#${id}" "${report_file}#Evidence Cited cites artifact ID ${id}, but artifact-manifest.json has no matching artifact." "Add ${id} to artifact-manifest.json or remove the citation."
+      fi
+    done
   fi
 }
 
@@ -1333,6 +1435,7 @@ cmd_close() {
   validate_final_report "${session_dir}" "${outcome}" blockers
   validate_close_evidence_discipline "${round_dir}" blockers
   validate_progress_close_readiness "${session_dir}" "${outcome}" blockers
+  validate_close_artifact_citations "${session_dir}" "${round_dir}" blockers
 
   if [[ -f "${decision_file}" && "$(md_field_value "${decision_file}" "Decision")" != "${expected_decision}" ]]; then
     add_blocker blockers "invalid_close_decision" "${decision_file}#Decision" "Close outcome requires Decision: ${expected_decision}." "Run rdl decide ${expected_decision} or update decision.md."

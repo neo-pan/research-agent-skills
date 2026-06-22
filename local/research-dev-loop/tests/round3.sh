@@ -54,7 +54,7 @@ complete_decision() {
 
 Decision: ${decision}
 Closes: ${closes}
-Evidence: fixture evidence
+Evidence: E1 fixture evidence
 Uncertainty: bounded
 What this rules out: unsupported alternatives
 What remains unknown: later work
@@ -62,6 +62,22 @@ Recommended next loop: none
 Next smallest step: close the session
 
 DECISION
+}
+
+complete_manifest() {
+  local file="$1"
+  local artifact_id="${2:-E1}"
+  cat > "${file}" <<MANIFEST
+{
+  "artifacts": [
+    {
+      "id": "${artifact_id}",
+      "kind": "log",
+      "path": "artifacts/check.log"
+    }
+  ]
+}
+MANIFEST
 }
 
 complete_research_records() {
@@ -320,6 +336,7 @@ MISSION
   complete_decision ".rdl/sessions/close_${outcome}/rounds/001/decision.md" "close-${outcome}" claim
   complete_research_records ".rdl/sessions/close_${outcome}/rounds/001"
   complete_final_report ".rdl/sessions/close_${outcome}/final-report.md" "${outcome}" "fixture claim"
+  complete_manifest ".rdl/sessions/close_${outcome}/artifact-manifest.json"
   write_ready_progress ".rdl/sessions/close_${outcome}/progress.md"
   "${RDL}" close "${outcome}" > "close-${outcome}.json"
   assert_file_contains "close-${outcome}.json" '"status": "ok"'
@@ -378,6 +395,7 @@ complete_review .rdl/sessions/close_open_question/rounds/001/review.md
 complete_decision .rdl/sessions/close_open_question/rounds/001/decision.md close-positive claim
 complete_research_records .rdl/sessions/close_open_question/rounds/001
 complete_final_report .rdl/sessions/close_open_question/final-report.md positive "fixture claim"
+complete_manifest .rdl/sessions/close_open_question/artifact-manifest.json
 write_blocking_question_progress .rdl/sessions/close_open_question/progress.md
 assert_fails close-open-question.json "${RDL}" close positive
 assert_file_contains close-open-question.json '"status": "blocked"'
@@ -408,6 +426,84 @@ write_bad_deferred_progress .rdl/sessions/close_deferred/progress.md
 assert_fails close-deferred.json "${RDL}" close negative
 assert_file_contains close-deferred.json '"status": "blocked"'
 assert_file_contains close-deferred.json '"code":"incomplete_deferred_items"'
+
+repo_missing_negative="${tmp_root}/close-missing-negative-section"
+mkdir -p "${repo_missing_negative}"
+cat > "${repo_missing_negative}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cd "${repo_missing_negative}"
+"${RDL}" start research mission.md --session-id close_missing_negative > /dev/null
+"${RDL}" review > /dev/null
+complete_review .rdl/sessions/close_missing_negative/rounds/001/review.md
+"${RDL}" decide close-positive > /dev/null
+complete_decision .rdl/sessions/close_missing_negative/rounds/001/decision.md close-positive claim
+complete_research_records .rdl/sessions/close_missing_negative/rounds/001
+complete_manifest .rdl/sessions/close_missing_negative/artifact-manifest.json
+complete_final_report .rdl/sessions/close_missing_negative/final-report.md positive "fixture claim"
+sed -i '/^## Negative, Null, or Inconclusive Results$/,/^## Open Questions$/ { /^## Open Questions$/!d; }' .rdl/sessions/close_missing_negative/final-report.md
+write_ready_progress .rdl/sessions/close_missing_negative/progress.md
+assert_fails close-missing-negative-section.json "${RDL}" close positive
+assert_file_contains close-missing-negative-section.json '"status": "blocked"'
+assert_file_contains close-missing-negative-section.json '"code":"missing_final_report_section"'
+
+repo_not_positive="${tmp_root}/close-not-positive"
+mkdir -p "${repo_not_positive}"
+cat > "${repo_not_positive}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cd "${repo_not_positive}"
+"${RDL}" start research mission.md --session-id close_not_positive > /dev/null
+"${RDL}" review > /dev/null
+complete_review .rdl/sessions/close_not_positive/rounds/001/review.md
+"${RDL}" decide close-positive > /dev/null
+complete_decision .rdl/sessions/close_not_positive/rounds/001/decision.md close-positive claim
+complete_research_records .rdl/sessions/close_not_positive/rounds/001
+complete_manifest .rdl/sessions/close_not_positive/artifact-manifest.json
+complete_final_report .rdl/sessions/close_not_positive/final-report.md "not positive" "fixture claim"
+write_ready_progress .rdl/sessions/close_not_positive/progress.md
+assert_fails close-not-positive.json "${RDL}" close positive
+assert_file_contains close-not-positive.json '"status": "blocked"'
+assert_file_contains close-not-positive.json '"code":"close_outcome_mismatch"'
+
+repo_missing_citation="${tmp_root}/close-missing-citation"
+mkdir -p "${repo_missing_citation}"
+cat > "${repo_missing_citation}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cd "${repo_missing_citation}"
+"${RDL}" start research mission.md --session-id close_missing_citation > /dev/null
+"${RDL}" review > /dev/null
+complete_review .rdl/sessions/close_missing_citation/rounds/001/review.md
+"${RDL}" decide close-positive > /dev/null
+complete_decision .rdl/sessions/close_missing_citation/rounds/001/decision.md close-positive claim
+complete_research_records .rdl/sessions/close_missing_citation/rounds/001
+complete_final_report .rdl/sessions/close_missing_citation/final-report.md positive "fixture claim"
+write_ready_progress .rdl/sessions/close_missing_citation/progress.md
+assert_fails close-missing-citation.json "${RDL}" close positive
+assert_file_contains close-missing-citation.json '"status": "blocked"'
+assert_file_contains close-missing-citation.json '"code":"missing_artifact_citation"'
+assert_file_contains close-missing-citation.json 'artifact ID E1'
+assert_file_contains .rdl/sessions/close_missing_citation/state.json '"status": "active"'
+
+repo_manifest_citation="${tmp_root}/close-manifest-citation"
+mkdir -p "${repo_manifest_citation}"
+cat > "${repo_manifest_citation}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cd "${repo_manifest_citation}"
+"${RDL}" start research mission.md --session-id close_manifest_citation > /dev/null
+"${RDL}" review > /dev/null
+complete_review .rdl/sessions/close_manifest_citation/rounds/001/review.md
+"${RDL}" decide close-positive > /dev/null
+complete_decision .rdl/sessions/close_manifest_citation/rounds/001/decision.md close-positive claim
+complete_research_records .rdl/sessions/close_manifest_citation/rounds/001
+complete_manifest .rdl/sessions/close_manifest_citation/artifact-manifest.json
+complete_final_report .rdl/sessions/close_manifest_citation/final-report.md positive "fixture claim"
+write_ready_progress .rdl/sessions/close_manifest_citation/progress.md
+"${RDL}" close positive > close-manifest-citation.json
+assert_file_contains close-manifest-citation.json '"status": "ok"'
+assert_file_contains .rdl/sessions/close_manifest_citation/state.json '"status": "closed-positive"'
 
 repo_abandon="${tmp_root}/abandon"
 mkdir -p "${repo_abandon}"
