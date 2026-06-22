@@ -92,3 +92,5 @@ The current local skills are:
 
 - `phase-review` - manual independent gate for research engineering plans,
   implementation phases, evidence, and final readiness.
+- `research-dev-loop` - lightweight evidence-backed Research Development Loop
+  scaffold and CLI for research session records.
