@@ -173,6 +173,31 @@ md_field_value() {
   trim "${line#*:}"
 }
 
+markdown_has_content() {
+  local file="$1"
+  [[ -f "${file}" ]] || return 1
+  grep -Ev '^[[:space:]]*$|^[[:space:]]*#|^[[:space:]]*<!--|^[[:space:]]*\|?[[:space:]-]+\|?[[:space:]]*$|^[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*(\|[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*)*$' "${file}" | grep -q '[[:alnum:]]'
+}
+
+markdown_section_has_content() {
+  local file="$1"
+  local heading_regex="$2"
+  awk -v heading="${heading_regex}" '
+    BEGIN { in_section = 0; found = 0 }
+    $0 ~ heading { in_section = 1; next }
+    in_section && /^##[[:space:]]+/ { in_section = 0 }
+    in_section {
+      line = $0
+      if (line ~ /^[[:space:]]*$/) next
+      if (line ~ /^[[:space:]]*#/) next
+      if (line ~ /^[[:space:]]*<!--/) next
+      if (line ~ /^[[:space:]]*\|?[[:space:]-]+\|?[[:space:]]*$/) next
+      if (line ~ /[[:alnum:]]/) found = 1
+    }
+    END { exit(found ? 0 : 1) }
+  ' "${file}"
+}
+
 valid_json_file() {
   local file="$1"
   if command -v jq >/dev/null 2>&1; then
@@ -771,16 +796,55 @@ validate_decision_file() {
 
 validate_build_verification_evidence() {
   local round_dir="$1"
-  local -n blockers_ref="$2"
+  local -n verification_blockers_ref="$2"
   local evidence_file="${round_dir}/evidence.md"
 
   if [[ ! -f "${evidence_file}" ]]; then
-    add_blocker blockers_ref "missing_verification_evidence" "${evidence_file}" "Build rounds require evidence.md with verification evidence for the capability." "Add verification evidence before running rdl next."
+    add_blocker verification_blockers_ref "missing_verification_evidence" "${evidence_file}" "Build rounds require evidence.md with verification evidence for the capability." "Add verification evidence before running rdl next."
     return
   fi
 
-  if ! grep -Eqi '^(##[[:space:]]+Verification Evidence|Verification evidence:)' "${evidence_file}"; then
-    add_blocker blockers_ref "missing_verification_evidence" "${evidence_file}" "Build evidence must explicitly identify verification evidence." "Record verification evidence in evidence.md."
+  local label_value
+  label_value="$(sed -n 's/^[[:space:]]*Verification evidence:[[:space:]]*\(.*[[:alnum:]].*\)$/\1/Ip' "${evidence_file}" | head -n 1)"
+  if [[ -n "${label_value}" ]]; then
+    return
+  fi
+
+  if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Verification Evidence[[:space:]]*$'; then
+    add_blocker verification_blockers_ref "missing_verification_evidence" "${evidence_file}" "Build evidence must explicitly identify verification evidence." "Record verification evidence in evidence.md."
+  fi
+}
+
+validate_round_file_content() {
+  local round_dir="$1"
+  local file_name="$2"
+  local code="$3"
+  local message="$4"
+  local next_action="$5"
+  local -n file_blockers_ref="$6"
+  local file="${round_dir}/${file_name}"
+
+  if [[ ! -f "${file}" ]]; then
+    add_blocker file_blockers_ref "${code}" "${file}" "${message}" "${next_action}"
+    return
+  fi
+  if ! markdown_has_content "${file}"; then
+    add_blocker file_blockers_ref "${code}" "${file}" "${message}" "${next_action}"
+  fi
+}
+
+validate_mode_round_minimums() {
+  local mode="$1"
+  local round_dir="$2"
+  local -n mode_blockers_ref="$3"
+
+  if [[ "${mode}" == "research" ]]; then
+    validate_round_file_content "${round_dir}" "evidence.md" "missing_research_evidence" "Research rounds require evidence.md with non-placeholder evidence." "Record research evidence before running rdl next." mode_blockers_ref
+    validate_round_file_content "${round_dir}" "interpretation.md" "missing_interpretation" "Research rounds require interpretation.md with non-placeholder interpretation." "Record interpretation before running rdl next." mode_blockers_ref
+  else
+    validate_round_file_content "${round_dir}" "intent.md" "missing_build_intent" "Build rounds require intent.md with non-placeholder intent." "Record build intent before running rdl next." mode_blockers_ref
+    validate_round_file_content "${round_dir}" "work.md" "missing_build_work" "Build rounds require work.md with non-placeholder work." "Record build work before running rdl next." mode_blockers_ref
+    validate_build_verification_evidence "${round_dir}" mode_blockers_ref
   fi
 }
 
@@ -922,9 +986,7 @@ cmd_next() {
   local blockers=()
   validate_review_file "${review_file}" blockers
   validate_decision_file "${decision_file}" "${expected_closes}" blockers
-  if [[ "${mode}" == "build" ]]; then
-    validate_build_verification_evidence "${round_dir}" blockers
-  fi
+  validate_mode_round_minimums "${mode}" "${round_dir}" blockers
   if [[ "${#blockers[@]}" -gt 0 ]]; then
     emit_problem "blocked" "next" "${session_id}" "${mode}" "${phase}" "${round}" "complete current round review and decision" "${blockers[@]}"
     return 2
