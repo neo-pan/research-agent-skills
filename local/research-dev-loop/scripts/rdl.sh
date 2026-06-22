@@ -176,7 +176,7 @@ md_field_value() {
 markdown_has_content() {
   local file="$1"
   [[ -f "${file}" ]] || return 1
-  grep -Ev '^[[:space:]]*$|^[[:space:]]*#|^[[:space:]]*<!--|^[[:space:]]*\|?[[:space:]-]+\|?[[:space:]]*$|^[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*(\|[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*)*$' "${file}" | grep -q '[[:alnum:]]'
+  grep -Ev '^[[:space:]]*$|^[[:space:]]*#|^[[:space:]]*<!--|^[[:space:]]*\|.*\|[[:space:]]*$|^[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*(\|[[:space:]]*(Strong|Moderate|Weak|Contradicted|Inconclusive)[[:space:]]*)*$' "${file}" | grep -q '[[:alnum:]]'
 }
 
 markdown_section_has_content() {
@@ -191,7 +191,7 @@ markdown_section_has_content() {
       if (line ~ /^[[:space:]]*$/) next
       if (line ~ /^[[:space:]]*#/) next
       if (line ~ /^[[:space:]]*<!--/) next
-      if (line ~ /^[[:space:]]*\|?[[:space:]-]+\|?[[:space:]]*$/) next
+      if (line ~ /^[[:space:]]*\|.*\|[[:space:]]*$/) next
       if (line ~ /[[:alnum:]]/) found = 1
     }
     END { exit(found ? 0 : 1) }

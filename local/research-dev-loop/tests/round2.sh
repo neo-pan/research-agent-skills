@@ -203,12 +203,34 @@ assert_file_contains next-research-missing-interpretation.json '"status": "block
 assert_file_contains next-research-missing-interpretation.json '"code":"missing_interpretation"'
 [[ ! -d .rdl/sessions/no_interpretation/rounds/002 ]] || fail "next advanced despite missing interpretation"
 
-repo5="${tmp_root}/build-missing-verification"
+repo5="${tmp_root}/research-template-evidence"
 mkdir -p "${repo5}"
 cat > "${repo5}/mission.md" <<'MISSION'
-# Build Mission
+# Mission
 MISSION
 cd "${repo5}"
+"${RDL}" start research mission.md --session-id template_evidence > /dev/null
+"${RDL}" review > /dev/null
+complete_review .rdl/sessions/template_evidence/rounds/001/review.md
+"${RDL}" decide continue > /dev/null
+complete_decision .rdl/sessions/template_evidence/rounds/001/decision.md continue claim none
+cp "${ROOT_DIR}/local/research-dev-loop/templates/evidence.md" .rdl/sessions/template_evidence/rounds/001/evidence.md
+cat > .rdl/sessions/template_evidence/rounds/001/interpretation.md <<'INTERPRETATION'
+# Interpretation
+
+Interpretation: present.
+INTERPRETATION
+assert_fails next-research-template-evidence.json "${RDL}" next
+assert_file_contains next-research-template-evidence.json '"status": "blocked"'
+assert_file_contains next-research-template-evidence.json '"code":"missing_research_evidence"'
+[[ ! -d .rdl/sessions/template_evidence/rounds/002 ]] || fail "next advanced despite template-only research evidence"
+
+repo6="${tmp_root}/build-missing-verification"
+mkdir -p "${repo6}"
+cat > "${repo6}/mission.md" <<'MISSION'
+# Build Mission
+MISSION
+cd "${repo6}"
 "${RDL}" start build mission.md --session-id build_missing > /dev/null
 "${RDL}" review > /dev/null
 complete_review .rdl/sessions/build_missing/rounds/001/review.md
@@ -234,12 +256,12 @@ assert_file_contains next-build-missing-verification.json '"status": "blocked"'
 assert_file_contains next-build-missing-verification.json '"code":"missing_verification_evidence"'
 [[ ! -d .rdl/sessions/build_missing/rounds/002 ]] || fail "next advanced despite missing build verification evidence"
 
-repo6="${tmp_root}/build-empty-verification-label"
-mkdir -p "${repo6}"
-cat > "${repo6}/mission.md" <<'MISSION'
+repo7="${tmp_root}/build-empty-verification-label"
+mkdir -p "${repo7}"
+cat > "${repo7}/mission.md" <<'MISSION'
 # Build Mission
 MISSION
-cd "${repo6}"
+cd "${repo7}"
 "${RDL}" start build mission.md --session-id build_empty_label > /dev/null
 "${RDL}" review > /dev/null
 complete_review .rdl/sessions/build_empty_label/rounds/001/review.md
@@ -265,12 +287,12 @@ assert_file_contains next-build-empty-verification-label.json '"status": "blocke
 assert_file_contains next-build-empty-verification-label.json '"code":"missing_verification_evidence"'
 [[ ! -d .rdl/sessions/build_empty_label/rounds/002 ]] || fail "next advanced despite empty verification label"
 
-repo7="${tmp_root}/build-empty-verification-heading"
-mkdir -p "${repo7}"
-cat > "${repo7}/mission.md" <<'MISSION'
+repo8="${tmp_root}/build-empty-verification-heading"
+mkdir -p "${repo8}"
+cat > "${repo8}/mission.md" <<'MISSION'
 # Build Mission
 MISSION
-cd "${repo7}"
+cd "${repo8}"
 "${RDL}" start build mission.md --session-id build_empty_heading > /dev/null
 "${RDL}" review > /dev/null
 complete_review .rdl/sessions/build_empty_heading/rounds/001/review.md
@@ -297,12 +319,46 @@ assert_file_contains next-build-empty-verification-heading.json '"status": "bloc
 assert_file_contains next-build-empty-verification-heading.json '"code":"missing_verification_evidence"'
 [[ ! -d .rdl/sessions/build_empty_heading/rounds/002 ]] || fail "next advanced despite empty verification heading"
 
-repo8="${tmp_root}/build-missing-intent"
-mkdir -p "${repo8}"
-cat > "${repo8}/mission.md" <<'MISSION'
+repo9="${tmp_root}/build-table-verification"
+mkdir -p "${repo9}"
+cat > "${repo9}/mission.md" <<'MISSION'
 # Build Mission
 MISSION
-cd "${repo8}"
+cd "${repo9}"
+"${RDL}" start build mission.md --session-id build_table_verification > /dev/null
+"${RDL}" review > /dev/null
+complete_review .rdl/sessions/build_table_verification/rounds/001/review.md
+"${RDL}" decide accept > /dev/null
+complete_decision .rdl/sessions/build_table_verification/rounds/001/decision.md accept capability none
+cat > .rdl/sessions/build_table_verification/rounds/001/intent.md <<'INTENT'
+# Intent
+
+Intent: present.
+INTENT
+cat > .rdl/sessions/build_table_verification/rounds/001/work.md <<'WORK'
+# Work
+
+Work: present.
+WORK
+cat > .rdl/sessions/build_table_verification/rounds/001/evidence.md <<'EVIDENCE'
+# Evidence
+
+## Verification Evidence
+
+| ID | Result |
+|---|---|
+EVIDENCE
+assert_fails next-build-table-verification.json "${RDL}" next
+assert_file_contains next-build-table-verification.json '"status": "blocked"'
+assert_file_contains next-build-table-verification.json '"code":"missing_verification_evidence"'
+[[ ! -d .rdl/sessions/build_table_verification/rounds/002 ]] || fail "next advanced despite verification table scaffold"
+
+repo10="${tmp_root}/build-missing-intent"
+mkdir -p "${repo10}"
+cat > "${repo10}/mission.md" <<'MISSION'
+# Build Mission
+MISSION
+cd "${repo10}"
 "${RDL}" start build mission.md --session-id build_no_intent > /dev/null
 "${RDL}" review > /dev/null
 complete_review .rdl/sessions/build_no_intent/rounds/001/review.md
@@ -323,12 +379,12 @@ assert_file_contains next-build-missing-intent.json '"status": "blocked"'
 assert_file_contains next-build-missing-intent.json '"code":"missing_build_intent"'
 [[ ! -d .rdl/sessions/build_no_intent/rounds/002 ]] || fail "next advanced despite missing build intent"
 
-repo9="${tmp_root}/build-missing-work"
-mkdir -p "${repo9}"
-cat > "${repo9}/mission.md" <<'MISSION'
+repo11="${tmp_root}/build-missing-work"
+mkdir -p "${repo11}"
+cat > "${repo11}/mission.md" <<'MISSION'
 # Build Mission
 MISSION
-cd "${repo9}"
+cd "${repo11}"
 "${RDL}" start build mission.md --session-id build_no_work > /dev/null
 "${RDL}" review > /dev/null
 complete_review .rdl/sessions/build_no_work/rounds/001/review.md
@@ -349,12 +405,12 @@ assert_file_contains next-build-missing-work.json '"status": "blocked"'
 assert_file_contains next-build-missing-work.json '"code":"missing_build_work"'
 [[ ! -d .rdl/sessions/build_no_work/rounds/002 ]] || fail "next advanced despite missing build work"
 
-repo10="${tmp_root}/build"
-mkdir -p "${repo10}"
-cat > "${repo10}/mission.md" <<'MISSION'
+repo12="${tmp_root}/build"
+mkdir -p "${repo12}"
+cat > "${repo12}/mission.md" <<'MISSION'
 # Build Mission
 MISSION
-cd "${repo10}"
+cd "${repo12}"
 "${RDL}" start build mission.md --session-id build1 > /dev/null
 "${RDL}" review > /dev/null
 complete_review .rdl/sessions/build1/rounds/001/review.md
