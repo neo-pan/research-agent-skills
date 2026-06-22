@@ -19,6 +19,8 @@ Usage:
   rdl review [--json]
   rdl decide <decision-type> [--json]
   rdl next [--json]
+  rdl close positive|negative|inconclusive [--json]
+  rdl abandon <reason> [--json]
 EOF
 }
 
@@ -939,6 +941,174 @@ validate_mode_round_minimums() {
   fi
 }
 
+valid_close_outcome() {
+  case "$1" in
+    positive|negative|inconclusive)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_final_report() {
+  local session_dir="$1"
+  local outcome="$2"
+  local -n report_blockers_ref="$3"
+  local report_file="${session_dir}/final-report.md"
+
+  if [[ ! -f "${report_file}" ]]; then
+    add_blocker report_blockers_ref "missing_final_report" "${report_file}" "final-report.md is required before closing a session." "Create final-report.md from the template and complete the close record."
+    return
+  fi
+
+  local section
+  local required_sections=(
+    "Outcome"
+    "Claim or Capability Closed"
+    "Evidence Cited"
+    "Missing Evidence and Confounders"
+    "Open Questions"
+    "Deferred Items"
+    "Close Checklist"
+  )
+  for section in "${required_sections[@]}"; do
+    if ! markdown_section_has_content "${report_file}" "^[[:space:]]*##[[:space:]]+${section}[[:space:]]*$"; then
+      add_blocker report_blockers_ref "missing_final_report_section" "${report_file}#${section}" "${section} is missing or still a placeholder." "Complete ${section} in final-report.md."
+    fi
+  done
+
+  if grep -q '^[[:space:]]*-[[:space:]]*\[[[:space:]]\]' "${report_file}"; then
+    add_blocker report_blockers_ref "incomplete_close_checklist" "${report_file}#Close Checklist" "Close checklist still has unchecked items." "Check every close checklist item that is true for this close record."
+  fi
+
+  if ! awk -v expected="${outcome}" '
+    function lower(value) { return tolower(value) }
+    /^[[:space:]]*##[[:space:]]+Outcome[[:space:]]*$/ { in_section = 1; next }
+    in_section && /^##[[:space:]]+/ { in_section = 0 }
+    in_section && lower($0) ~ "(^|[^[:alnum:]])" expected "([^[:alnum:]]|$)" { found = 1 }
+    END { exit(found ? 0 : 1) }
+  ' "${report_file}"; then
+    add_blocker report_blockers_ref "close_outcome_mismatch" "${report_file}#Outcome" "Final report outcome must match ${outcome}." "Update final-report.md Outcome or run rdl close with the recorded outcome."
+  fi
+}
+
+validate_close_evidence_discipline() {
+  local round_dir="$1"
+  local -n evidence_blockers_ref="$2"
+  local evidence_file="${round_dir}/evidence.md"
+
+  if [[ ! -f "${evidence_file}" ]]; then
+    add_blocker evidence_blockers_ref "missing_close_evidence" "${evidence_file}" "Closing requires current-round evidence.md." "Create evidence.md and record close evidence discipline."
+    return
+  fi
+
+  if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Missing Evidence[[:space:]]*$'; then
+    add_blocker evidence_blockers_ref "missing_evidence_discipline" "${evidence_file}#Missing Evidence" "Missing Evidence must be recorded before closing." "Record missing evidence or explicitly state none."
+  fi
+  if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Evaluation Integrity[[:space:]]*$'; then
+    add_blocker evidence_blockers_ref "missing_evaluation_integrity" "${evidence_file}#Evaluation Integrity" "Evaluation Integrity must be recorded before closing." "Record evaluation integrity notes or an explicit not-applicable note."
+  fi
+  if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Evidence Budget[[:space:]]*$'; then
+    add_blocker evidence_blockers_ref "missing_evidence_budget" "${evidence_file}#Evidence Budget" "Evidence Budget must be recorded before closing." "Record the evidence budget used or remaining."
+  fi
+}
+
+progress_open_questions_ready() {
+  local progress_file="$1"
+  local outcome="$2"
+  if [[ "${outcome}" == "inconclusive" ]]; then
+    return 0
+  fi
+
+  awk '
+    function trim(value) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      return value
+    }
+    function lower(value) {
+      return tolower(value)
+    }
+    function placeholder(value) {
+      value = trim(value)
+      return value == "" || value == "-" || value == "..." || lower(value) == "tbd" || lower(value) == "todo" || lower(value) == "n/a"
+    }
+    function separator(line) {
+      return line ~ /^[[:space:]]*\|[[:space:]-]+\|[[:space:]|:-]*$/
+    }
+    /^## Open Questions[[:space:]]*$/ { in_section = 1; next }
+    in_section && /^##[[:space:]]+/ { in_section = 0 }
+    in_section && /^[[:space:]]*\|.*\|[[:space:]]*$/ {
+      if (separator($0)) next
+      count = split($0, parts, "|")
+      question = trim(parts[2])
+      blocking = lower(trim(parts[4]))
+      resolution = trim(parts[5])
+      if (lower(question) == "question") next
+      if (!placeholder(question) && blocking ~ /^(yes|y|true|blocking)$/ && placeholder(resolution)) bad = 1
+    }
+    END { exit(bad ? 1 : 0) }
+  ' "${progress_file}"
+}
+
+progress_deferred_items_ready() {
+  local progress_file="$1"
+  awk '
+    function trim(value) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      return value
+    }
+    function lower(value) {
+      return tolower(value)
+    }
+    function placeholder(value) {
+      value = trim(value)
+      return value == "" || value == "-" || value == "..." || lower(value) == "tbd" || lower(value) == "todo" || lower(value) == "n/a"
+    }
+    function separator(line) {
+      return line ~ /^[[:space:]]*\|[[:space:]-]+\|[[:space:]|:-]*$/
+    }
+    /^## Deferred[[:space:]]*$/ { in_section = 1; next }
+    in_section && /^##[[:space:]]+/ { in_section = 0 }
+    in_section && /^[[:space:]]*\|.*\|[[:space:]]*$/ {
+      if (separator($0)) next
+      count = split($0, parts, "|")
+      item = trim(parts[2])
+      reason = trim(parts[3])
+      revisit = trim(parts[4])
+      if (lower(item) == "item") next
+      if (!placeholder(item) && (placeholder(reason) || placeholder(revisit))) bad = 1
+    }
+    END { exit(bad ? 1 : 0) }
+  ' "${progress_file}"
+}
+
+validate_progress_close_readiness() {
+  local session_dir="$1"
+  local outcome="$2"
+  local -n progress_blockers_ref="$3"
+  local progress_file="${session_dir}/progress.md"
+
+  if ! progress_open_questions_ready "${progress_file}" "${outcome}"; then
+    add_blocker progress_blockers_ref "unresolved_blocking_open_questions" "${progress_file}#Open Questions" "Blocking open questions must be resolved or the close must be inconclusive." "Resolve blocking open questions, mark them non-blocking, or close as inconclusive."
+  fi
+  if ! progress_deferred_items_ready "${progress_file}"; then
+    add_blocker progress_blockers_ref "incomplete_deferred_items" "${progress_file}#Deferred" "Deferred items need a reason and revisit trigger." "Complete deferred item reason and revisit trigger before closing."
+  fi
+}
+
+mark_session_ended() {
+  local session_dir="$1"
+  local status="$2"
+  local now="$3"
+  local state_file="${session_dir}/state.json"
+
+  sed -i "s/^[[:space:]]*\"status\"[[:space:]]*:.*/  \"status\": \"${status}\",/" "${state_file}"
+  sed -i "s/^[[:space:]]*\"phase\"[[:space:]]*:.*/  \"phase\": \"complete\",/" "${state_file}"
+  sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
+}
+
 cmd_review() {
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -1114,6 +1284,139 @@ cmd_next() {
   emit_ok "next" "${session_id}" "${mode}" "plan" "${next_round}" "${next_round_dir}/prompt.md"
 }
 
+cmd_close() {
+  local outcome="${1-}"
+  if [[ "$#" -lt 1 ]]; then
+    die_result "close" "missing_close_outcome" "" "close requires positive, negative, or inconclusive." "rdl close positive"
+  fi
+  shift
+  if ! valid_close_outcome "${outcome}"; then
+    die_result "close" "invalid_close_outcome" "" "unsupported close outcome: ${outcome}" "Use rdl close positive, negative, or inconclusive."
+  fi
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --json)
+        shift
+        ;;
+      *)
+        die_result "close" "unknown_option" "" "unknown option: $1" "Run rdl --help."
+        ;;
+    esac
+  done
+
+  local session_dir
+  load_active_session close || return $?
+  session_dir="${FOUND_SESSION_DIR}"
+  validate_active_session close "${session_dir}" || return $?
+
+  local state_file="${session_dir}/state.json"
+  local session_id mode phase round expected_closes
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  phase="$(json_value "${state_file}" "phase")"
+  round="$(json_number "${state_file}" "round")"
+  if [[ "${mode}" == "research" ]]; then
+    expected_closes="claim"
+  else
+    expected_closes="capability"
+  fi
+
+  local round_dir="${session_dir}/$(round_path "${round}")"
+  local review_file="${round_dir}/review.md"
+  local decision_file="${round_dir}/decision.md"
+  local expected_decision="close-${outcome}"
+  local blockers=()
+  validate_review_file "${review_file}" blockers
+  validate_decision_file "${decision_file}" "${expected_closes}" blockers
+  validate_mode_round_minimums "${mode}" "${round_dir}" blockers
+  validate_final_report "${session_dir}" "${outcome}" blockers
+  validate_close_evidence_discipline "${round_dir}" blockers
+  validate_progress_close_readiness "${session_dir}" "${outcome}" blockers
+
+  if [[ -f "${decision_file}" && "$(md_field_value "${decision_file}" "Decision")" != "${expected_decision}" ]]; then
+    add_blocker blockers "invalid_close_decision" "${decision_file}#Decision" "Close outcome requires Decision: ${expected_decision}." "Run rdl decide ${expected_decision} or update decision.md."
+  fi
+
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "close" "${session_id}" "${mode}" "${phase}" "${round}" "complete close records" "${blockers[@]}"
+    return 2
+  fi
+
+  local now status
+  now="$(now_utc)"
+  status="closed-${outcome}"
+  mark_session_ended "${session_dir}" "${status}" "${now}"
+
+  {
+    printf '\n## Session Closed\n\n'
+    printf '%s\n' "- Outcome: ${outcome}"
+    printf '%s\n' "- Decision: ${expected_decision}"
+    printf '%s\n' "- Closes: ${expected_closes}"
+    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
+    printf '%s\n' "- Closed at UTC: ${now}"
+  } >> "${session_dir}/decision-ledger.md"
+
+  emit_ok "close" "${session_id}" "${mode}" "complete" "${round}" "${status}"
+}
+
+cmd_abandon() {
+  if [[ "$#" -lt 1 ]]; then
+    die_result "abandon" "missing_abandon_reason" "" "abandon requires a reason." "rdl abandon <reason>"
+  fi
+
+  local reason_parts=()
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --json)
+        shift
+        ;;
+      *)
+        reason_parts+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  local reason="${reason_parts[*]}"
+  reason="$(trim "${reason}")"
+  if [[ -z "${reason}" ]]; then
+    die_result "abandon" "missing_abandon_reason" "" "abandon requires a non-empty reason." "rdl abandon <reason>"
+  fi
+
+  local session_dir
+  load_active_session abandon || return $?
+  session_dir="${FOUND_SESSION_DIR}"
+  validate_active_session abandon "${session_dir}" || return $?
+
+  local state_file="${session_dir}/state.json"
+  local session_id mode phase round now
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  phase="$(json_value "${state_file}" "phase")"
+  round="$(json_number "${state_file}" "round")"
+  now="$(now_utc)"
+
+  mark_session_ended "${session_dir}" "abandoned" "${now}"
+
+  {
+    printf '\n## Session Abandoned\n\n'
+    printf '%s\n' "- Reason: ${reason}"
+    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
+    printf '%s\n' "- Abandoned at UTC: ${now}"
+    printf '%s\n' "- Scientific outcome claimed: none"
+  } >> "${session_dir}/decision-ledger.md"
+
+  {
+    printf '\n## Abandon Record\n\n'
+    printf '%s\n' "- Reason: ${reason}"
+    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
+    printf '%s\n' "- Scientific outcome claimed: none"
+  } >> "${session_dir}/progress.md"
+
+  emit_ok "abandon" "${session_id}" "${mode}" "complete" "${round}" "abandoned"
+}
+
 main() {
   local command="${1-}"
   if [[ -z "${command}" || "${command}" == "-h" || "${command}" == "--help" ]]; then
@@ -1140,6 +1443,12 @@ main() {
       ;;
     next)
       cmd_next "$@"
+      ;;
+    close)
+      cmd_close "$@"
+      ;;
+    abandon)
+      cmd_abandon "$@"
       ;;
     *)
       die_result "unknown" "unknown_command" "" "unknown command: ${command}" "Run rdl --help."
