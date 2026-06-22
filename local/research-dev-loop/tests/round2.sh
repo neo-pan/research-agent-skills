@@ -127,6 +127,27 @@ assert_file_contains next-wrong-closes.json '"status": "blocked"'
 assert_file_contains next-wrong-closes.json '"code":"invalid_closes"'
 [[ ! -d .rdl/sessions/wrong/rounds/002 ]] || fail "next advanced despite wrong Closes field"
 
+repo3="${tmp_root}/build-missing-verification"
+mkdir -p "${repo3}"
+cat > "${repo3}/mission.md" <<'MISSION'
+# Build Mission
+MISSION
+cd "${repo3}"
+"${RDL}" start build mission.md --session-id build_missing > /dev/null
+"${RDL}" review > /dev/null
+complete_review .rdl/sessions/build_missing/rounds/001/review.md
+"${RDL}" decide accept > /dev/null
+complete_decision .rdl/sessions/build_missing/rounds/001/decision.md accept capability none
+cat > .rdl/sessions/build_missing/rounds/001/evidence.md <<'EVIDENCE'
+# Evidence
+
+Evidence exists but only says implementation happened.
+EVIDENCE
+assert_fails next-build-missing-verification.json "${RDL}" next
+assert_file_contains next-build-missing-verification.json '"status": "blocked"'
+assert_file_contains next-build-missing-verification.json '"code":"missing_verification_evidence"'
+[[ ! -d .rdl/sessions/build_missing/rounds/002 ]] || fail "next advanced despite missing build verification evidence"
+
 repo3="${tmp_root}/build"
 mkdir -p "${repo3}"
 cat > "${repo3}/mission.md" <<'MISSION'
@@ -138,6 +159,11 @@ cd "${repo3}"
 complete_review .rdl/sessions/build1/rounds/001/review.md
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build1/rounds/001/decision.md accept capability research
+cat > .rdl/sessions/build1/rounds/001/evidence.md <<'EVIDENCE'
+# Evidence
+
+Verification evidence: fixture capability check passed.
+EVIDENCE
 "${RDL}" next > next-build.json
 assert_file_contains next-build.json '"status": "ok"'
 assert_file_contains next-build.json '"mode": "build"'

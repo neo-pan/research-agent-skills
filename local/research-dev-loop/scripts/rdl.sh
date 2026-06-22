@@ -769,6 +769,21 @@ validate_decision_file() {
   esac
 }
 
+validate_build_verification_evidence() {
+  local round_dir="$1"
+  local -n blockers_ref="$2"
+  local evidence_file="${round_dir}/evidence.md"
+
+  if [[ ! -f "${evidence_file}" ]]; then
+    add_blocker blockers_ref "missing_verification_evidence" "${evidence_file}" "Build rounds require evidence.md with verification evidence for the capability." "Add verification evidence before running rdl next."
+    return
+  fi
+
+  if ! grep -Eqi '^(##[[:space:]]+Verification Evidence|Verification evidence:)' "${evidence_file}"; then
+    add_blocker blockers_ref "missing_verification_evidence" "${evidence_file}" "Build evidence must explicitly identify verification evidence." "Record verification evidence in evidence.md."
+  fi
+}
+
 cmd_review() {
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -907,6 +922,9 @@ cmd_next() {
   local blockers=()
   validate_review_file "${review_file}" blockers
   validate_decision_file "${decision_file}" "${expected_closes}" blockers
+  if [[ "${mode}" == "build" ]]; then
+    validate_build_verification_evidence "${round_dir}" blockers
+  fi
   if [[ "${#blockers[@]}" -gt 0 ]]; then
     emit_problem "blocked" "next" "${session_id}" "${mode}" "${phase}" "${round}" "complete current round review and decision" "${blockers[@]}"
     return 2
