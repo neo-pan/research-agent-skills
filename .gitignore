@@ -3,7 +3,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# Local scratch notes and temporary design documents.
+local-notes/
+
 # Generated symlinks created by scripts/link_selected_skills.sh.
 skills/*
 !skills/.gitkeep
-
