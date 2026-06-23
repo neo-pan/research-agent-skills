@@ -21,6 +21,7 @@ Usage:
   rdl next [--json]
   rdl close positive|negative|inconclusive [--json]
   rdl abandon <reason> [--json]
+  rdl guard-stop [--guard-session-id <id>] [--guard-command-id <id>] [--json]
 EOF
 }
 
@@ -801,7 +802,11 @@ find_session_for_audit() {
         phase="$(json_value "${state_file}" "phase")"
         round="$(json_number "${state_file}" "round")"
       fi
-      emit_problem "error" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "repair RDL session metadata" "${errors[@]}"
+      local next_action="repair RDL session metadata"
+      if [[ "${action}" == "guard-stop" ]]; then
+        next_action="block"
+      fi
+      emit_problem "error" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "${next_action}" "${errors[@]}"
       exit 1
     fi
 
@@ -813,7 +818,11 @@ find_session_for_audit() {
   done
 
   if [[ "${#active[@]}" -gt 1 ]]; then
-    emit_problem "error" "${action}" "" "" "" 0 "close or abandon duplicate active sessions" \
+    local next_action="close or abandon duplicate active sessions"
+    if [[ "${action}" == "guard-stop" ]]; then
+      next_action="block"
+    fi
+    emit_problem "error" "${action}" "" "" "" 0 "${next_action}" \
       "multiple_active_sessions" "${SESSIONS_DIR}" "More than one active RDL session exists." "Close or abandon all but one active session."
     exit 1
   fi
@@ -1650,6 +1659,92 @@ mark_session_ended() {
   sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
 }
 
+mark_guard_seen() {
+  local session_dir="$1"
+  local guard_session_id="$2"
+  local guard_command_id="$3"
+  local now="$4"
+  local state_file="${session_dir}/state.json"
+
+  if [[ -n "${guard_session_id}" ]]; then
+    sed -i "s/^[[:space:]]*\"guard_session_id\"[[:space:]]*:.*/  \"guard_session_id\": \"$(json_escape "${guard_session_id}")\",/" "${state_file}"
+  fi
+  if [[ -n "${guard_command_id}" ]]; then
+    sed -i "s/^[[:space:]]*\"last_guard_command_id\"[[:space:]]*:.*/  \"last_guard_command_id\": \"$(json_escape "${guard_command_id}")\",/" "${state_file}"
+  fi
+  sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
+}
+
+cmd_guard_stop() {
+  local guard_session_id=""
+  local guard_command_id=""
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --guard-session-id)
+        if [[ "$#" -lt 2 || -z "${2-}" || "${2-}" == --* ]]; then
+          die_result "guard-stop" "missing_guard_session_id" "" "--guard-session-id requires a value." "Pass --guard-session-id <id>."
+        fi
+        guard_session_id="${2-}"
+        shift 2
+        ;;
+      --guard-command-id)
+        if [[ "$#" -lt 2 || -z "${2-}" || "${2-}" == --* ]]; then
+          die_result "guard-stop" "missing_guard_command_id" "" "--guard-command-id requires a value." "Pass --guard-command-id <id>."
+        fi
+        guard_command_id="${2-}"
+        shift 2
+        ;;
+      --json)
+        shift
+        ;;
+      *)
+        die_result "guard-stop" "unknown_option" "" "unknown option: $1" "Run rdl --help."
+        ;;
+    esac
+  done
+
+  local session_dir
+  if ! find_session_for_audit guard-stop; then
+    emit_ok "guard-stop" "" "" "" 0 "allow"
+    return 0
+  fi
+  session_dir="${FOUND_SESSION_DIR}"
+
+  local state_file="${session_dir}/state.json"
+  local session_id mode phase round last_guard_command_id
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  phase="$(json_value "${state_file}" "phase")"
+  round="$(json_number "${state_file}" "round")"
+  last_guard_command_id="$(json_value "${state_file}" "last_guard_command_id")"
+
+  if [[ -n "${guard_session_id}" && "${guard_session_id}" != "${session_id}" ]]; then
+    emit_ok "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "allow"
+    return 0
+  fi
+
+  local errors=()
+  local blockers=()
+  validate_session "${session_dir}" errors blockers
+  if [[ "${#errors[@]}" -gt 0 ]]; then
+    emit_problem "error" "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "block" "${errors[@]}"
+    return 2
+  fi
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "block" "${blockers[@]}"
+    return 2
+  fi
+
+  if [[ -n "${guard_command_id}" && "${guard_command_id}" != "${last_guard_command_id}" ]]; then
+    local now
+    now="$(now_utc)"
+    mark_guard_seen "${session_dir}" "${guard_session_id:-${session_id}}" "${guard_command_id}" "${now}"
+    refresh_integrity_or_error "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
+  fi
+
+  emit_ok "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "allow"
+}
+
 cmd_review() {
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -1997,6 +2092,9 @@ main() {
       ;;
     abandon)
       cmd_abandon "$@"
+      ;;
+    guard-stop)
+      cmd_guard_stop "$@"
       ;;
     *)
       die_result "unknown" "unknown_command" "" "unknown command: ${command}" "Run rdl --help."

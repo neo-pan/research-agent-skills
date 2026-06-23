@@ -183,6 +183,52 @@ assert_fails doctor-prompt-missing-managed-block.json "${RDL}" doctor
 assert_file_contains doctor-prompt-missing-managed-block.json '"status": "error"'
 assert_file_contains doctor-prompt-missing-managed-block.json '"code":"missing_managed_block"'
 
+repo_guard_none="${tmp_root}/guard-none"
+mkdir -p "${repo_guard_none}"
+cd "${repo_guard_none}"
+"${RDL}" guard-stop > guard-none.json
+assert_file_contains guard-none.json '"status": "ok"'
+assert_file_contains guard-none.json '"action": "guard-stop"'
+assert_file_contains guard-none.json '"next_action": "allow"'
+[[ ! -d .rdl ]] || fail "guard-stop no-session created RDL state"
+
+repo_guard_ok="${tmp_root}/guard-ok"
+prepare_manifest_repo "${repo_guard_ok}" guard_ok
+"${RDL}" guard-stop --guard-session-id guard_ok --guard-command-id g1 > guard-ok.json
+assert_file_contains guard-ok.json '"status": "ok"'
+assert_file_contains guard-ok.json '"next_action": "allow"'
+assert_file_contains .rdl/sessions/guard_ok/state.json '"last_guard_command_id": "g1"'
+"${RDL}" guard-stop --guard-session-id guard_ok --guard-command-id g1 > guard-duplicate.json
+assert_file_contains guard-duplicate.json '"status": "ok"'
+assert_file_contains guard-duplicate.json '"next_action": "allow"'
+[[ "$(grep -c '"last_guard_command_id": "g1"' .rdl/sessions/guard_ok/state.json)" -eq 1 ]] || fail "duplicate guard id duplicated state field"
+"${RDL}" doctor > guard-post-doctor.json
+assert_file_contains guard-post-doctor.json '"status": "ok"'
+
+repo_guard_mismatch="${tmp_root}/guard-mismatch"
+prepare_manifest_repo "${repo_guard_mismatch}" guard_mismatch
+"${RDL}" guard-stop --guard-session-id other --guard-command-id mismatch1 > guard-mismatch.json
+assert_file_contains guard-mismatch.json '"status": "ok"'
+assert_file_contains guard-mismatch.json '"next_action": "allow"'
+assert_file_contains .rdl/sessions/guard_mismatch/state.json '"last_guard_command_id": null'
+
+repo_guard_block="${tmp_root}/guard-block"
+prepare_manifest_repo "${repo_guard_block}" guard_block
+rm .rdl/sessions/guard_block/progress.md
+assert_fails guard-block.json "${RDL}" guard-stop
+assert_file_contains guard-block.json '"status": "blocked"'
+assert_file_contains guard-block.json '"next_action": "block"'
+assert_file_contains guard-block.json '"code":"missing_required_file"'
+
+repo_guard_corrupt="${tmp_root}/guard-corrupt"
+mkdir -p "${repo_guard_corrupt}/.rdl/sessions/bad"
+printf '{ broken\n' > "${repo_guard_corrupt}/.rdl/sessions/bad/state.json"
+cd "${repo_guard_corrupt}"
+assert_fails guard-corrupt.json "${RDL}" guard-stop
+assert_file_contains guard-corrupt.json '"status": "error"'
+assert_file_contains guard-corrupt.json '"next_action": "block"'
+assert_file_contains guard-corrupt.json '"code":"invalid_state_json"'
+
 cd "${repo}"
 rm .rdl/sessions/r1/progress.md
 assert_fails doctor-missing.json "${RDL}" doctor
