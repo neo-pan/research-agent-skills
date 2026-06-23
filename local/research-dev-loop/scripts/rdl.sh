@@ -347,6 +347,224 @@ PY
   grep -q '"artifacts"[[:space:]]*:' "${file}"
 }
 
+file_sha256() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${file}" | awk '{print $1}'
+    return
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${file}" | awk '{print $1}'
+    return
+  fi
+  return 1
+}
+
+integrity_policy_for_path() {
+  case "$1" in
+    state.json)
+      printf 'cli_owned'
+      ;;
+    decision-ledger.md)
+      printf 'append_only'
+      ;;
+    rounds/*/prompt.md)
+      printf 'managed_prefix'
+      ;;
+    *)
+      printf 'human_owned'
+      ;;
+  esac
+}
+
+session_protocol_files() {
+  local session_dir="$1"
+  local path
+  for path in \
+    state.json \
+    mission.md \
+    factors.md \
+    artifact-manifest.json \
+    decision-ledger.md \
+    progress.md; do
+    if [[ -f "${session_dir}/${path}" ]]; then
+      printf '%s\n' "${path}"
+    fi
+  done
+
+  if [[ -d "${session_dir}/rounds" ]]; then
+    find "${session_dir}/rounds" -type f \
+      \( -name 'prompt.md' -o -name 'intent.md' -o -name 'work.md' -o -name 'evidence.md' -o -name 'interpretation.md' -o -name 'review.md' -o -name 'decision.md' \) \
+      | sed "s#^${session_dir}/##" \
+      | sort
+  fi
+
+  if [[ -f "${session_dir}/final-report.md" ]]; then
+    printf '%s\n' "final-report.md"
+  fi
+}
+
+write_integrity_manifest() {
+  local session_dir="$1"
+  local session_id="$2"
+  local tmp_file="${session_dir}/integrity.json.tmp.$$"
+
+  {
+    printf '{\n'
+    printf '  "schema_version": 1,\n'
+    printf '  "session_id": "%s",\n' "$(json_escape "${session_id}")"
+    printf '  "entries": [\n'
+
+    local first=1
+    local path policy digest
+    while IFS= read -r path; do
+      [[ -n "${path}" ]] || continue
+      digest="$(file_sha256 "${session_dir}/${path}")" || return 1
+      policy="$(integrity_policy_for_path "${path}")"
+      if [[ "${first}" -eq 0 ]]; then
+        printf ',\n'
+      fi
+      first=0
+      printf '    {"path":"%s","policy":"%s","sha256":"%s"}' \
+        "$(json_escape "${path}")" \
+        "$(json_escape "${policy}")" \
+        "$(json_escape "${digest}")"
+    done < <(session_protocol_files "${session_dir}")
+
+    printf '\n  ]\n'
+    printf '}\n'
+  } > "${tmp_file}"
+
+  mv "${tmp_file}" "${session_dir}/integrity.json"
+}
+
+refresh_integrity_or_error() {
+  local action="$1"
+  local session_dir="$2"
+  local session_id="$3"
+  local mode="$4"
+  local phase="$5"
+  local round="$6"
+  if ! write_integrity_manifest "${session_dir}" "${session_id}"; then
+    emit_problem "error" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "install sha256sum or shasum" \
+      "missing_hash_tool" "integrity.json" "No sha256 tool is available for integrity manifest refresh." "Install sha256sum or shasum."
+    return 1
+  fi
+}
+
+integrity_entries_valid() {
+  local file="$1"
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '
+      .schema_version == 1 and
+      (.session_id | type == "string" and length > 0) and
+      (.entries | type == "array") and
+      all(.entries[];
+        (.path | type == "string" and length > 0) and
+        (.policy | type == "string" and test("^(cli_owned|append_only|managed_prefix|human_owned)$")) and
+        (.sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+      )
+    ' "${file}" >/dev/null 2>&1
+    return $?
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" <<'PY' >/dev/null 2>&1
+import json
+import re
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+if data.get("schema_version") != 1:
+    raise SystemExit(1)
+if not isinstance(data.get("session_id"), str) or not data["session_id"]:
+    raise SystemExit(1)
+entries = data.get("entries")
+if not isinstance(entries, list):
+    raise SystemExit(1)
+for entry in entries:
+    if not isinstance(entry, dict):
+        raise SystemExit(1)
+    if not isinstance(entry.get("path"), str) or not entry["path"]:
+        raise SystemExit(1)
+    if entry.get("policy") not in {"cli_owned", "append_only", "managed_prefix", "human_owned"}:
+        raise SystemExit(1)
+    if not isinstance(entry.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]):
+        raise SystemExit(1)
+PY
+    return $?
+  fi
+  return 1
+}
+
+integrity_entries_tsv() {
+  local file="$1"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.entries[] | [.path, .policy, .sha256] | @tsv' "${file}"
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+for entry in data.get("entries", []):
+    print(f"{entry.get('path', '')}\t{entry.get('policy', '')}\t{entry.get('sha256', '')}")
+PY
+    return
+  fi
+  return 1
+}
+
+validate_integrity_manifest() {
+  local session_dir="$1"
+  local -n integrity_errors_ref="$2"
+  local -n integrity_blockers_ref="$3"
+
+  local manifest="${session_dir}/integrity.json"
+  if [[ ! -f "${manifest}" ]]; then
+    return
+  fi
+  if ! valid_json_file "${manifest}"; then
+    add_blocker integrity_errors_ref "invalid_integrity_json" "integrity.json" "integrity.json is not valid JSON." "Repair integrity.json explicitly."
+    return
+  fi
+  if ! integrity_entries_valid "${manifest}"; then
+    add_blocker integrity_errors_ref "invalid_integrity_manifest" "integrity.json" "integrity.json entries are malformed." "Repair integrity.json explicitly."
+    return
+  fi
+
+  local path policy expected actual
+  while IFS=$'\t' read -r path policy expected; do
+    [[ -n "${path}" ]] || continue
+
+    if [[ ! -f "${session_dir}/${path}" ]]; then
+      add_blocker integrity_blockers_ref "missing_integrity_file" "${path}" "integrity entry path is missing." "Restore ${path} or run rdl repair when available."
+      continue
+    fi
+
+    case "${policy}" in
+      cli_owned)
+        actual="$(file_sha256 "${session_dir}/${path}")" || {
+          add_blocker integrity_errors_ref "missing_hash_tool" "${path}" "No sha256 tool is available for integrity validation." "Install sha256sum or shasum."
+          continue
+        }
+        if [[ "${actual}" != "${expected}" ]]; then
+          add_blocker integrity_errors_ref "integrity_violation_cli_owned" "${path}" "CLI-owned protocol file hash changed." "Restore ${path} or run rdl repair when available."
+        fi
+        ;;
+      append_only|managed_prefix|human_owned)
+        ;;
+    esac
+  done < <(integrity_entries_tsv "${manifest}") || {
+    add_blocker integrity_errors_ref "missing_json_tool" "integrity.json" "No JSON tool is available for integrity validation." "Install jq or python3."
+  }
+}
+
 find_active_session_for_start() {
   local action="$1"
   FOUND_SESSION_DIR=""
@@ -588,13 +806,10 @@ cmd_start() {
 }
 EOF
 
-  cat > "${tmp_dir}/integrity.json" <<EOF
-{
-  "schema_version": 1,
-  "session_id": "$(json_escape "${session_id}")",
-  "entries": []
-}
-EOF
+  if ! write_integrity_manifest "${tmp_dir}" "${session_id}"; then
+    rm -rf "${tmp_dir}"
+    die_result "start" "missing_hash_tool" "integrity.json" "No sha256 tool is available for integrity manifest creation." "Install sha256sum or shasum."
+  fi
 
   mkdir -p "${SESSIONS_DIR}"
   mv "${tmp_dir}" "${session_dir}"
@@ -717,6 +932,8 @@ validate_session() {
       add_blocker blockers_ref "missing_required_file" "${file}" "${file} is missing." "Restore ${file}."
     fi
   done
+
+  validate_integrity_manifest "${session_dir}" errors_ref blockers_ref
 
   local round_dir="${session_dir}/rounds/$(printf '%03d' "${round:-1}")"
   if [[ ! -d "${round_dir}" ]]; then
@@ -1289,6 +1506,7 @@ cmd_review() {
   local review_file="${round_dir}/review.md"
   if [[ ! -f "${review_file}" ]]; then
     cp "${TEMPLATE_DIR}/review.md" "${review_file}"
+    refresh_integrity_or_error "review" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round}" || return $?
     emit_ok "review" "${session_id}" "${mode}" "${phase}" "${round}" "${review_file}"
     return 0
   fi
@@ -1347,6 +1565,7 @@ cmd_decide() {
     cp "${TEMPLATE_DIR}/decision.md" "${decision_file}"
     sed -i "s/^Decision:.*/Decision: ${decision_type}/" "${decision_file}"
     sed -i "s/^Closes:.*/Closes: ${expected_closes}/" "${decision_file}"
+    refresh_integrity_or_error "decide" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round}" || return $?
     emit_ok "decide" "${session_id}" "${mode}" "${phase}" "${round}" "${decision_file}"
     return 0
   fi
@@ -1433,6 +1652,7 @@ cmd_next() {
     printf '%s\n' "- Next round: $(printf '%03d' "${next_round}")"
   } >> "${session_dir}/decision-ledger.md"
 
+  refresh_integrity_or_error "next" "${session_dir}" "${session_id}" "${mode}" "plan" "${next_round}" || return $?
   emit_ok "next" "${session_id}" "${mode}" "plan" "${next_round}" "${next_round_dir}/prompt.md"
 }
 
@@ -1511,6 +1731,7 @@ cmd_close() {
     printf '%s\n' "- Closed at UTC: ${now}"
   } >> "${session_dir}/decision-ledger.md"
 
+  refresh_integrity_or_error "close" "${session_dir}" "${session_id}" "${mode}" "complete" "${round}" || return $?
   emit_ok "close" "${session_id}" "${mode}" "complete" "${round}" "${status}"
 }
 
@@ -1568,6 +1789,7 @@ cmd_abandon() {
     printf '%s\n' "- Scientific outcome claimed: none"
   } >> "${session_dir}/progress.md"
 
+  refresh_integrity_or_error "abandon" "${session_dir}" "${session_id}" "${mode}" "complete" "${round}" || return $?
   emit_ok "abandon" "${session_id}" "${mode}" "complete" "${round}" "abandoned"
 }
 

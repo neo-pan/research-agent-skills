@@ -63,7 +63,10 @@ assert_file ".rdl/sessions/r1/rounds/001/prompt.md"
 assert_contains ".rdl/sessions/r1/state.json" '"mode": "research"'
 assert_contains ".rdl/sessions/r1/state.json" '"guard_session_id": null'
 assert_contains ".rdl/sessions/r1/state.json" '"last_guard_command_id": null'
-assert_contains ".rdl/sessions/r1/integrity.json" '"entries": \[\]'
+assert_contains ".rdl/sessions/r1/integrity.json" '"entries": \['
+assert_contains ".rdl/sessions/r1/integrity.json" '"path":"state.json"'
+assert_contains ".rdl/sessions/r1/integrity.json" '"policy":"cli_owned"'
+assert_contains ".rdl/sessions/r1/integrity.json" '"sha256":"[0-9a-f]\{64\}"'
 
 if "${RDL}" start research mission.md --session-id r2 > second-start.json; then
   fail "second active session unexpectedly succeeded"

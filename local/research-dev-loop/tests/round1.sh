@@ -52,6 +52,13 @@ assert_file_contains doctor-ok.json '"action": "doctor"'
 assert_file_contains doctor-ok.json '"session_id": "r1"'
 assert_file_contains doctor-ok.json '"blockers": \[\]'
 
+sed -i 's/"mode": "research"/"mode": "build"/' .rdl/sessions/r1/state.json
+assert_fails doctor-state-integrity.json "${RDL}" doctor
+assert_file_contains doctor-state-integrity.json '"status": "error"'
+assert_file_contains doctor-state-integrity.json '"code":"integrity_violation_cli_owned"'
+assert_file_contains doctor-state-integrity.json '"file":"state.json"'
+sed -i 's/"mode": "build"/"mode": "research"/' .rdl/sessions/r1/state.json
+
 rm .rdl/sessions/r1/progress.md
 assert_fails doctor-missing.json "${RDL}" doctor
 assert_file_contains doctor-missing.json '"status": "blocked"'
