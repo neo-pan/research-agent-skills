@@ -797,6 +797,21 @@ validate_repairable_session_structure() {
   fi
 }
 
+manifest_usable_for_repair() {
+  local manifest="$1"
+  [[ -f "${manifest}" ]] || return 1
+  valid_json_file "${manifest}" || return 1
+  integrity_entries_valid "${manifest}" || return 1
+  [[ -n "$(integrity_entries_jsonl "${manifest}" | head -n 1)" ]] || return 1
+  return 0
+}
+
+validate_unverified_manifest_repair_scope() {
+  local session_dir="$1"
+  local -n unverified_errors_ref="$2"
+  add_blocker unverified_errors_ref "unsafe_integrity_manifest" "integrity.json" "repair requires a usable integrity manifest before refreshing trusted records." "Restore integrity.json from a trusted source or start a new session."
+}
+
 plan_prompt_repair() {
   local session_dir="$1"
   local -n repaired_ref="$2"
@@ -815,9 +830,13 @@ plan_prompt_repair() {
 
   mkdir -p "$(dirname "${prompt_file}")"
   if [[ "${round:-1}" -le 1 ]]; then
-    local mission_file
-    mission_file="$(json_value "${state_file}" "mission_file")"
-    render_prompt "${mode}" "${round:-1}" "${mission_file}" "none" "${prompt_file}"
+    local prompt_objective
+    prompt_objective="$(json_value "${state_file}" "prompt_objective")"
+    if [[ -z "${prompt_objective}" ]]; then
+      add_blocker prompt_blockers_ref "missing_prompt_metadata" "${prompt_path}" "Initial prompt cannot be deterministically repaired without prompt_objective metadata." "Restore ${prompt_path} or start a new session with prompt metadata."
+      return
+    fi
+    render_prompt "${mode}" "${round:-1}" "${prompt_objective}" "none" "${prompt_file}"
   else
     add_blocker prompt_blockers_ref "unsafe_missing_prompt" "${prompt_path}" "Only the initial round prompt can be deterministically repaired." "Restore ${prompt_path} from a known-good source."
     return
@@ -831,11 +850,7 @@ validate_existing_manifest_for_repair() {
   local -n repair_errors_ref="$3"
   local -n repair_blockers_ref="$4"
 
-  [[ -f "${manifest}" ]] || return
-  if ! valid_json_file "${manifest}"; then
-    return 0
-  fi
-  if ! integrity_entries_valid "${manifest}"; then
+  if ! manifest_usable_for_repair "${manifest}"; then
     return 0
   fi
 
@@ -1145,15 +1160,16 @@ cmd_start() {
   local tmp_dir="${session_dir}.tmp.$$"
   mkdir -p "${tmp_dir}/rounds/001"
 
-  local created_at
+  local created_at prompt_objective
   created_at="$(now_utc)"
+  prompt_objective="$(basename "${mission_file}")"
 
   copy_or_template_mission "${mission_file}" "${tmp_dir}/mission.md"
   cp "${TEMPLATE_DIR}/factors.md" "${tmp_dir}/factors.md"
   cp "${TEMPLATE_DIR}/artifact-manifest.json" "${tmp_dir}/artifact-manifest.json"
   cp "${TEMPLATE_DIR}/decision-ledger.md" "${tmp_dir}/decision-ledger.md"
   cp "${TEMPLATE_DIR}/progress.md" "${tmp_dir}/progress.md"
-  render_prompt "${mode}" "1" "$(basename "${mission_file}")" "none" "${tmp_dir}/rounds/001/prompt.md"
+  render_prompt "${mode}" "1" "${prompt_objective}" "none" "${tmp_dir}/rounds/001/prompt.md"
 
   cat > "${tmp_dir}/state.json" <<EOF
 {
@@ -1166,6 +1182,7 @@ cmd_start() {
   "mission_file": "mission.md",
   "guard_session_id": null,
   "last_guard_command_id": null,
+  "prompt_objective": "$(json_escape "${prompt_objective}")",
   "created_at_utc": "${created_at}",
   "updated_at_utc": "${created_at}"
 }
@@ -1966,11 +1983,12 @@ cmd_guard_stop() {
   session_dir="${FOUND_SESSION_DIR}"
 
   local state_file="${session_dir}/state.json"
-  local session_id mode phase round last_guard_command_id
+  local session_id mode phase round current_guard_session_id last_guard_command_id
   session_id="$(json_value "${state_file}" "session_id")"
   mode="$(json_value "${state_file}" "mode")"
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
+  current_guard_session_id="$(json_value "${state_file}" "guard_session_id")"
   last_guard_command_id="$(json_value "${state_file}" "last_guard_command_id")"
 
   if [[ -n "${guard_session_id}" && "${guard_session_id}" != "${session_id}" ]]; then
@@ -1996,7 +2014,16 @@ cmd_guard_stop() {
     return 2
   fi
 
+  local session_id_needs_update=0
+  local command_id_needs_update=0
+  if [[ -n "${guard_session_id}" && "${guard_session_id}" != "${current_guard_session_id}" ]]; then
+    session_id_needs_update=1
+  fi
   if [[ -n "${guard_command_id}" && "${guard_command_id}" != "${last_guard_command_id}" ]]; then
+    command_id_needs_update=1
+  fi
+
+  if [[ "${session_id_needs_update}" -eq 1 || "${command_id_needs_update}" -eq 1 ]]; then
     local now
     now="$(now_utc)"
     mark_guard_seen "${session_dir}" "${guard_session_id}" "${guard_command_id}" "${now}"
@@ -2055,6 +2082,9 @@ cmd_repair() {
 
   local repaired=()
   local manifest="${session_dir}/integrity.json"
+  if ! manifest_usable_for_repair "${manifest}"; then
+    validate_unverified_manifest_repair_scope "${session_dir}" errors
+  fi
   validate_existing_manifest_for_repair "${session_dir}" "${manifest}" errors blockers
   if [[ "${#errors[@]}" -gt 0 ]]; then
     emit_problem "error" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${errors[@]}"

@@ -64,14 +64,31 @@ PY
 prepare_manifest_repo() {
   local repo_dir="$1"
   local session_id="$2"
+  local mission_source="${3:-mission.md}"
   mkdir -p "${repo_dir}"
-  cat > "${repo_dir}/mission.md" <<'MISSION'
+  cat > "${repo_dir}/${mission_source}" <<'MISSION'
 # Mission
 
 Manifest fixture mission.
 MISSION
   cd "${repo_dir}"
-  "${RDL}" start research mission.md --session-id "${session_id}" > /dev/null
+  "${RDL}" start research "${mission_source}" --session-id "${session_id}" > /dev/null
+}
+
+break_integrity_manifest() {
+  local session_dir="$1"
+  local mode="$2"
+  case "${mode}" in
+    empty)
+      with_manifest "${session_dir}/integrity.json" empty
+      ;;
+    bad)
+      printf '{ broken\n' > "${session_dir}/integrity.json"
+      ;;
+    *)
+      fail "unknown break_integrity_manifest mode ${mode}"
+      ;;
+  esac
 }
 
 complete_guard_review() {
@@ -125,6 +142,301 @@ EVIDENCE
 
 Interpretation: fixture evidence supports the next research step.
 INTERPRETATION
+}
+
+complete_guard_close_research_records() {
+  local round_dir="$1"
+  cat > "${round_dir}/evidence.md" <<'EVIDENCE'
+# Evidence
+
+## Claim Under Review
+
+Fixture claim.
+
+## Evidence Artifacts
+
+| ID | Kind | Path or URL | Supports | Notes |
+|---|---|---|---|---|
+| E1 | log | artifacts/check.log | claim | fixture evidence cited |
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Known Confounders
+
+No known blocking confounders.
+
+## Evidence Budget
+
+One local fixture check.
+EVIDENCE
+  cat > "${round_dir}/interpretation.md" <<'INTERPRETATION'
+# Interpretation
+
+Interpretation: fixture evidence supports closing the claim.
+INTERPRETATION
+}
+
+complete_guard_build_records() {
+  local round_dir="$1"
+  local verification="${2:-yes}"
+  cat > "${round_dir}/intent.md" <<'INTENT'
+# Intent
+
+Intent: build the fixture capability.
+INTENT
+  cat > "${round_dir}/work.md" <<'WORK'
+# Work
+
+Work completed: fixture implementation change.
+WORK
+  if [[ "${verification}" == "yes" ]]; then
+    cat > "${round_dir}/evidence.md" <<'EVIDENCE'
+# Evidence
+
+Verification evidence: fixture capability check passed.
+EVIDENCE
+  else
+    cat > "${round_dir}/evidence.md" <<'EVIDENCE'
+# Evidence
+
+Evidence exists but no verification is recorded.
+EVIDENCE
+  fi
+}
+
+complete_guard_build_decision() {
+  local file="$1"
+  cat > "${file}" <<'DECISION'
+# Decision
+
+Decision: accept
+Closes: capability
+Evidence: fixture evidence
+Uncertainty: bounded
+What this rules out: unsupported alternatives
+What remains unknown: later work
+Recommended next loop: none
+Next smallest step: continue same mode
+
+DECISION
+}
+
+complete_guard_close_decision() {
+  local file="$1"
+  cat > "${file}" <<'DECISION'
+# Decision
+
+Decision: close-positive
+Closes: claim
+Evidence: E1 fixture evidence
+Uncertainty: bounded
+What this rules out: unsupported alternatives
+What remains unknown: later work
+Recommended next loop: none
+Next smallest step: close the session
+
+DECISION
+}
+
+complete_guard_manifest() {
+  local file="$1"
+  cat > "${file}" <<'MANIFEST'
+{
+  "artifacts": [
+    {
+      "id": "E1",
+      "kind": "log",
+      "path": "artifacts/check.log"
+    }
+  ]
+}
+MANIFEST
+}
+
+complete_guard_final_report() {
+  local file="$1"
+  cat > "${file}" <<'REPORT'
+# Final Report
+
+## Outcome
+
+positive
+
+## Claim or Capability Closed
+
+fixture claim
+
+## Evidence Cited
+
+E1 fixture evidence.
+
+## Missing Evidence and Confounders
+
+No blocking missing evidence or confounders remain for this fixture.
+
+## Negative, Null, or Inconclusive Results
+
+None beyond the selected close outcome.
+
+## Open Questions
+
+No blocking open questions remain.
+
+## Deferred Items
+
+Deferred fixture follow-up has a revisit trigger.
+
+## Reusable Lessons
+
+No reusable lesson.
+
+## Close Checklist
+
+- [x] Final decision is positive, negative, or inconclusive.
+- [x] Claim or capability closed is named.
+- [x] Evidence artifacts are cited.
+- [x] Missing evidence and known confounders are retained.
+- [x] Negative, null, or inconclusive results are preserved.
+- [x] Open questions are answered or carried forward explicitly.
+- [x] Deferred items have revisit triggers.
+REPORT
+}
+
+write_guard_ready_progress() {
+  local file="$1"
+  cat > "${file}" <<'PROGRESS'
+# Progress
+
+## Active
+
+| Item | Mode | Claim or Capability | Blocking? | Next Review Trigger |
+|---|---|---|---|---|
+
+## Completed
+
+| Item | Decision | Evidence | Round |
+|---|---|---|---|
+
+## Blocked
+
+| Item | Reason | Needed Evidence or Input | Decision Impact |
+|---|---|---|---|
+
+## Deferred
+
+| Item | Reason | Revisit Trigger |
+|---|---|---|
+| Follow-up calibration | not needed for close | next benchmark expansion |
+
+## Open Questions
+
+| Question | Owner | Blocking? | Resolution |
+|---|---|---|---|
+| Is release timing known? | fixture | no | Non-blocking follow-up. |
+PROGRESS
+}
+
+write_guard_blocking_question_progress() {
+  local file="$1"
+  write_guard_ready_progress "${file}"
+  cat >> "${file}" <<'PROGRESS'
+| Is the claim still uncertain? | fixture | yes | - |
+PROGRESS
+}
+
+write_guard_bad_deferred_progress() {
+  local file="$1"
+  cat > "${file}" <<'PROGRESS'
+# Progress
+
+## Active
+
+| Item | Mode | Claim or Capability | Blocking? | Next Review Trigger |
+|---|---|---|---|---|
+
+## Completed
+
+| Item | Decision | Evidence | Round |
+|---|---|---|---|
+
+## Blocked
+
+| Item | Reason | Needed Evidence or Input | Decision Impact |
+|---|---|---|---|
+
+## Deferred
+
+| Item | Reason | Revisit Trigger |
+|---|---|---|
+| Follow-up fixture | - | - |
+
+## Open Questions
+
+| Question | Owner | Blocking? | Resolution |
+|---|---|---|---|
+PROGRESS
+}
+
+prepare_guard_close_repo() {
+  local repo_dir="$1"
+  local session_id="$2"
+  prepare_manifest_repo "${repo_dir}" "${session_id}"
+  complete_guard_review ".rdl/sessions/${session_id}/rounds/001/review.md"
+  complete_guard_close_decision ".rdl/sessions/${session_id}/rounds/001/decision.md"
+  complete_guard_close_research_records ".rdl/sessions/${session_id}/rounds/001"
+  complete_guard_manifest ".rdl/sessions/${session_id}/artifact-manifest.json"
+  write_guard_ready_progress ".rdl/sessions/${session_id}/progress.md"
+}
+
+assert_repair_blocks_after_manifest_break() {
+  local repo_dir="$1"
+  local session_id="$2"
+  local break_mode="$3"
+  local changed_file="$4"
+  local expected_code="$5"
+  prepare_manifest_repo "${repo_dir}" "${session_id}"
+  case "${changed_file}" in
+    state.json)
+      sed -i 's/"phase": "plan"/"phase": "work"/' ".rdl/sessions/${session_id}/state.json"
+      ;;
+    mission.md)
+      printf '\nChanged mission.\n' >> ".rdl/sessions/${session_id}/mission.md"
+      ;;
+    rounds/001/evidence.md)
+      cat > ".rdl/sessions/${session_id}/rounds/001/evidence.md" <<'EVIDENCE'
+# Evidence
+
+Changed evidence.
+EVIDENCE
+      ;;
+    rounds/001/decision.md)
+      complete_guard_decision ".rdl/sessions/${session_id}/rounds/001/decision.md"
+      ;;
+    rounds/001/review.md)
+      complete_guard_review ".rdl/sessions/${session_id}/rounds/001/review.md"
+      ;;
+    final-report.md)
+      complete_guard_final_report ".rdl/sessions/${session_id}/final-report.md"
+      ;;
+    *)
+      fail "unknown changed file ${changed_file}"
+      ;;
+  esac
+  break_integrity_manifest ".rdl/sessions/${session_id}" "${break_mode}"
+  assert_fails "repair-${session_id}.json" "${RDL}" repair
+  assert_file_contains "repair-${session_id}.json" '"status": "error"'
+  assert_file_contains "repair-${session_id}.json" "\"code\":\"${expected_code}\""
+  if [[ "${expected_code}" == "unsafe_integrity_manifest" ]]; then
+    assert_file_contains "repair-${session_id}.json" '"file":"integrity.json"'
+  else
+    assert_file_contains "repair-${session_id}.json" "\"file\":\"${changed_file}\""
+  fi
 }
 
 tmp_root="$(mktemp -d)"
@@ -239,21 +551,19 @@ assert_file_contains doctor-prompt-missing-managed-block.json '"code":"missing_m
 repo_repair_empty_manifest="${tmp_root}/repair-empty-manifest"
 prepare_manifest_repo "${repo_repair_empty_manifest}" repair_empty_manifest
 with_manifest .rdl/sessions/repair_empty_manifest/integrity.json empty
-"${RDL}" repair > repair-empty-manifest.json
-assert_file_contains repair-empty-manifest.json '"status": "ok"'
+assert_fails repair-empty-manifest.json "${RDL}" repair
+assert_file_contains repair-empty-manifest.json '"status": "error"'
 assert_file_contains repair-empty-manifest.json '"action": "repair"'
-assert_file_contains repair-empty-manifest.json '"next_action": "integrity.json"'
-"${RDL}" doctor > repair-empty-doctor.json
-assert_file_contains repair-empty-doctor.json '"status": "ok"'
+assert_file_contains repair-empty-manifest.json '"code":"unsafe_integrity_manifest"'
+assert_file_contains repair-empty-manifest.json '"file":"integrity.json"'
 
 repo_repair_bad_manifest="${tmp_root}/repair-bad-manifest"
 prepare_manifest_repo "${repo_repair_bad_manifest}" repair_bad_manifest
 printf '{ broken\n' > .rdl/sessions/repair_bad_manifest/integrity.json
-"${RDL}" repair > repair-bad-manifest.json
-assert_file_contains repair-bad-manifest.json '"status": "ok"'
-assert_file_contains repair-bad-manifest.json '"next_action": "integrity.json"'
-"${RDL}" doctor > repair-bad-doctor.json
-assert_file_contains repair-bad-doctor.json '"status": "ok"'
+assert_fails repair-bad-manifest.json "${RDL}" repair
+assert_file_contains repair-bad-manifest.json '"status": "error"'
+assert_file_contains repair-bad-manifest.json '"code":"unsafe_integrity_manifest"'
+assert_file_contains repair-bad-manifest.json '"file":"integrity.json"'
 
 repo_repair_policy_mismatch="${tmp_root}/repair-policy-mismatch"
 prepare_manifest_repo "${repo_repair_policy_mismatch}" repair_policy_mismatch
@@ -265,14 +575,94 @@ assert_file_contains repair-policy-mismatch.json '"next_action": "integrity.json
 assert_file_contains repair-policy-mismatch-doctor.json '"status": "ok"'
 
 repo_repair_missing_prompt="${tmp_root}/repair-missing-prompt"
-prepare_manifest_repo "${repo_repair_missing_prompt}" repair_missing_prompt
+prepare_manifest_repo "${repo_repair_missing_prompt}" repair_missing_prompt plan.md
+cp .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md original-prompt.md
 rm .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md
 "${RDL}" repair > repair-missing-prompt.json
 assert_file_contains repair-missing-prompt.json '"status": "ok"'
 assert_file_contains repair-missing-prompt.json '"next_action": "rounds/001/prompt.md,integrity.json"'
 assert_file_contains .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md 'Mode: research'
+cmp original-prompt.md .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md || fail "repaired prompt differed from original prompt"
 "${RDL}" doctor > repair-missing-prompt-doctor.json
 assert_file_contains repair-missing-prompt-doctor.json '"status": "ok"'
+
+repo_repair_legacy_missing_prompt="${tmp_root}/repair-legacy-missing-prompt"
+prepare_manifest_repo "${repo_repair_legacy_missing_prompt}" repair_legacy_missing_prompt
+rm .rdl/sessions/repair_legacy_missing_prompt/rounds/001/prompt.md
+python3 - .rdl/sessions/repair_legacy_missing_prompt/state.json <<'PY'
+import json
+import sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+data.pop("prompt_objective", None)
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+python3 - .rdl/sessions/repair_legacy_missing_prompt/integrity.json .rdl/sessions/repair_legacy_missing_prompt/state.json <<'PY'
+import hashlib
+import json
+import sys
+manifest, state = sys.argv[1], sys.argv[2]
+with open(state, "rb") as fh:
+    digest = hashlib.sha256(fh.read()).hexdigest()
+with open(manifest, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+for entry in data["entries"]:
+    if entry.get("path") == "state.json":
+        entry["sha256"] = digest
+with open(manifest, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+assert_fails repair-legacy-missing-prompt.json "${RDL}" repair
+assert_file_contains repair-legacy-missing-prompt.json '"status": "blocked"'
+assert_file_contains repair-legacy-missing-prompt.json '"code":"missing_prompt_metadata"'
+assert_file_contains repair-legacy-missing-prompt.json '"file":"rounds/001/prompt.md"'
+
+repo_repair_noninitial_prompt="${tmp_root}/repair-noninitial-prompt"
+prepare_manifest_repo "${repo_repair_noninitial_prompt}" repair_noninitial_prompt
+complete_guard_review .rdl/sessions/repair_noninitial_prompt/rounds/001/review.md
+complete_guard_decision .rdl/sessions/repair_noninitial_prompt/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/repair_noninitial_prompt/rounds/001
+"${RDL}" next > /dev/null
+rm .rdl/sessions/repair_noninitial_prompt/rounds/002/prompt.md
+assert_fails repair-noninitial-prompt.json "${RDL}" repair
+assert_file_contains repair-noninitial-prompt.json '"status": "blocked"'
+assert_file_contains repair-noninitial-prompt.json '"code":"unsafe_missing_prompt"'
+assert_file_contains repair-noninitial-prompt.json '"file":"rounds/002/prompt.md"'
+
+repo_repair_prompt_changed="${tmp_root}/repair-prompt-changed"
+prepare_manifest_repo "${repo_repair_prompt_changed}" repair_prompt_changed
+sed -i 's/^Mode: research$/Mode: build/' .rdl/sessions/repair_prompt_changed/rounds/001/prompt.md
+assert_fails repair-prompt-changed.json "${RDL}" repair
+assert_file_contains repair-prompt-changed.json '"status": "error"'
+assert_file_contains repair-prompt-changed.json '"code":"unsafe_managed_prefix_change"'
+assert_file_contains repair-prompt-changed.json '"file":"rounds/001/prompt.md"'
+
+assert_repair_blocks_after_manifest_break "${tmp_root}/repair-empty-changed-state" repair_empty_changed_state empty state.json unsafe_integrity_manifest
+assert_repair_blocks_after_manifest_break "${tmp_root}/repair-bad-changed-mission" repair_bad_changed_mission bad mission.md unsafe_integrity_manifest
+assert_repair_blocks_after_manifest_break "${tmp_root}/repair-empty-changed-evidence" repair_empty_changed_evidence empty rounds/001/evidence.md unsafe_integrity_manifest
+assert_repair_blocks_after_manifest_break "${tmp_root}/repair-bad-changed-decision" repair_bad_changed_decision bad rounds/001/decision.md unsafe_integrity_manifest
+assert_repair_blocks_after_manifest_break "${tmp_root}/repair-empty-changed-review" repair_empty_changed_review empty rounds/001/review.md unsafe_integrity_manifest
+assert_repair_blocks_after_manifest_break "${tmp_root}/repair-bad-changed-final-report" repair_bad_changed_final_report bad final-report.md unsafe_integrity_manifest
+
+repo_repair_missing_mission="${tmp_root}/repair-missing-mission"
+prepare_manifest_repo "${repo_repair_missing_mission}" repair_missing_mission
+rm .rdl/sessions/repair_missing_mission/mission.md
+assert_fails repair-missing-mission.json "${RDL}" repair
+assert_file_contains repair-missing-mission.json '"status": "blocked"'
+assert_file_contains repair-missing-mission.json '"code":"unsafe_missing_protocol_file"'
+assert_file_contains repair-missing-mission.json '"file":"mission.md"'
+
+repo_repair_missing_round="${tmp_root}/repair-missing-round"
+prepare_manifest_repo "${repo_repair_missing_round}" repair_missing_round
+rm -rf .rdl/sessions/repair_missing_round/rounds/001
+assert_fails repair-missing-round.json "${RDL}" repair
+assert_file_contains repair-missing-round.json '"status": "blocked"'
+assert_file_contains repair-missing-round.json '"code":"unsafe_missing_round_dir"'
+assert_file_contains repair-missing-round.json '"file":"rounds/001"'
 
 repo_repair_ledger_rewrite="${tmp_root}/repair-ledger-rewrite"
 prepare_manifest_repo "${repo_repair_ledger_rewrite}" repair_ledger_rewrite
@@ -362,6 +752,92 @@ assert_file_contains guard-command-only.json '"status": "ok"'
 assert_file_contains guard-command-only.json '"next_action": "allow"'
 assert_file_contains .rdl/sessions/guard_command_only/state.json '"last_guard_command_id": "command-only-1"'
 assert_file_contains .rdl/sessions/guard_command_only/state.json '"guard_session_id": null'
+
+repo_guard_session_only="${tmp_root}/guard-session-only"
+prepare_manifest_repo "${repo_guard_session_only}" guard_session_only
+complete_guard_review .rdl/sessions/guard_session_only/rounds/001/review.md
+complete_guard_decision .rdl/sessions/guard_session_only/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/guard_session_only/rounds/001
+"${RDL}" guard-stop --guard-session-id guard_session_only > guard-session-only.json
+assert_file_contains guard-session-only.json '"status": "ok"'
+assert_file_contains guard-session-only.json '"next_action": "allow"'
+assert_file_contains .rdl/sessions/guard_session_only/state.json '"guard_session_id": "guard_session_only"'
+assert_file_contains .rdl/sessions/guard_session_only/state.json '"last_guard_command_id": null'
+"${RDL}" doctor > guard-session-only-doctor.json
+assert_file_contains guard-session-only-doctor.json '"status": "ok"'
+
+repo_guard_build_missing="${tmp_root}/guard-build-missing-verification"
+mkdir -p "${repo_guard_build_missing}"
+cat > "${repo_guard_build_missing}/mission.md" <<'MISSION'
+# Build Mission
+MISSION
+cd "${repo_guard_build_missing}"
+"${RDL}" start build mission.md --session-id guard_build_missing > /dev/null
+complete_guard_review .rdl/sessions/guard_build_missing/rounds/001/review.md
+complete_guard_build_decision .rdl/sessions/guard_build_missing/rounds/001/decision.md
+complete_guard_build_records .rdl/sessions/guard_build_missing/rounds/001 no
+assert_fails guard-build-missing.json "${RDL}" guard-stop
+assert_file_contains guard-build-missing.json '"status": "blocked"'
+assert_file_contains guard-build-missing.json '"code":"missing_verification_evidence"'
+
+repo_guard_build_ok="${tmp_root}/guard-build-ok"
+mkdir -p "${repo_guard_build_ok}"
+cat > "${repo_guard_build_ok}/mission.md" <<'MISSION'
+# Build Mission
+MISSION
+cd "${repo_guard_build_ok}"
+"${RDL}" start build mission.md --session-id guard_build_ok > /dev/null
+complete_guard_review .rdl/sessions/guard_build_ok/rounds/001/review.md
+complete_guard_build_decision .rdl/sessions/guard_build_ok/rounds/001/decision.md
+complete_guard_build_records .rdl/sessions/guard_build_ok/rounds/001 yes
+"${RDL}" guard-stop > guard-build-ok.json
+assert_file_contains guard-build-ok.json '"status": "ok"'
+assert_file_contains guard-build-ok.json '"next_action": "allow"'
+
+repo_guard_close_missing_report="${tmp_root}/guard-close-missing-report"
+prepare_guard_close_repo "${repo_guard_close_missing_report}" guard_close_missing_report
+assert_fails guard-close-missing-report.json "${RDL}" guard-stop
+assert_file_contains guard-close-missing-report.json '"status": "blocked"'
+assert_file_contains guard-close-missing-report.json '"code":"missing_final_report"'
+
+repo_guard_close_missing_evidence="${tmp_root}/guard-close-missing-evidence"
+prepare_guard_close_repo "${repo_guard_close_missing_evidence}" guard_close_missing_evidence
+complete_guard_final_report .rdl/sessions/guard_close_missing_evidence/final-report.md
+sed -i '/^## Missing Evidence$/,/^## Known Confounders$/ { /^## Known Confounders$/!d; }' .rdl/sessions/guard_close_missing_evidence/rounds/001/evidence.md
+assert_fails guard-close-missing-evidence.json "${RDL}" guard-stop
+assert_file_contains guard-close-missing-evidence.json '"status": "blocked"'
+assert_file_contains guard-close-missing-evidence.json '"code":"missing_evidence_discipline"'
+
+repo_guard_close_open="${tmp_root}/guard-close-open-question"
+prepare_guard_close_repo "${repo_guard_close_open}" guard_close_open
+complete_guard_final_report .rdl/sessions/guard_close_open/final-report.md
+write_guard_blocking_question_progress .rdl/sessions/guard_close_open/progress.md
+assert_fails guard-close-open-question.json "${RDL}" guard-stop
+assert_file_contains guard-close-open-question.json '"status": "blocked"'
+assert_file_contains guard-close-open-question.json '"code":"unresolved_blocking_open_questions"'
+
+repo_guard_close_deferred="${tmp_root}/guard-close-deferred"
+prepare_guard_close_repo "${repo_guard_close_deferred}" guard_close_deferred
+complete_guard_final_report .rdl/sessions/guard_close_deferred/final-report.md
+write_guard_bad_deferred_progress .rdl/sessions/guard_close_deferred/progress.md
+assert_fails guard-close-deferred.json "${RDL}" guard-stop
+assert_file_contains guard-close-deferred.json '"status": "blocked"'
+assert_file_contains guard-close-deferred.json '"code":"incomplete_deferred_items"'
+
+repo_guard_close_citation="${tmp_root}/guard-close-citation"
+prepare_guard_close_repo "${repo_guard_close_citation}" guard_close_citation
+complete_guard_final_report .rdl/sessions/guard_close_citation/final-report.md
+cp "${ROOT_DIR}/local/research-dev-loop/templates/artifact-manifest.json" .rdl/sessions/guard_close_citation/artifact-manifest.json
+assert_fails guard-close-citation.json "${RDL}" guard-stop
+assert_file_contains guard-close-citation.json '"status": "blocked"'
+assert_file_contains guard-close-citation.json '"code":"missing_artifact_citation"'
+
+repo_guard_close_ok="${tmp_root}/guard-close-ok"
+prepare_guard_close_repo "${repo_guard_close_ok}" guard_close_ok
+complete_guard_final_report .rdl/sessions/guard_close_ok/final-report.md
+"${RDL}" guard-stop > guard-close-ok.json
+assert_file_contains guard-close-ok.json '"status": "ok"'
+assert_file_contains guard-close-ok.json '"next_action": "allow"'
 
 repo_guard_mismatch="${tmp_root}/guard-mismatch"
 prepare_manifest_repo "${repo_guard_mismatch}" guard_mismatch
