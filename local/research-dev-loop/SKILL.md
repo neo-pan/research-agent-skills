@@ -23,6 +23,13 @@ local/research-dev-loop/scripts/rdl.sh start build plan.md
 local/research-dev-loop/scripts/rdl.sh status
 ```
 
+## Requirements
+
+The CLI requires Bash, standard POSIX-style shell tools, a SHA-256 command
+(`sha256sum` or `shasum`), and a real JSON parser (`jq` or `python3`). RDL
+returns `missing_json_tool` instead of validating JSON with text matching when
+neither `jq` nor `python3` is available.
+
 The manual profile should remain usable without hooks. Guarded operation, when
 implemented, should call `rdl guard-stop` as thin transport and keep all RDL
 logic inside the CLI.

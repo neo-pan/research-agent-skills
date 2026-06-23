@@ -9,4 +9,6 @@ notes out of tracked files.
 Current local skills:
 
 - `phase-review` - manual independent review gate.
-- `research-dev-loop` - lightweight Research Development Loop records and CLI.
+- `research-dev-loop` - lightweight Research Development Loop records and CLI;
+  requires Bash, standard shell tools, `sha256sum` or `shasum`, and `jq` or
+  `python3` for JSON validation.

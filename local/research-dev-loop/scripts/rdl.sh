@@ -364,14 +364,7 @@ valid_json_file() {
     python3 -m json.tool "${file}" >/dev/null 2>&1
     return $?
   fi
-  case "${file}" in
-    *.json)
-      grep -q '[{}]' "${file}"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  return 2
 }
 
 json_artifacts_valid() {
@@ -407,7 +400,24 @@ PY
     return $?
   fi
 
-  grep -q '"artifacts"[[:space:]]*:' "${file}"
+  return 2
+}
+
+add_json_file_error() {
+  local -n target_ref="$1"
+  local code="$2"
+  local file="$3"
+  local invalid_message="$4"
+  local invalid_next="$5"
+  local missing_message="$6"
+  local missing_next="$7"
+  local status="$8"
+
+  if [[ "${status}" -eq 2 ]]; then
+    add_blocker target_ref "missing_json_tool" "${file}" "${missing_message}" "${missing_next}"
+  else
+    add_blocker target_ref "${code}" "${file}" "${invalid_message}" "${invalid_next}"
+  fi
 }
 
 file_sha256() {
@@ -774,8 +784,13 @@ validate_integrity_manifest() {
   if [[ ! -f "${manifest}" ]]; then
     return
   fi
-  if ! valid_json_file "${manifest}"; then
-    add_blocker integrity_errors_ref "invalid_integrity_json" "integrity.json" "integrity.json is not valid JSON." "Repair integrity.json explicitly."
+  local json_status=0
+  valid_json_file "${manifest}" || json_status=$?
+  if [[ "${json_status}" -ne 0 ]]; then
+    add_json_file_error integrity_errors_ref "invalid_integrity_json" "integrity.json" \
+      "integrity.json is not valid JSON." "Repair integrity.json explicitly." \
+      "No JSON parser is available for integrity.json validation." "Install jq or python3." \
+      "${json_status}"
     return
   fi
   if ! integrity_entries_valid "${manifest}"; then
@@ -876,10 +891,21 @@ validate_repairable_session_structure() {
 
   local manifest="${session_dir}/artifact-manifest.json"
   if [[ -f "${manifest}" ]]; then
-    if ! valid_json_file "${manifest}"; then
-      add_blocker repair_errors_ref "invalid_artifact_manifest_json" "artifact-manifest.json" "artifact-manifest.json is not valid JSON." "Fix artifact-manifest.json before repair."
-    elif ! json_artifacts_valid "${manifest}"; then
-      add_blocker repair_blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, and path or url." "Fix artifact entries before repair."
+    local json_status=0
+    valid_json_file "${manifest}" || json_status=$?
+    if [[ "${json_status}" -ne 0 ]]; then
+      add_json_file_error repair_errors_ref "invalid_artifact_manifest_json" "artifact-manifest.json" \
+        "artifact-manifest.json is not valid JSON." "Fix artifact-manifest.json before repair." \
+        "No JSON parser is available for artifact-manifest.json validation." "Install jq or python3." \
+        "${json_status}"
+    else
+      local artifact_status=0
+      json_artifacts_valid "${manifest}" || artifact_status=$?
+      if [[ "${artifact_status}" -eq 2 ]]; then
+        add_blocker repair_errors_ref "missing_json_tool" "artifact-manifest.json" "No JSON parser is available for artifact-manifest.json validation." "Install jq or python3."
+      elif [[ "${artifact_status}" -ne 0 ]]; then
+        add_blocker repair_blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, and path or url." "Fix artifact entries before repair."
+      fi
     fi
   fi
 }
@@ -887,7 +913,9 @@ validate_repairable_session_structure() {
 manifest_usable_for_repair() {
   local manifest="$1"
   [[ -f "${manifest}" ]] || return 1
-  valid_json_file "${manifest}" || return 1
+  local json_status=0
+  valid_json_file "${manifest}" || json_status=$?
+  [[ "${json_status}" -eq 0 ]] || return 1
   integrity_entries_valid "${manifest}" || return 1
   [[ -n "$(integrity_entries_jsonl "${manifest}" | head -n 1)" ]] || return 1
   return 0
@@ -1103,11 +1131,15 @@ find_active_session_for_start() {
     validate_state_file "${dir}" errors
     if [[ "${#errors[@]}" -gt 0 ]]; then
       local session_id="" mode="" phase="" round=""
-      if [[ -f "${state_file}" ]] && valid_json_file "${state_file}"; then
-        session_id="$(json_value "${state_file}" "session_id")"
-        mode="$(json_value "${state_file}" "mode")"
-        phase="$(json_value "${state_file}" "phase")"
-        round="$(json_number "${state_file}" "round")"
+      if [[ -f "${state_file}" ]]; then
+        local json_status=0
+        valid_json_file "${state_file}" || json_status=$?
+        if [[ "${json_status}" -eq 0 ]]; then
+          session_id="$(json_value "${state_file}" "session_id")"
+          mode="$(json_value "${state_file}" "mode")"
+          phase="$(json_value "${state_file}" "phase")"
+          round="$(json_number "${state_file}" "round")"
+        fi
       fi
       emit_problem "error" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "repair RDL session metadata" "${errors[@]}"
       exit 1
@@ -1145,11 +1177,15 @@ find_session_for_audit() {
     validate_state_file "${dir}" errors
     if [[ "${#errors[@]}" -gt 0 ]]; then
       local session_id="" mode="" phase="" round=""
-      if [[ -f "${state_file}" ]] && valid_json_file "${state_file}"; then
-        session_id="$(json_value "${state_file}" "session_id")"
-        mode="$(json_value "${state_file}" "mode")"
-        phase="$(json_value "${state_file}" "phase")"
-        round="$(json_number "${state_file}" "round")"
+      if [[ -f "${state_file}" ]]; then
+        local json_status=0
+        valid_json_file "${state_file}" || json_status=$?
+        if [[ "${json_status}" -eq 0 ]]; then
+          session_id="$(json_value "${state_file}" "session_id")"
+          mode="$(json_value "${state_file}" "mode")"
+          phase="$(json_value "${state_file}" "phase")"
+          round="$(json_number "${state_file}" "round")"
+        fi
       fi
       local next_action="repair RDL session metadata"
       if [[ "${action}" == "guard-stop" ]]; then
@@ -1393,8 +1429,13 @@ validate_state_file() {
     add_blocker state_errors_ref "missing_state" "${state_file}" "state.json is missing." "Restore state.json or abandon the session."
     return
   fi
-  if ! valid_json_file "${state_file}"; then
-    add_blocker state_errors_ref "invalid_state_json" "${state_file}" "state.json is not valid JSON." "Repair state.json explicitly."
+  local json_status=0
+  valid_json_file "${state_file}" || json_status=$?
+  if [[ "${json_status}" -ne 0 ]]; then
+    add_json_file_error state_errors_ref "invalid_state_json" "${state_file}" \
+      "state.json is not valid JSON." "Repair state.json explicitly." \
+      "No JSON parser is available for state.json validation." "Install jq or python3." \
+      "${json_status}"
     return
   fi
 
@@ -1486,10 +1527,21 @@ validate_session() {
 
   local manifest="${session_dir}/artifact-manifest.json"
   if [[ -f "${manifest}" ]]; then
-    if ! valid_json_file "${manifest}"; then
-      add_blocker errors_ref "invalid_artifact_manifest_json" "artifact-manifest.json" "artifact-manifest.json is not valid JSON." "Fix artifact-manifest.json."
-    elif ! json_artifacts_valid "${manifest}"; then
-      add_blocker blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, and path or url." "Fix artifact entries or remove invalid artifacts."
+    local json_status=0
+    valid_json_file "${manifest}" || json_status=$?
+    if [[ "${json_status}" -ne 0 ]]; then
+      add_json_file_error errors_ref "invalid_artifact_manifest_json" "artifact-manifest.json" \
+        "artifact-manifest.json is not valid JSON." "Fix artifact-manifest.json." \
+        "No JSON parser is available for artifact-manifest.json validation." "Install jq or python3." \
+        "${json_status}"
+    else
+      local artifact_status=0
+      json_artifacts_valid "${manifest}" || artifact_status=$?
+      if [[ "${artifact_status}" -eq 2 ]]; then
+        add_blocker errors_ref "missing_json_tool" "artifact-manifest.json" "No JSON parser is available for artifact-manifest.json validation." "Install jq or python3."
+      elif [[ "${artifact_status}" -ne 0 ]]; then
+        add_blocker blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, and path or url." "Fix artifact entries or remove invalid artifacts."
+      fi
     fi
   fi
 }

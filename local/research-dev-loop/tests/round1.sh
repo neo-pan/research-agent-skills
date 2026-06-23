@@ -1230,4 +1230,25 @@ assert_file_contains start-missing-state.json '"status": "error"'
 assert_file_contains start-missing-state.json '"code":"missing_state"'
 [[ ! -e .rdl/sessions/new ]] || fail "start created a new session despite missing existing state"
 
+repo10="${tmp_root}/repo10"
+mkdir -p "${repo10}"
+cat > "${repo10}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cd "${repo10}"
+"${RDL}" start research mission.md --session-id no_json_tool > /dev/null
+parserless_bin="${tmp_root}/parserless-bin"
+mkdir -p "${parserless_bin}"
+for tool in bash awk basename cat cp date dirname find grep head mkdir mv rm sed sha256sum sort tr wc; do
+  tool_path="$(command -v "${tool}")" || fail "missing fixture tool ${tool}"
+  ln -s "${tool_path}" "${parserless_bin}/${tool}"
+done
+if PATH="${parserless_bin}" "${RDL}" doctor > no-json-tool.json; then
+  fail "doctor unexpectedly succeeded without jq or python3"
+fi
+assert_file_contains no-json-tool.json '"status": "error"'
+assert_file_contains no-json-tool.json '"code":"missing_json_tool"'
+assert_file_contains no-json-tool.json '"file":"\.rdl/sessions/no_json_tool/state.json"'
+assert_file_contains no-json-tool.json '"next_action":"Install jq or python3."'
+
 echo "round1 tests ok"
