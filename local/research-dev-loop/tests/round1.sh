@@ -23,6 +23,57 @@ assert_fails() {
   fi
 }
 
+with_manifest() {
+  local manifest="$1"
+  local script="$2"
+  python3 - "${manifest}" "${script}" <<'PY'
+import json
+import sys
+
+manifest, script = sys.argv[1], sys.argv[2]
+with open(manifest, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+entries = data["entries"]
+if script == "empty":
+    data["entries"] = []
+elif script == "remove-state":
+    data["entries"] = [entry for entry in entries if entry.get("path") != "state.json"]
+elif script == "duplicate-state":
+    state_entry = next(entry for entry in entries if entry.get("path") == "state.json")
+    data["entries"].append(dict(state_entry))
+elif script == "state-policy-human":
+    for entry in entries:
+        if entry.get("path") == "state.json":
+            entry["policy"] = "human_owned"
+elif script == "unknown-path":
+    data["entries"].append({
+        "path": "project-output.log",
+        "policy": "human_owned",
+        "sha256": "0" * 64,
+    })
+else:
+    raise SystemExit(f"unknown manifest script: {script}")
+
+with open(manifest, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+}
+
+prepare_manifest_repo() {
+  local repo_dir="$1"
+  local session_id="$2"
+  mkdir -p "${repo_dir}"
+  cat > "${repo_dir}/mission.md" <<'MISSION'
+# Mission
+
+Manifest fixture mission.
+MISSION
+  cd "${repo_dir}"
+  "${RDL}" start research mission.md --session-id "${session_id}" > /dev/null
+}
+
 tmp_root="$(mktemp -d)"
 trap 'rm -rf "${tmp_root}"' EXIT
 
@@ -59,6 +110,52 @@ assert_file_contains doctor-state-integrity.json '"code":"integrity_violation_cl
 assert_file_contains doctor-state-integrity.json '"file":"state.json"'
 sed -i 's/"mode": "build"/"mode": "research"/' .rdl/sessions/r1/state.json
 
+repo_empty_manifest="${tmp_root}/empty-manifest"
+prepare_manifest_repo "${repo_empty_manifest}" empty_manifest
+with_manifest .rdl/sessions/empty_manifest/integrity.json empty
+assert_fails doctor-empty-integrity.json "${RDL}" doctor
+assert_file_contains doctor-empty-integrity.json '"status": "error"'
+assert_file_contains doctor-empty-integrity.json '"code":"empty_integrity_manifest"'
+sed -i 's/"phase": "plan"/"phase": "work"/' .rdl/sessions/empty_manifest/state.json
+assert_fails doctor-empty-integrity-edited-state.json "${RDL}" doctor
+assert_file_contains doctor-empty-integrity-edited-state.json '"status": "error"'
+assert_file_contains doctor-empty-integrity-edited-state.json '"code":"empty_integrity_manifest"'
+
+repo_missing_state_entry="${tmp_root}/missing-state-entry"
+prepare_manifest_repo "${repo_missing_state_entry}" missing_state_entry
+with_manifest .rdl/sessions/missing_state_entry/integrity.json remove-state
+assert_fails doctor-missing-state-entry.json "${RDL}" doctor
+assert_file_contains doctor-missing-state-entry.json '"status": "error"'
+assert_file_contains doctor-missing-state-entry.json '"code":"missing_integrity_entry"'
+assert_file_contains doctor-missing-state-entry.json '"file":"state.json"'
+sed -i 's/"phase": "plan"/"phase": "work"/' .rdl/sessions/missing_state_entry/state.json
+assert_fails doctor-missing-state-entry-edited-state.json "${RDL}" doctor
+assert_file_contains doctor-missing-state-entry-edited-state.json '"status": "error"'
+assert_file_contains doctor-missing-state-entry-edited-state.json '"code":"missing_integrity_entry"'
+
+repo_duplicate_state_entry="${tmp_root}/duplicate-state-entry"
+prepare_manifest_repo "${repo_duplicate_state_entry}" duplicate_state_entry
+with_manifest .rdl/sessions/duplicate_state_entry/integrity.json duplicate-state
+assert_fails doctor-duplicate-state-entry.json "${RDL}" doctor
+assert_file_contains doctor-duplicate-state-entry.json '"status": "error"'
+assert_file_contains doctor-duplicate-state-entry.json '"code":"duplicate_integrity_entry"'
+
+repo_policy_mismatch="${tmp_root}/policy-mismatch"
+prepare_manifest_repo "${repo_policy_mismatch}" policy_mismatch
+with_manifest .rdl/sessions/policy_mismatch/integrity.json state-policy-human
+assert_fails doctor-policy-mismatch.json "${RDL}" doctor
+assert_file_contains doctor-policy-mismatch.json '"status": "error"'
+assert_file_contains doctor-policy-mismatch.json '"code":"integrity_policy_mismatch"'
+
+repo_unknown_path="${tmp_root}/unknown-path"
+prepare_manifest_repo "${repo_unknown_path}" unknown_path
+printf 'not an RDL protocol file\n' > .rdl/sessions/unknown_path/project-output.log
+with_manifest .rdl/sessions/unknown_path/integrity.json unknown-path
+assert_fails doctor-unknown-integrity-path.json "${RDL}" doctor
+assert_file_contains doctor-unknown-integrity-path.json '"status": "error"'
+assert_file_contains doctor-unknown-integrity-path.json '"code":"unexpected_integrity_entry"'
+
+cd "${repo}"
 rm .rdl/sessions/r1/progress.md
 assert_fails doctor-missing.json "${RDL}" doctor
 assert_file_contains doctor-missing.json '"status": "blocked"'

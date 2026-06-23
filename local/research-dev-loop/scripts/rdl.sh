@@ -520,6 +520,79 @@ PY
   return 1
 }
 
+validate_integrity_completeness() {
+  local session_dir="$1"
+  local manifest="$2"
+  local -n completeness_errors_ref="$3"
+
+  local entries_tsv
+  if ! entries_tsv="$(integrity_entries_tsv "${manifest}")"; then
+    add_blocker completeness_errors_ref "missing_json_tool" "integrity.json" "No JSON tool is available for integrity validation." "Install jq or python3."
+    return
+  fi
+
+  declare -A expected_policy=()
+  declare -A expected_seen=()
+  local expected_path
+  while IFS= read -r expected_path; do
+    [[ -n "${expected_path}" ]] || continue
+    expected_policy["${expected_path}"]="$(integrity_policy_for_path "${expected_path}")"
+    expected_seen["${expected_path}"]=0
+  done < <(session_protocol_files "${session_dir}")
+
+  if [[ -z "${expected_policy[state.json]+set}" ]]; then
+    add_blocker completeness_errors_ref "invalid_integrity_manifest" "integrity.json" "integrity manifest expected set is missing state.json." "Restore state.json or repair session metadata."
+    return
+  fi
+
+  local entry_count=0
+  local path policy expected
+  while IFS=$'\t' read -r path policy expected; do
+    [[ -n "${path}" ]] || continue
+    entry_count=$((entry_count + 1))
+
+    if [[ -z "${expected_policy[${path}]+set}" ]]; then
+      if [[ ! -f "${session_dir}/${path}" ]]; then
+        continue
+      fi
+      add_blocker completeness_errors_ref "unexpected_integrity_entry" "${path}" "integrity.json contains a path outside the expected RDL protocol set." "Remove the unexpected integrity entry or run rdl repair when available."
+      continue
+    fi
+
+    expected_seen["${path}"]=$((expected_seen["${path}"] + 1))
+    if [[ "${policy}" != "${expected_policy[${path}]}" ]]; then
+      add_blocker completeness_errors_ref "integrity_policy_mismatch" "${path}" "integrity entry policy does not match the expected RDL protocol policy." "Restore the expected integrity policy or run rdl repair when available."
+    fi
+  done <<< "${entries_tsv}"
+
+  if [[ "${entry_count}" -eq 0 ]]; then
+    add_blocker completeness_errors_ref "empty_integrity_manifest" "integrity.json" "integrity.json has no protocol-file entries." "Restore integrity.json or run rdl repair when available."
+  fi
+
+  for expected_path in "${!expected_policy[@]}"; do
+    case "${expected_seen[${expected_path}]}" in
+      0)
+        case "${expected_policy[${expected_path}]}" in
+          cli_owned|append_only|managed_prefix)
+            add_blocker completeness_errors_ref "missing_integrity_entry" "${expected_path}" "integrity.json is missing an expected protected protocol-file entry." "Restore the missing integrity entry or run rdl repair when available."
+            ;;
+          human_owned)
+            ;;
+        esac
+        ;;
+      1)
+        ;;
+      *)
+        add_blocker completeness_errors_ref "duplicate_integrity_entry" "${expected_path}" "integrity.json contains duplicate entries for the same protocol file." "Remove duplicate integrity entries or run rdl repair when available."
+        ;;
+    esac
+  done
+
+  if [[ "${expected_seen[state.json]:-0}" -eq 1 && "${expected_policy[state.json]}" != "cli_owned" ]]; then
+    add_blocker completeness_errors_ref "integrity_policy_mismatch" "state.json" "state.json must be protected as cli_owned." "Restore state.json integrity policy or run rdl repair when available."
+  fi
+}
+
 validate_integrity_manifest() {
   local session_dir="$1"
   local -n integrity_errors_ref="$2"
@@ -537,6 +610,7 @@ validate_integrity_manifest() {
     add_blocker integrity_errors_ref "invalid_integrity_manifest" "integrity.json" "integrity.json entries are malformed." "Repair integrity.json explicitly."
     return
   fi
+  validate_integrity_completeness "${session_dir}" "${manifest}" integrity_errors_ref
 
   local path policy expected actual
   while IFS=$'\t' read -r path policy expected; do
