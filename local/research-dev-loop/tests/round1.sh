@@ -155,6 +155,34 @@ assert_fails doctor-unknown-integrity-path.json "${RDL}" doctor
 assert_file_contains doctor-unknown-integrity-path.json '"status": "error"'
 assert_file_contains doctor-unknown-integrity-path.json '"code":"unexpected_integrity_entry"'
 
+repo_ledger_rewrite="${tmp_root}/ledger-rewrite"
+prepare_manifest_repo "${repo_ledger_rewrite}" ledger_rewrite
+sed -i 's/# Decision Ledger/# Rewritten Ledger/' .rdl/sessions/ledger_rewrite/decision-ledger.md
+assert_fails doctor-ledger-rewrite.json "${RDL}" doctor
+assert_file_contains doctor-ledger-rewrite.json '"status": "error"'
+assert_file_contains doctor-ledger-rewrite.json '"code":"integrity_violation_append_only"'
+
+repo_ledger_short="${tmp_root}/ledger-short"
+prepare_manifest_repo "${repo_ledger_short}" ledger_short
+printf '# Short\n' > .rdl/sessions/ledger_short/decision-ledger.md
+assert_fails doctor-ledger-short.json "${RDL}" doctor
+assert_file_contains doctor-ledger-short.json '"status": "error"'
+assert_file_contains doctor-ledger-short.json '"code":"integrity_violation_append_only"'
+
+repo_prompt_changed="${tmp_root}/prompt-changed"
+prepare_manifest_repo "${repo_prompt_changed}" prompt_changed
+sed -i 's/^Mode: research$/Mode: build/' .rdl/sessions/prompt_changed/rounds/001/prompt.md
+assert_fails doctor-prompt-managed-change.json "${RDL}" doctor
+assert_file_contains doctor-prompt-managed-change.json '"status": "error"'
+assert_file_contains doctor-prompt-managed-change.json '"code":"integrity_violation_managed_prefix"'
+
+repo_prompt_markers="${tmp_root}/prompt-markers"
+prepare_manifest_repo "${repo_prompt_markers}" prompt_markers
+sed -i '/rdl:managed/d' .rdl/sessions/prompt_markers/rounds/001/prompt.md
+assert_fails doctor-prompt-missing-managed-block.json "${RDL}" doctor
+assert_file_contains doctor-prompt-missing-managed-block.json '"status": "error"'
+assert_file_contains doctor-prompt-missing-managed-block.json '"code":"missing_managed_block"'
+
 cd "${repo}"
 rm .rdl/sessions/r1/progress.md
 assert_fails doctor-missing.json "${RDL}" doctor

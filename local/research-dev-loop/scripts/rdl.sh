@@ -360,6 +360,32 @@ file_sha256() {
   return 1
 }
 
+file_size_bytes() {
+  local file="$1"
+  wc -c < "${file}" | tr -d '[:space:]'
+}
+
+managed_block_sha256() {
+  local file="$1"
+  awk '
+    /<!-- rdl:managed policy=managed_prefix -->/ {
+      if (in_block || seen) exit 2
+      in_block = 1
+      seen = 1
+    }
+    in_block { print }
+    /<!-- \/rdl:managed -->/ {
+      if (in_block) {
+        in_block = 0
+        closed = 1
+      }
+    }
+    END {
+      if (!seen || !closed || in_block) exit 1
+    }
+  ' "${file}" | file_sha256 -
+}
+
 integrity_policy_for_path() {
   case "$1" in
     state.json)
@@ -416,7 +442,7 @@ write_integrity_manifest() {
     printf '  "entries": [\n'
 
     local first=1
-    local path policy digest
+    local path policy digest size managed_digest
     while IFS= read -r path; do
       [[ -n "${path}" ]] || continue
       digest="$(file_sha256 "${session_dir}/${path}")" || return 1
@@ -425,10 +451,21 @@ write_integrity_manifest() {
         printf ',\n'
       fi
       first=0
-      printf '    {"path":"%s","policy":"%s","sha256":"%s"}' \
+      printf '    {"path":"%s","policy":"%s","sha256":"%s"' \
         "$(json_escape "${path}")" \
         "$(json_escape "${policy}")" \
         "$(json_escape "${digest}")"
+      case "${policy}" in
+        append_only)
+          size="$(file_size_bytes "${session_dir}/${path}")"
+          printf ',"size":%s,"prefix_sha256":"%s"' "${size}" "$(json_escape "${digest}")"
+          ;;
+        managed_prefix)
+          managed_digest="$(managed_block_sha256 "${session_dir}/${path}")" || return 1
+          printf ',"managed_sha256":"%s"' "$(json_escape "${managed_digest}")"
+          ;;
+      esac
+      printf '}'
     done < <(session_protocol_files "${session_dir}")
 
     printf '\n  ]\n'
@@ -462,7 +499,15 @@ integrity_entries_valid() {
       all(.entries[];
         (.path | type == "string" and length > 0) and
         (.policy | type == "string" and test("^(cli_owned|append_only|managed_prefix|human_owned)$")) and
-        (.sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+        (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+        (if .policy == "append_only" then
+          (.size | type == "number" and . >= 0) and
+          (.prefix_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+        elif .policy == "managed_prefix" then
+          (.managed_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+        else
+          true
+        end)
       )
     ' "${file}" >/dev/null 2>&1
     return $?
@@ -492,16 +537,24 @@ for entry in entries:
         raise SystemExit(1)
     if not isinstance(entry.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]):
         raise SystemExit(1)
+    if entry["policy"] == "append_only":
+        if not isinstance(entry.get("size"), int) or entry["size"] < 0:
+            raise SystemExit(1)
+        if not isinstance(entry.get("prefix_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", entry["prefix_sha256"]):
+            raise SystemExit(1)
+    if entry["policy"] == "managed_prefix":
+        if not isinstance(entry.get("managed_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", entry["managed_sha256"]):
+            raise SystemExit(1)
 PY
     return $?
   fi
   return 1
 }
 
-integrity_entries_tsv() {
+integrity_entries_jsonl() {
   local file="$1"
   if command -v jq >/dev/null 2>&1; then
-    jq -r '.entries[] | [.path, .policy, .sha256] | @tsv' "${file}"
+    jq -c '.entries[]' "${file}"
     return
   fi
   if command -v python3 >/dev/null 2>&1; then
@@ -513,8 +566,22 @@ with open(sys.argv[1], "r", encoding="utf-8") as fh:
     data = json.load(fh)
 
 for entry in data.get("entries", []):
-    print(f"{entry.get('path', '')}\t{entry.get('policy', '')}\t{entry.get('sha256', '')}")
+    print(json.dumps(entry, separators=(",", ":")))
 PY
+    return
+  fi
+  return 1
+}
+
+json_entry_field() {
+  local entry="$1"
+  local field="$2"
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "${entry}" | jq -r --arg field "${field}" '.[$field] // empty'
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import json, sys; print(json.loads(sys.argv[2]).get(sys.argv[1], ""))' "${field}" "${entry}"
     return
   fi
   return 1
@@ -525,8 +592,8 @@ validate_integrity_completeness() {
   local manifest="$2"
   local -n completeness_errors_ref="$3"
 
-  local entries_tsv
-  if ! entries_tsv="$(integrity_entries_tsv "${manifest}")"; then
+  local entries_jsonl
+  if ! entries_jsonl="$(integrity_entries_jsonl "${manifest}")"; then
     add_blocker completeness_errors_ref "missing_json_tool" "integrity.json" "No JSON tool is available for integrity validation." "Install jq or python3."
     return
   fi
@@ -546,8 +613,10 @@ validate_integrity_completeness() {
   fi
 
   local entry_count=0
-  local path policy expected
-  while IFS=$'\t' read -r path policy expected; do
+  local entry path policy
+  while IFS= read -r entry; do
+    path="$(json_entry_field "${entry}" "path")"
+    policy="$(json_entry_field "${entry}" "policy")"
     [[ -n "${path}" ]] || continue
     entry_count=$((entry_count + 1))
 
@@ -563,7 +632,7 @@ validate_integrity_completeness() {
     if [[ "${policy}" != "${expected_policy[${path}]}" ]]; then
       add_blocker completeness_errors_ref "integrity_policy_mismatch" "${path}" "integrity entry policy does not match the expected RDL protocol policy." "Restore the expected integrity policy or run rdl repair when available."
     fi
-  done <<< "${entries_tsv}"
+  done <<< "${entries_jsonl}"
 
   if [[ "${entry_count}" -eq 0 ]]; then
     add_blocker completeness_errors_ref "empty_integrity_manifest" "integrity.json" "integrity.json has no protocol-file entries." "Restore integrity.json or run rdl repair when available."
@@ -612,8 +681,11 @@ validate_integrity_manifest() {
   fi
   validate_integrity_completeness "${session_dir}" "${manifest}" integrity_errors_ref
 
-  local path policy expected actual
-  while IFS=$'\t' read -r path policy expected; do
+  local entry path policy expected actual recorded_size actual_size prefix_hash managed_hash actual_managed_hash
+  while IFS= read -r entry; do
+    path="$(json_entry_field "${entry}" "path")"
+    policy="$(json_entry_field "${entry}" "policy")"
+    expected="$(json_entry_field "${entry}" "sha256")"
     [[ -n "${path}" ]] || continue
 
     if [[ ! -f "${session_dir}/${path}" ]]; then
@@ -631,10 +703,36 @@ validate_integrity_manifest() {
           add_blocker integrity_errors_ref "integrity_violation_cli_owned" "${path}" "CLI-owned protocol file hash changed." "Restore ${path} or run rdl repair when available."
         fi
         ;;
-      append_only|managed_prefix|human_owned)
+      append_only)
+        recorded_size="$(json_entry_field "${entry}" "size")"
+        prefix_hash="$(json_entry_field "${entry}" "prefix_sha256")"
+        actual_size="$(file_size_bytes "${session_dir}/${path}")"
+        if [[ "${actual_size}" -lt "${recorded_size}" ]]; then
+          add_blocker integrity_errors_ref "integrity_violation_append_only" "${path}" "Append-only protocol file is shorter than its recorded size." "Restore the append-only prefix or run rdl repair when available."
+          continue
+        fi
+        actual="$(head -c "${recorded_size}" "${session_dir}/${path}" | file_sha256 -)" || {
+          add_blocker integrity_errors_ref "missing_hash_tool" "${path}" "No sha256 tool is available for append-only integrity validation." "Install sha256sum or shasum."
+          continue
+        }
+        if [[ "${actual}" != "${prefix_hash}" ]]; then
+          add_blocker integrity_errors_ref "integrity_violation_append_only" "${path}" "Append-only protocol file prefix changed." "Restore the append-only prefix or run rdl repair when available."
+        fi
+        ;;
+      managed_prefix)
+        managed_hash="$(json_entry_field "${entry}" "managed_sha256")"
+        if ! actual_managed_hash="$(managed_block_sha256 "${session_dir}/${path}")"; then
+          add_blocker integrity_errors_ref "missing_managed_block" "${path}" "Managed-prefix protocol file is missing required managed markers." "Restore the generated managed block or run rdl repair when available."
+          continue
+        fi
+        if [[ "${actual_managed_hash}" != "${managed_hash}" ]]; then
+          add_blocker integrity_errors_ref "integrity_violation_managed_prefix" "${path}" "Managed-prefix protocol file block changed." "Restore the generated managed block or run rdl repair when available."
+        fi
+        ;;
+      human_owned)
         ;;
     esac
-  done < <(integrity_entries_tsv "${manifest}") || {
+  done < <(integrity_entries_jsonl "${manifest}") || {
     add_blocker integrity_errors_ref "missing_json_tool" "integrity.json" "No JSON tool is available for integrity validation." "Install jq or python3."
   }
 }
