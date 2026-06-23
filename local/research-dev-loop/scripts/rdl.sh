@@ -22,6 +22,7 @@ Usage:
   rdl close positive|negative|inconclusive [--json]
   rdl abandon <reason> [--json]
   rdl guard-stop [--guard-session-id <id>] [--guard-command-id <id>] [--json]
+  rdl repair [--json]
 EOF
 }
 
@@ -404,6 +405,20 @@ integrity_policy_for_path() {
   esac
 }
 
+known_protocol_path() {
+  case "$1" in
+    state.json|mission.md|factors.md|artifact-manifest.json|decision-ledger.md|progress.md|final-report.md)
+      return 0
+      ;;
+    rounds/*/prompt.md|rounds/*/intent.md|rounds/*/work.md|rounds/*/evidence.md|rounds/*/interpretation.md|rounds/*/review.md|rounds/*/decision.md)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 session_protocol_files() {
   local session_dir="$1"
   local path
@@ -735,6 +750,175 @@ validate_integrity_manifest() {
     esac
   done < <(integrity_entries_jsonl "${manifest}") || {
     add_blocker integrity_errors_ref "missing_json_tool" "integrity.json" "No JSON tool is available for integrity validation." "Install jq or python3."
+  }
+}
+
+validate_repairable_session_structure() {
+  local session_dir="$1"
+  local -n repair_errors_ref="$2"
+  local -n repair_blockers_ref="$3"
+
+  validate_state_file "${session_dir}" repair_errors_ref
+  if [[ "${#repair_errors_ref[@]}" -gt 0 ]]; then
+    return
+  fi
+
+  local state_file="${session_dir}/state.json"
+  local round mission_file
+  round="$(json_number "${state_file}" "round")"
+  mission_file="$(json_value "${state_file}" "mission_file")"
+
+  local required=(
+    "${mission_file}"
+    "factors.md"
+    "artifact-manifest.json"
+    "decision-ledger.md"
+    "progress.md"
+  )
+  local file
+  for file in "${required[@]}"; do
+    if [[ ! -f "${session_dir}/${file}" ]]; then
+      add_blocker repair_blockers_ref "unsafe_missing_protocol_file" "${file}" "${file} is missing and cannot be safely repaired." "Restore ${file} from a known-good source."
+    fi
+  done
+
+  local round_dir="${session_dir}/rounds/$(printf '%03d' "${round:-1}")"
+  if [[ ! -d "${round_dir}" ]]; then
+    add_blocker repair_blockers_ref "unsafe_missing_round_dir" "rounds/$(printf '%03d' "${round:-1}")" "active round directory is missing and cannot be safely repaired." "Restore the active round directory."
+  fi
+
+  local manifest="${session_dir}/artifact-manifest.json"
+  if [[ -f "${manifest}" ]]; then
+    if ! valid_json_file "${manifest}"; then
+      add_blocker repair_errors_ref "invalid_artifact_manifest_json" "artifact-manifest.json" "artifact-manifest.json is not valid JSON." "Fix artifact-manifest.json before repair."
+    elif ! json_artifacts_valid "${manifest}"; then
+      add_blocker repair_blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, and path or url." "Fix artifact entries before repair."
+    fi
+  fi
+}
+
+plan_prompt_repair() {
+  local session_dir="$1"
+  local -n repaired_ref="$2"
+  local -n prompt_blockers_ref="$3"
+  local state_file="${session_dir}/state.json"
+  local session_id mode round
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  round="$(json_number "${state_file}" "round")"
+
+  local prompt_path="rounds/$(printf '%03d' "${round:-1}")/prompt.md"
+  local prompt_file="${session_dir}/${prompt_path}"
+  if [[ -f "${prompt_file}" ]]; then
+    return
+  fi
+
+  mkdir -p "$(dirname "${prompt_file}")"
+  if [[ "${round:-1}" -le 1 ]]; then
+    local mission_file
+    mission_file="$(json_value "${state_file}" "mission_file")"
+    render_prompt "${mode}" "${round:-1}" "${mission_file}" "none" "${prompt_file}"
+  else
+    add_blocker prompt_blockers_ref "unsafe_missing_prompt" "${prompt_path}" "Only the initial round prompt can be deterministically repaired." "Restore ${prompt_path} from a known-good source."
+    return
+  fi
+  repaired_ref+=("${prompt_path}")
+}
+
+validate_existing_manifest_for_repair() {
+  local session_dir="$1"
+  local manifest="$2"
+  local -n repair_errors_ref="$3"
+  local -n repair_blockers_ref="$4"
+
+  [[ -f "${manifest}" ]] || return
+  if ! valid_json_file "${manifest}"; then
+    return 0
+  fi
+  if ! integrity_entries_valid "${manifest}"; then
+    return 0
+  fi
+
+  local entry path policy expected actual recorded_size actual_size prefix_hash managed_hash actual_managed_hash
+  while IFS= read -r entry; do
+    path="$(json_entry_field "${entry}" "path")"
+    policy="$(json_entry_field "${entry}" "policy")"
+    expected="$(json_entry_field "${entry}" "sha256")"
+    [[ -n "${path}" ]] || continue
+
+    if ! known_protocol_path "${path}"; then
+      add_blocker repair_errors_ref "unsafe_integrity_entry" "${path}" "integrity.json contains a path outside the RDL protocol set." "Remove the unexpected entry manually before repair."
+      continue
+    fi
+
+    if [[ ! -f "${session_dir}/${path}" ]]; then
+      case "${path}" in
+        rounds/*/prompt.md)
+          ;;
+        *)
+          add_blocker repair_errors_ref "unsafe_missing_protocol_file" "${path}" "Missing protocol file cannot be safely repaired." "Restore ${path} from a known-good source."
+          ;;
+      esac
+      continue
+    fi
+
+    case "${policy}" in
+      cli_owned)
+        actual="$(file_sha256 "${session_dir}/${path}")" || {
+          add_blocker repair_errors_ref "missing_hash_tool" "${path}" "No sha256 tool is available for repair validation." "Install sha256sum or shasum."
+          continue
+        }
+        if [[ "${actual}" != "${expected}" ]]; then
+          add_blocker repair_errors_ref "unsafe_cli_owned_change" "${path}" "CLI-owned protocol file hash changed." "Restore ${path} from a known-good source before repair."
+        fi
+        ;;
+      append_only)
+        recorded_size="$(json_entry_field "${entry}" "size")"
+        prefix_hash="$(json_entry_field "${entry}" "prefix_sha256")"
+        actual_size="$(file_size_bytes "${session_dir}/${path}")"
+        if [[ "${actual_size}" -lt "${recorded_size}" ]]; then
+          add_blocker repair_errors_ref "unsafe_append_only_change" "${path}" "Append-only protocol file is shorter than its recorded size." "Restore the append-only history before repair."
+          continue
+        fi
+        actual="$(head -c "${recorded_size}" "${session_dir}/${path}" | file_sha256 -)" || {
+          add_blocker repair_errors_ref "missing_hash_tool" "${path}" "No sha256 tool is available for repair validation." "Install sha256sum or shasum."
+          continue
+        }
+        if [[ "${actual}" != "${prefix_hash}" ]]; then
+          add_blocker repair_errors_ref "unsafe_append_only_change" "${path}" "Append-only protocol file prefix changed." "Restore the append-only history before repair."
+        fi
+        ;;
+      managed_prefix)
+        managed_hash="$(json_entry_field "${entry}" "managed_sha256")"
+        if ! actual_managed_hash="$(managed_block_sha256 "${session_dir}/${path}")"; then
+          case "${path}" in
+            rounds/*/prompt.md)
+              ;;
+            *)
+              add_blocker repair_errors_ref "unsafe_managed_prefix_change" "${path}" "Managed-prefix protocol file is missing managed markers." "Restore the managed block before repair."
+              ;;
+          esac
+          continue
+        fi
+        if [[ "${actual_managed_hash}" != "${managed_hash}" ]]; then
+          add_blocker repair_errors_ref "unsafe_managed_prefix_change" "${path}" "Managed-prefix protocol file block changed." "Restore the generated managed block before repair."
+        fi
+        ;;
+      human_owned)
+        actual="$(file_sha256 "${session_dir}/${path}")" || {
+          add_blocker repair_errors_ref "missing_hash_tool" "${path}" "No sha256 tool is available for repair validation." "Install sha256sum or shasum."
+          continue
+        }
+        if [[ "${actual}" != "${expected}" ]]; then
+          add_blocker repair_errors_ref "unsafe_human_owned_change" "${path}" "Human-owned protocol file hash changed." "Review or restore ${path}; repair will not bless changed human-authored content."
+        fi
+        ;;
+      *)
+        add_blocker repair_errors_ref "unsafe_integrity_entry" "${path}" "integrity entry policy is unsupported." "Fix integrity.json before repair."
+        ;;
+    esac
+  done < <(integrity_entries_jsonl "${manifest}") || {
+    add_blocker repair_errors_ref "missing_json_tool" "integrity.json" "No JSON tool is available for repair validation." "Install jq or python3."
   }
 }
 
@@ -1822,6 +2006,88 @@ cmd_guard_stop() {
   emit_ok "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "allow"
 }
 
+join_csv() {
+  local first=1
+  local item
+  for item in "$@"; do
+    if [[ "${first}" -eq 0 ]]; then
+      printf ','
+    fi
+    first=0
+    printf '%s' "${item}"
+  done
+}
+
+cmd_repair() {
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --json)
+        shift
+        ;;
+      *)
+        die_result "repair" "unknown_option" "" "unknown option: $1" "Run rdl --help."
+        ;;
+    esac
+  done
+
+  local session_dir
+  load_active_session repair || return $?
+  session_dir="${FOUND_SESSION_DIR}"
+
+  local state_file="${session_dir}/state.json"
+  local session_id mode phase round
+  session_id="$(json_value "${state_file}" "session_id")"
+  mode="$(json_value "${state_file}" "mode")"
+  phase="$(json_value "${state_file}" "phase")"
+  round="$(json_number "${state_file}" "round")"
+
+  local errors=()
+  local blockers=()
+  validate_repairable_session_structure "${session_dir}" errors blockers
+  if [[ "${#errors[@]}" -gt 0 ]]; then
+    emit_problem "error" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${errors[@]}"
+    return 1
+  fi
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${blockers[@]}"
+    return 2
+  fi
+
+  local repaired=()
+  local manifest="${session_dir}/integrity.json"
+  validate_existing_manifest_for_repair "${session_dir}" "${manifest}" errors blockers
+  if [[ "${#errors[@]}" -gt 0 ]]; then
+    emit_problem "error" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${errors[@]}"
+    return 1
+  fi
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${blockers[@]}"
+    return 2
+  fi
+
+  plan_prompt_repair "${session_dir}" repaired blockers
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${blockers[@]}"
+    return 2
+  fi
+  repaired+=("integrity.json")
+  refresh_integrity_or_error "repair" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
+
+  errors=()
+  blockers=()
+  validate_session "${session_dir}" errors blockers
+  if [[ "${#errors[@]}" -gt 0 ]]; then
+    emit_problem "error" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "inspect repaired session" "${errors[@]}"
+    return 1
+  fi
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "inspect repaired session" "${blockers[@]}"
+    return 2
+  fi
+
+  emit_ok "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "$(join_csv "${repaired[@]}")"
+}
+
 cmd_review() {
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -2165,6 +2431,9 @@ main() {
       ;;
     guard-stop)
       cmd_guard_stop "$@"
+      ;;
+    repair)
+      cmd_repair "$@"
       ;;
     *)
       die_result "unknown" "unknown_command" "" "unknown command: ${command}" "Run rdl --help."

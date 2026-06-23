@@ -236,6 +236,87 @@ assert_fails doctor-prompt-missing-managed-block.json "${RDL}" doctor
 assert_file_contains doctor-prompt-missing-managed-block.json '"status": "error"'
 assert_file_contains doctor-prompt-missing-managed-block.json '"code":"missing_managed_block"'
 
+repo_repair_empty_manifest="${tmp_root}/repair-empty-manifest"
+prepare_manifest_repo "${repo_repair_empty_manifest}" repair_empty_manifest
+with_manifest .rdl/sessions/repair_empty_manifest/integrity.json empty
+"${RDL}" repair > repair-empty-manifest.json
+assert_file_contains repair-empty-manifest.json '"status": "ok"'
+assert_file_contains repair-empty-manifest.json '"action": "repair"'
+assert_file_contains repair-empty-manifest.json '"next_action": "integrity.json"'
+"${RDL}" doctor > repair-empty-doctor.json
+assert_file_contains repair-empty-doctor.json '"status": "ok"'
+
+repo_repair_bad_manifest="${tmp_root}/repair-bad-manifest"
+prepare_manifest_repo "${repo_repair_bad_manifest}" repair_bad_manifest
+printf '{ broken\n' > .rdl/sessions/repair_bad_manifest/integrity.json
+"${RDL}" repair > repair-bad-manifest.json
+assert_file_contains repair-bad-manifest.json '"status": "ok"'
+assert_file_contains repair-bad-manifest.json '"next_action": "integrity.json"'
+"${RDL}" doctor > repair-bad-doctor.json
+assert_file_contains repair-bad-doctor.json '"status": "ok"'
+
+repo_repair_policy_mismatch="${tmp_root}/repair-policy-mismatch"
+prepare_manifest_repo "${repo_repair_policy_mismatch}" repair_policy_mismatch
+with_manifest .rdl/sessions/repair_policy_mismatch/integrity.json state-policy-human
+"${RDL}" repair > repair-policy-mismatch.json
+assert_file_contains repair-policy-mismatch.json '"status": "ok"'
+assert_file_contains repair-policy-mismatch.json '"next_action": "integrity.json"'
+"${RDL}" doctor > repair-policy-mismatch-doctor.json
+assert_file_contains repair-policy-mismatch-doctor.json '"status": "ok"'
+
+repo_repair_missing_prompt="${tmp_root}/repair-missing-prompt"
+prepare_manifest_repo "${repo_repair_missing_prompt}" repair_missing_prompt
+rm .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md
+"${RDL}" repair > repair-missing-prompt.json
+assert_file_contains repair-missing-prompt.json '"status": "ok"'
+assert_file_contains repair-missing-prompt.json '"next_action": "rounds/001/prompt.md,integrity.json"'
+assert_file_contains .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md 'Mode: research'
+"${RDL}" doctor > repair-missing-prompt-doctor.json
+assert_file_contains repair-missing-prompt-doctor.json '"status": "ok"'
+
+repo_repair_ledger_rewrite="${tmp_root}/repair-ledger-rewrite"
+prepare_manifest_repo "${repo_repair_ledger_rewrite}" repair_ledger_rewrite
+sed -i 's/# Decision Ledger/# Rewritten Ledger/' .rdl/sessions/repair_ledger_rewrite/decision-ledger.md
+assert_fails repair-ledger-rewrite.json "${RDL}" repair
+assert_file_contains repair-ledger-rewrite.json '"status": "error"'
+assert_file_contains repair-ledger-rewrite.json '"code":"unsafe_append_only_change"'
+assert_file_contains repair-ledger-rewrite.json '"file":"decision-ledger.md"'
+
+repo_repair_changed_evidence="${tmp_root}/repair-changed-evidence"
+prepare_manifest_repo "${repo_repair_changed_evidence}" repair_changed_evidence
+cat > .rdl/sessions/repair_changed_evidence/rounds/001/evidence.md <<'EVIDENCE'
+# Evidence
+
+Original evidence.
+EVIDENCE
+"${RDL}" repair > repair-evidence-baseline.json
+assert_file_contains repair-evidence-baseline.json '"status": "ok"'
+sed -i 's/Original evidence/Rewritten evidence/' .rdl/sessions/repair_changed_evidence/rounds/001/evidence.md
+assert_fails repair-changed-evidence.json "${RDL}" repair
+assert_file_contains repair-changed-evidence.json '"status": "error"'
+assert_file_contains repair-changed-evidence.json '"code":"unsafe_human_owned_change"'
+assert_file_contains repair-changed-evidence.json '"file":"rounds/001/evidence.md"'
+
+repo_repair_changed_decision="${tmp_root}/repair-changed-decision"
+prepare_manifest_repo "${repo_repair_changed_decision}" repair_changed_decision
+complete_guard_decision .rdl/sessions/repair_changed_decision/rounds/001/decision.md
+"${RDL}" repair > repair-decision-baseline.json
+assert_file_contains repair-decision-baseline.json '"status": "ok"'
+sed -i 's/Decision: continue/Decision: pivot/' .rdl/sessions/repair_changed_decision/rounds/001/decision.md
+assert_fails repair-changed-decision.json "${RDL}" repair
+assert_file_contains repair-changed-decision.json '"status": "error"'
+assert_file_contains repair-changed-decision.json '"code":"unsafe_human_owned_change"'
+assert_file_contains repair-changed-decision.json '"file":"rounds/001/decision.md"'
+
+repo_repair_unknown_path="${tmp_root}/repair-unknown-path"
+prepare_manifest_repo "${repo_repair_unknown_path}" repair_unknown_path
+printf 'not an RDL protocol file\n' > .rdl/sessions/repair_unknown_path/project-output.log
+with_manifest .rdl/sessions/repair_unknown_path/integrity.json unknown-path
+assert_fails repair-unknown-path.json "${RDL}" repair
+assert_file_contains repair-unknown-path.json '"status": "error"'
+assert_file_contains repair-unknown-path.json '"code":"unsafe_integrity_entry"'
+assert_file_contains repair-unknown-path.json '"file":"project-output.log"'
+
 repo_guard_none="${tmp_root}/guard-none"
 mkdir -p "${repo_guard_none}"
 cd "${repo_guard_none}"
