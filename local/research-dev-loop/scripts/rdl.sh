@@ -1648,6 +1648,77 @@ validate_progress_close_readiness() {
   fi
 }
 
+expected_closes_for_mode() {
+  case "$1" in
+    research)
+      printf 'claim'
+      ;;
+    build)
+      printf 'capability'
+      ;;
+    *)
+      printf ''
+      ;;
+  esac
+}
+
+validate_round_advance_readiness() {
+  local session_dir="$1"
+  local mode="$2"
+  local round="$3"
+  local -n advance_blockers_ref="$4"
+
+  local expected_closes
+  expected_closes="$(expected_closes_for_mode "${mode}")"
+  local round_dir="${session_dir}/$(round_path "${round}")"
+  local review_file="${round_dir}/review.md"
+  local decision_file="${round_dir}/decision.md"
+
+  validate_review_file "${review_file}" advance_blockers_ref
+  validate_decision_file "${decision_file}" "${expected_closes}" advance_blockers_ref
+  validate_mode_round_minimums "${mode}" "${round_dir}" advance_blockers_ref
+}
+
+validate_guard_stop_readiness() {
+  local session_dir="$1"
+  local mode="$2"
+  local round="$3"
+  local -n guard_blockers_ref="$4"
+
+  validate_round_advance_readiness "${session_dir}" "${mode}" "${round}" guard_blockers_ref
+
+  local round_dir="${session_dir}/$(round_path "${round}")"
+  local decision_file="${round_dir}/decision.md"
+  local decision=""
+  if [[ -f "${decision_file}" ]]; then
+    decision="$(md_field_value "${decision_file}" "Decision")"
+  fi
+
+  case "${decision}" in
+    close-positive)
+      validate_final_report "${session_dir}" "positive" guard_blockers_ref
+      validate_close_evidence_discipline "${round_dir}" guard_blockers_ref
+      validate_progress_close_readiness "${session_dir}" "positive" guard_blockers_ref
+      validate_close_artifact_citations "${session_dir}" "${round_dir}" guard_blockers_ref
+      validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" guard_blockers_ref
+      ;;
+    close-negative)
+      validate_final_report "${session_dir}" "negative" guard_blockers_ref
+      validate_close_evidence_discipline "${round_dir}" guard_blockers_ref
+      validate_progress_close_readiness "${session_dir}" "negative" guard_blockers_ref
+      validate_close_artifact_citations "${session_dir}" "${round_dir}" guard_blockers_ref
+      validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" guard_blockers_ref
+      ;;
+    close-inconclusive)
+      validate_final_report "${session_dir}" "inconclusive" guard_blockers_ref
+      validate_close_evidence_discipline "${round_dir}" guard_blockers_ref
+      validate_progress_close_readiness "${session_dir}" "inconclusive" guard_blockers_ref
+      validate_close_artifact_citations "${session_dir}" "${round_dir}" guard_blockers_ref
+      validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" guard_blockers_ref
+      ;;
+  esac
+}
+
 mark_session_ended() {
   local session_dir="$1"
   local status="$2"
@@ -1735,10 +1806,16 @@ cmd_guard_stop() {
     return 2
   fi
 
+  validate_guard_stop_readiness "${session_dir}" "${mode}" "${round:-1}" blockers
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "block" "${blockers[@]}"
+    return 2
+  fi
+
   if [[ -n "${guard_command_id}" && "${guard_command_id}" != "${last_guard_command_id}" ]]; then
     local now
     now="$(now_utc)"
-    mark_guard_seen "${session_dir}" "${guard_session_id:-${session_id}}" "${guard_command_id}" "${now}"
+    mark_guard_seen "${session_dir}" "${guard_session_id}" "${guard_command_id}" "${now}"
     refresh_integrity_or_error "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
   fi
 
@@ -1873,19 +1950,11 @@ cmd_next() {
   mode="$(json_value "${state_file}" "mode")"
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
-  if [[ "${mode}" == "research" ]]; then
-    expected_closes="claim"
-  else
-    expected_closes="capability"
-  fi
+  expected_closes="$(expected_closes_for_mode "${mode}")"
 
   local round_dir="${session_dir}/$(round_path "${round}")"
-  local review_file="${round_dir}/review.md"
-  local decision_file="${round_dir}/decision.md"
   local blockers=()
-  validate_review_file "${review_file}" blockers
-  validate_decision_file "${decision_file}" "${expected_closes}" blockers
-  validate_mode_round_minimums "${mode}" "${round_dir}" blockers
+  validate_round_advance_readiness "${session_dir}" "${mode}" "${round}" blockers
   if [[ "${#blockers[@]}" -gt 0 ]]; then
     emit_problem "blocked" "next" "${session_id}" "${mode}" "${phase}" "${round}" "complete current round review and decision" "${blockers[@]}"
     return 2
@@ -1900,6 +1969,7 @@ cmd_next() {
   fi
 
   local decision next_loop previous_decision now
+  local decision_file="${round_dir}/decision.md"
   decision="$(md_field_value "${decision_file}" "Decision")"
   next_loop="$(md_field_value "${decision_file}" "Recommended next loop")"
   previous_decision="${decision}; closes ${expected_closes}; recommended next loop ${next_loop}"

@@ -74,6 +74,59 @@ MISSION
   "${RDL}" start research mission.md --session-id "${session_id}" > /dev/null
 }
 
+complete_guard_review() {
+  local file="$1"
+  cat > "${file}" <<'REVIEW'
+# Review
+
+Reviewer: fixture
+Review Mode: manual
+Review Scope: current round
+Artifacts Reviewed: prompt, evidence, decision
+Verdict: PASS
+Decision Reviewed: pending
+Evidence Reviewed: fixture evidence
+Blocking Evidence Gaps: none
+Implementation Findings: none
+Evaluation Integrity Findings: acceptable
+Overclaim Risks: bounded
+Readiness Level: ready
+Recommended Decision: continue
+
+REVIEW
+}
+
+complete_guard_decision() {
+  local file="$1"
+  cat > "${file}" <<'DECISION'
+# Decision
+
+Decision: continue
+Closes: claim
+Evidence: fixture evidence
+Uncertainty: bounded
+What this rules out: unsupported alternatives
+What remains unknown: later work
+Recommended next loop: none
+Next smallest step: continue same mode
+
+DECISION
+}
+
+complete_guard_research_records() {
+  local round_dir="$1"
+  cat > "${round_dir}/evidence.md" <<'EVIDENCE'
+# Evidence
+
+Research evidence: fixture claim evidence.
+EVIDENCE
+  cat > "${round_dir}/interpretation.md" <<'INTERPRETATION'
+# Interpretation
+
+Interpretation: fixture evidence supports the next research step.
+INTERPRETATION
+}
+
 tmp_root="$(mktemp -d)"
 trap 'rm -rf "${tmp_root}"' EXIT
 
@@ -192,8 +245,21 @@ assert_file_contains guard-none.json '"action": "guard-stop"'
 assert_file_contains guard-none.json '"next_action": "allow"'
 [[ ! -d .rdl ]] || fail "guard-stop no-session created RDL state"
 
+repo_guard_fresh="${tmp_root}/guard-fresh"
+prepare_manifest_repo "${repo_guard_fresh}" guard_fresh
+assert_fails guard-fresh.json "${RDL}" guard-stop
+assert_file_contains guard-fresh.json '"status": "blocked"'
+assert_file_contains guard-fresh.json '"next_action": "block"'
+assert_file_contains guard-fresh.json '"code":"missing_review"'
+assert_file_contains guard-fresh.json '"code":"missing_decision"'
+
 repo_guard_ok="${tmp_root}/guard-ok"
 prepare_manifest_repo "${repo_guard_ok}" guard_ok
+complete_guard_review .rdl/sessions/guard_ok/rounds/001/review.md
+complete_guard_decision .rdl/sessions/guard_ok/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/guard_ok/rounds/001
+"${RDL}" doctor > guard-ok-doctor-before.json
+assert_file_contains guard-ok-doctor-before.json '"status": "ok"'
 "${RDL}" guard-stop --guard-session-id guard_ok --guard-command-id g1 > guard-ok.json
 assert_file_contains guard-ok.json '"status": "ok"'
 assert_file_contains guard-ok.json '"next_action": "allow"'
@@ -204,6 +270,17 @@ assert_file_contains guard-duplicate.json '"next_action": "allow"'
 [[ "$(grep -c '"last_guard_command_id": "g1"' .rdl/sessions/guard_ok/state.json)" -eq 1 ]] || fail "duplicate guard id duplicated state field"
 "${RDL}" doctor > guard-post-doctor.json
 assert_file_contains guard-post-doctor.json '"status": "ok"'
+
+repo_guard_command_only="${tmp_root}/guard-command-only"
+prepare_manifest_repo "${repo_guard_command_only}" guard_command_only
+complete_guard_review .rdl/sessions/guard_command_only/rounds/001/review.md
+complete_guard_decision .rdl/sessions/guard_command_only/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/guard_command_only/rounds/001
+"${RDL}" guard-stop --guard-command-id command-only-1 > guard-command-only.json
+assert_file_contains guard-command-only.json '"status": "ok"'
+assert_file_contains guard-command-only.json '"next_action": "allow"'
+assert_file_contains .rdl/sessions/guard_command_only/state.json '"last_guard_command_id": "command-only-1"'
+assert_file_contains .rdl/sessions/guard_command_only/state.json '"guard_session_id": null'
 
 repo_guard_mismatch="${tmp_root}/guard-mismatch"
 prepare_manifest_repo "${repo_guard_mismatch}" guard_mismatch
