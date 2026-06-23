@@ -156,6 +156,30 @@ json_value() {
   sed -n 's/^[[:space:]]*"'"${key}"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${file}" | head -n 1
 }
 
+json_string_value() {
+  local file="$1"
+  local key="$2"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r --arg key "${key}" '.[$key] // empty' "${file}"
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" "$key" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+value = data.get(sys.argv[2], "")
+if value is not None:
+    print(value)
+PY
+    return
+  fi
+  return 1
+}
+
 json_number() {
   local file="$1"
   local key="$2"
@@ -855,8 +879,7 @@ plan_prompt_repair() {
   mkdir -p "$(dirname "${prompt_file}")"
   if [[ "${round:-1}" -le 1 ]]; then
     local prompt_objective
-    prompt_objective="$(json_value "${state_file}" "prompt_objective")"
-    if [[ -z "${prompt_objective}" ]]; then
+    if ! prompt_objective="$(json_string_value "${state_file}" "prompt_objective")" || [[ -z "${prompt_objective}" ]]; then
       add_blocker prompt_blockers_ref "missing_prompt_metadata" "${prompt_path}" "Initial prompt cannot be deterministically repaired without prompt_objective metadata." "Restore ${prompt_path} or start a new session with prompt metadata."
       return
     fi

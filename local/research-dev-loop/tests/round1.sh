@@ -629,6 +629,17 @@ cmp original-prompt.md .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md 
 "${RDL}" doctor > repair-missing-prompt-doctor.json
 assert_file_contains repair-missing-prompt-doctor.json '"status": "ok"'
 
+repo_repair_missing_prompt_escaped="${tmp_root}/repair-missing-prompt-escaped"
+prepare_manifest_repo "${repo_repair_missing_prompt_escaped}" repair_missing_prompt_escaped 'plan"a.md'
+cp .rdl/sessions/repair_missing_prompt_escaped/rounds/001/prompt.md original-prompt.md
+rm .rdl/sessions/repair_missing_prompt_escaped/rounds/001/prompt.md
+"${RDL}" repair > repair-missing-prompt-escaped.json
+assert_file_contains repair-missing-prompt-escaped.json '"status": "ok"'
+assert_file_contains repair-missing-prompt-escaped.json '"next_action": "rounds/001/prompt.md,integrity.json"'
+cmp original-prompt.md .rdl/sessions/repair_missing_prompt_escaped/rounds/001/prompt.md || fail "escaped repaired prompt differed from original prompt"
+"${RDL}" doctor > repair-missing-prompt-escaped-doctor.json
+assert_file_contains repair-missing-prompt-escaped-doctor.json '"status": "ok"'
+
 repo_repair_legacy_missing_prompt="${tmp_root}/repair-legacy-missing-prompt"
 prepare_manifest_repo "${repo_repair_legacy_missing_prompt}" repair_legacy_missing_prompt
 rm .rdl/sessions/repair_legacy_missing_prompt/rounds/001/prompt.md
