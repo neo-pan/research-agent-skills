@@ -43,6 +43,8 @@ elif script == "remove-state":
     data["entries"] = [entry for entry in entries if entry.get("path") != "state.json"]
 elif script == "remove-evidence":
     data["entries"] = [entry for entry in entries if entry.get("path") != "rounds/001/evidence.md"]
+elif script == "remove-prompt":
+    data["entries"] = [entry for entry in entries if entry.get("path") != "rounds/001/prompt.md"]
 elif script == "duplicate-state":
     state_entry = next(entry for entry in entries if entry.get("path") == "state.json")
     data["entries"].append(dict(state_entry))
@@ -754,6 +756,19 @@ assert_fails repair-prior-prompt-doctor.json "${RDL}" doctor
 assert_file_contains repair-prior-prompt-doctor.json '"code":"missing_integrity_file"'
 assert_file_contains repair-prior-prompt-doctor.json '"file":"rounds/001/prompt.md"'
 
+repo_repair_prior_prompt_missing_entry="${tmp_root}/repair-prior-prompt-missing-entry"
+prepare_manifest_repo "${repo_repair_prior_prompt_missing_entry}" repair_prior_prompt_missing_entry
+complete_guard_review .rdl/sessions/repair_prior_prompt_missing_entry/rounds/001/review.md
+complete_guard_decision .rdl/sessions/repair_prior_prompt_missing_entry/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/repair_prior_prompt_missing_entry/rounds/001
+"${RDL}" next > /dev/null
+rm .rdl/sessions/repair_prior_prompt_missing_entry/rounds/001/prompt.md
+with_manifest .rdl/sessions/repair_prior_prompt_missing_entry/integrity.json remove-prompt
+assert_fails repair-prior-prompt-missing-entry.json "${RDL}" repair
+assert_file_contains repair-prior-prompt-missing-entry.json '"status": "error"'
+assert_file_contains repair-prior-prompt-missing-entry.json '"code":"unsafe_missing_protocol_file"'
+assert_file_contains repair-prior-prompt-missing-entry.json '"file":"rounds/001/prompt.md"'
+
 repo_repair_prompt_changed="${tmp_root}/repair-prompt-changed"
 prepare_manifest_repo "${repo_repair_prompt_changed}" repair_prompt_changed
 sed -i 's/^Mode: research$/Mode: build/' .rdl/sessions/repair_prompt_changed/rounds/001/prompt.md
@@ -817,6 +832,19 @@ assert_fails repair-changed-evidence.json "${RDL}" repair
 assert_file_contains repair-changed-evidence.json '"status": "error"'
 assert_file_contains repair-changed-evidence.json '"code":"unsafe_human_owned_change"'
 assert_file_contains repair-changed-evidence.json '"file":"rounds/001/evidence.md"'
+
+repo_repair_prior_evidence_missing_entry="${tmp_root}/repair-prior-evidence-missing-entry"
+prepare_manifest_repo "${repo_repair_prior_evidence_missing_entry}" repair_prior_evidence_missing_entry
+complete_guard_review .rdl/sessions/repair_prior_evidence_missing_entry/rounds/001/review.md
+complete_guard_decision .rdl/sessions/repair_prior_evidence_missing_entry/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/repair_prior_evidence_missing_entry/rounds/001
+"${RDL}" next > /dev/null
+rm .rdl/sessions/repair_prior_evidence_missing_entry/rounds/001/evidence.md
+with_manifest .rdl/sessions/repair_prior_evidence_missing_entry/integrity.json remove-evidence
+assert_fails repair-prior-evidence-missing-entry.json "${RDL}" repair
+assert_file_contains repair-prior-evidence-missing-entry.json '"status": "error"'
+assert_file_contains repair-prior-evidence-missing-entry.json '"code":"unsafe_missing_protocol_file"'
+assert_file_contains repair-prior-evidence-missing-entry.json '"file":"rounds/001/evidence.md"'
 
 repo_repair_changed_decision="${tmp_root}/repair-changed-decision"
 prepare_manifest_repo "${repo_repair_changed_decision}" repair_changed_decision

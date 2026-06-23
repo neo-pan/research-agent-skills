@@ -514,6 +514,25 @@ session_protocol_files() {
   fi
 }
 
+completed_round_protocol_files() {
+  local mode="$1"
+  local round="$2"
+  local round_dir
+  round_dir="$(round_path "${round}")"
+
+  printf '%s\n' "${round_dir}/prompt.md"
+  if [[ "${mode}" == "research" ]]; then
+    printf '%s\n' "${round_dir}/evidence.md"
+    printf '%s\n' "${round_dir}/interpretation.md"
+  else
+    printf '%s\n' "${round_dir}/intent.md"
+    printf '%s\n' "${round_dir}/work.md"
+    printf '%s\n' "${round_dir}/evidence.md"
+  fi
+  printf '%s\n' "${round_dir}/review.md"
+  printf '%s\n' "${round_dir}/decision.md"
+}
+
 write_integrity_manifest() {
   local session_dir="$1"
   local session_id="$2"
@@ -917,6 +936,21 @@ validate_protected_manifest_repair_scope() {
     [[ -n "${path}" ]] || continue
     seen_path["${path}"]=1
   done < <(integrity_entries_jsonl "${manifest}")
+
+  local state_file="${session_dir}/state.json"
+  local mode round completed_round
+  mode="$(json_value "${state_file}" "mode")"
+  round="$(json_number "${state_file}" "round")"
+
+  for ((completed_round = 1; completed_round < ${round:-1}; completed_round++)); do
+    while IFS= read -r expected_path; do
+      [[ -n "${expected_path}" ]] || continue
+      [[ -f "${session_dir}/${expected_path}" ]] && continue
+      if [[ -z "${seen_path[${expected_path}]+set}" ]]; then
+        add_blocker protected_errors_ref "unsafe_missing_protocol_file" "${expected_path}" "Missing prior-round protocol file cannot be safely repaired." "Restore ${expected_path} from a known-good source."
+      fi
+    done < <(completed_round_protocol_files "${mode}" "${completed_round}")
+  done
 
   while IFS= read -r expected_path; do
     [[ -n "${expected_path}" ]] || continue
