@@ -676,6 +676,21 @@ assert_file_contains repair-noninitial-prompt.json '"status": "blocked"'
 assert_file_contains repair-noninitial-prompt.json '"code":"unsafe_missing_prompt"'
 assert_file_contains repair-noninitial-prompt.json '"file":"rounds/002/prompt.md"'
 
+repo_repair_prior_prompt="${tmp_root}/repair-prior-prompt"
+prepare_manifest_repo "${repo_repair_prior_prompt}" repair_prior_prompt
+complete_guard_review .rdl/sessions/repair_prior_prompt/rounds/001/review.md
+complete_guard_decision .rdl/sessions/repair_prior_prompt/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/repair_prior_prompt/rounds/001
+"${RDL}" next > /dev/null
+rm .rdl/sessions/repair_prior_prompt/rounds/001/prompt.md
+assert_fails repair-prior-prompt.json "${RDL}" repair
+assert_file_contains repair-prior-prompt.json '"status": "error"'
+assert_file_contains repair-prior-prompt.json '"code":"unsafe_missing_protocol_file"'
+assert_file_contains repair-prior-prompt.json '"file":"rounds/001/prompt.md"'
+assert_fails repair-prior-prompt-doctor.json "${RDL}" doctor
+assert_file_contains repair-prior-prompt-doctor.json '"code":"missing_integrity_file"'
+assert_file_contains repair-prior-prompt-doctor.json '"file":"rounds/001/prompt.md"'
+
 repo_repair_prompt_changed="${tmp_root}/repair-prompt-changed"
 prepare_manifest_repo "${repo_repair_prompt_changed}" repair_prompt_changed
 sed -i 's/^Mode: research$/Mode: build/' .rdl/sessions/repair_prompt_changed/rounds/001/prompt.md

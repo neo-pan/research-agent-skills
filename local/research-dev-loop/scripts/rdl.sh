@@ -878,6 +878,10 @@ validate_existing_manifest_for_repair() {
     return 0
   fi
 
+  local active_round active_prompt_path
+  active_round="$(json_number "${session_dir}/state.json" "round")"
+  active_prompt_path="rounds/$(printf '%03d' "${active_round:-1}")/prompt.md"
+
   local entry path policy expected actual recorded_size actual_size prefix_hash managed_hash actual_managed_hash
   while IFS= read -r entry; do
     path="$(json_entry_field "${entry}" "path")"
@@ -893,6 +897,9 @@ validate_existing_manifest_for_repair() {
     if [[ ! -f "${session_dir}/${path}" ]]; then
       case "${path}" in
         rounds/*/prompt.md)
+          if [[ "${path}" != "${active_prompt_path}" ]]; then
+            add_blocker repair_errors_ref "unsafe_missing_protocol_file" "${path}" "Missing protocol file cannot be safely repaired." "Restore ${path} from a known-good source."
+          fi
           ;;
         *)
           add_blocker repair_errors_ref "unsafe_missing_protocol_file" "${path}" "Missing protocol file cannot be safely repaired." "Restore ${path} from a known-good source."
