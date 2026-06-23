@@ -39,6 +39,8 @@ if script == "empty":
     data["entries"] = []
 elif script == "remove-state":
     data["entries"] = [entry for entry in entries if entry.get("path") != "state.json"]
+elif script == "remove-evidence":
+    data["entries"] = [entry for entry in entries if entry.get("path") != "rounds/001/evidence.md"]
 elif script == "duplicate-state":
     state_entry = next(entry for entry in entries if entry.get("path") == "state.json")
     data["entries"].append(dict(state_entry))
@@ -617,6 +619,19 @@ assert_file_contains repair-duplicate-state-entry.json '"file":"state.json"'
 assert_fails repair-duplicate-state-entry-doctor.json "${RDL}" doctor
 assert_file_contains repair-duplicate-state-entry-doctor.json '"code":"duplicate_integrity_entry"'
 
+repo_repair_missing_evidence_entry_changed="${tmp_root}/repair-missing-evidence-entry-changed"
+prepare_manifest_repo "${repo_repair_missing_evidence_entry_changed}" repair_missing_evidence_entry_changed
+complete_guard_review .rdl/sessions/repair_missing_evidence_entry_changed/rounds/001/review.md
+complete_guard_decision .rdl/sessions/repair_missing_evidence_entry_changed/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/repair_missing_evidence_entry_changed/rounds/001
+"${RDL}" next > /dev/null
+with_manifest .rdl/sessions/repair_missing_evidence_entry_changed/integrity.json remove-evidence
+sed -i 's/fixture claim evidence/rewritten fixture claim evidence/' .rdl/sessions/repair_missing_evidence_entry_changed/rounds/001/evidence.md
+assert_fails repair-missing-evidence-entry-changed.json "${RDL}" repair
+assert_file_contains repair-missing-evidence-entry-changed.json '"status": "error"'
+assert_file_contains repair-missing-evidence-entry-changed.json '"code":"missing_integrity_entry"'
+assert_file_contains repair-missing-evidence-entry-changed.json '"file":"rounds/001/evidence.md"'
+
 repo_repair_missing_prompt="${tmp_root}/repair-missing-prompt"
 prepare_manifest_repo "${repo_repair_missing_prompt}" repair_missing_prompt plan.md
 cp .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md original-prompt.md
@@ -756,14 +771,11 @@ assert_file_contains repair-ledger-rewrite.json '"file":"decision-ledger.md"'
 
 repo_repair_changed_evidence="${tmp_root}/repair-changed-evidence"
 prepare_manifest_repo "${repo_repair_changed_evidence}" repair_changed_evidence
-cat > .rdl/sessions/repair_changed_evidence/rounds/001/evidence.md <<'EVIDENCE'
-# Evidence
-
-Original evidence.
-EVIDENCE
-"${RDL}" repair > repair-evidence-baseline.json
-assert_file_contains repair-evidence-baseline.json '"status": "ok"'
-sed -i 's/Original evidence/Rewritten evidence/' .rdl/sessions/repair_changed_evidence/rounds/001/evidence.md
+complete_guard_review .rdl/sessions/repair_changed_evidence/rounds/001/review.md
+complete_guard_decision .rdl/sessions/repair_changed_evidence/rounds/001/decision.md
+complete_guard_research_records .rdl/sessions/repair_changed_evidence/rounds/001
+"${RDL}" next > /dev/null
+sed -i 's/fixture claim evidence/rewritten fixture claim evidence/' .rdl/sessions/repair_changed_evidence/rounds/001/evidence.md
 assert_fails repair-changed-evidence.json "${RDL}" repair
 assert_file_contains repair-changed-evidence.json '"status": "error"'
 assert_file_contains repair-changed-evidence.json '"code":"unsafe_human_owned_change"'
@@ -771,9 +783,10 @@ assert_file_contains repair-changed-evidence.json '"file":"rounds/001/evidence.m
 
 repo_repair_changed_decision="${tmp_root}/repair-changed-decision"
 prepare_manifest_repo "${repo_repair_changed_decision}" repair_changed_decision
+complete_guard_review .rdl/sessions/repair_changed_decision/rounds/001/review.md
 complete_guard_decision .rdl/sessions/repair_changed_decision/rounds/001/decision.md
-"${RDL}" repair > repair-decision-baseline.json
-assert_file_contains repair-decision-baseline.json '"status": "ok"'
+complete_guard_research_records .rdl/sessions/repair_changed_decision/rounds/001
+"${RDL}" next > /dev/null
 sed -i 's/Decision: continue/Decision: pivot/' .rdl/sessions/repair_changed_decision/rounds/001/decision.md
 assert_fails repair-changed-decision.json "${RDL}" repair
 assert_file_contains repair-changed-decision.json '"status": "error"'

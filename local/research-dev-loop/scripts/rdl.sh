@@ -858,6 +858,23 @@ validate_protected_manifest_repair_scope() {
     esac
     i=$((i + 4))
   done
+
+  declare -A seen_path=()
+  local entry path expected_path
+  while IFS= read -r entry; do
+    path="$(json_entry_field "${entry}" "path")"
+    [[ -n "${path}" ]] || continue
+    seen_path["${path}"]=1
+  done < <(integrity_entries_jsonl "${manifest}")
+
+  while IFS= read -r expected_path; do
+    [[ -n "${expected_path}" ]] || continue
+    [[ "$(integrity_policy_for_path "${expected_path}")" == "human_owned" ]] || continue
+    [[ -f "${session_dir}/${expected_path}" ]] || continue
+    if [[ -z "${seen_path[${expected_path}]+set}" ]]; then
+      add_blocker protected_errors_ref "missing_integrity_entry" "${expected_path}" "integrity.json is missing an expected human-owned protocol-file entry needed for repair validation." "Restore the missing integrity entry or review the file manually before repair."
+    fi
+  done < <(session_protocol_files "${session_dir}")
 }
 
 plan_prompt_repair() {
