@@ -26,11 +26,13 @@ assert_fails() {
 with_manifest() {
   local manifest="$1"
   local script="$2"
-  python3 - "${manifest}" "${script}" <<'PY'
+  local target_file="${3:-}"
+  python3 - "${manifest}" "${script}" "${target_file}" <<'PY'
+import hashlib
 import json
 import sys
 
-manifest, script = sys.argv[1], sys.argv[2]
+manifest, script, target_file = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(manifest, "r", encoding="utf-8") as fh:
     data = json.load(fh)
 
@@ -48,6 +50,13 @@ elif script == "state-policy-human":
     for entry in entries:
         if entry.get("path") == "state.json":
             entry["policy"] = "human_owned"
+elif script == "state-policy-human-current-hash":
+    with open(target_file, "rb") as fh:
+        digest = hashlib.sha256(fh.read()).hexdigest()
+    for entry in entries:
+        if entry.get("path") == "state.json":
+            entry["policy"] = "human_owned"
+            entry["sha256"] = digest
 elif script == "unknown-path":
     data["entries"].append({
         "path": "project-output.log",
@@ -582,11 +591,21 @@ assert_file_contains repair-bad-manifest.json '"file":"integrity.json"'
 repo_repair_policy_mismatch="${tmp_root}/repair-policy-mismatch"
 prepare_manifest_repo "${repo_repair_policy_mismatch}" repair_policy_mismatch
 with_manifest .rdl/sessions/repair_policy_mismatch/integrity.json state-policy-human
-"${RDL}" repair > repair-policy-mismatch.json
-assert_file_contains repair-policy-mismatch.json '"status": "ok"'
-assert_file_contains repair-policy-mismatch.json '"next_action": "integrity.json"'
-"${RDL}" doctor > repair-policy-mismatch-doctor.json
-assert_file_contains repair-policy-mismatch-doctor.json '"status": "ok"'
+assert_fails repair-policy-mismatch.json "${RDL}" repair
+assert_file_contains repair-policy-mismatch.json '"status": "error"'
+assert_file_contains repair-policy-mismatch.json '"code":"integrity_policy_mismatch"'
+assert_file_contains repair-policy-mismatch.json '"file":"state.json"'
+
+repo_repair_policy_downgrade_changed="${tmp_root}/repair-policy-downgrade-changed"
+prepare_manifest_repo "${repo_repair_policy_downgrade_changed}" repair_policy_downgrade_changed
+sed -i 's/"phase": "plan"/"phase": "work"/' .rdl/sessions/repair_policy_downgrade_changed/state.json
+with_manifest .rdl/sessions/repair_policy_downgrade_changed/integrity.json state-policy-human-current-hash .rdl/sessions/repair_policy_downgrade_changed/state.json
+assert_fails repair-policy-downgrade-changed.json "${RDL}" repair
+assert_file_contains repair-policy-downgrade-changed.json '"status": "error"'
+assert_file_contains repair-policy-downgrade-changed.json '"code":"integrity_policy_mismatch"'
+assert_file_contains repair-policy-downgrade-changed.json '"file":"state.json"'
+assert_fails repair-policy-downgrade-changed-doctor.json "${RDL}" doctor
+assert_file_contains repair-policy-downgrade-changed-doctor.json '"code":"integrity_policy_mismatch"'
 
 repo_repair_missing_state_entry="${tmp_root}/repair-missing-state-entry"
 prepare_manifest_repo "${repo_repair_missing_state_entry}" repair_missing_state_entry
@@ -654,6 +673,11 @@ assert_file_contains repair-missing-prompt-escaped.json '"next_action": "rounds/
 cmp original-prompt.md .rdl/sessions/repair_missing_prompt_escaped/rounds/001/prompt.md || fail "escaped repaired prompt differed from original prompt"
 "${RDL}" doctor > repair-missing-prompt-escaped-doctor.json
 assert_file_contains repair-missing-prompt-escaped-doctor.json '"status": "ok"'
+
+repo_start_prompt_control="${tmp_root}/start-prompt-control"
+prepare_manifest_repo "${repo_start_prompt_control}" start_prompt_control $'plan\tname.md'
+"${RDL}" doctor > start-prompt-control-doctor.json
+assert_file_contains start-prompt-control-doctor.json '"status": "ok"'
 
 repo_repair_legacy_missing_prompt="${tmp_root}/repair-legacy-missing-prompt"
 prepare_manifest_repo "${repo_repair_legacy_missing_prompt}" repair_legacy_missing_prompt

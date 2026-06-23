@@ -30,7 +30,11 @@ json_escape() {
   local value="${1-}"
   value="${value//\\/\\\\}"
   value="${value//\"/\\\"}"
+  value="${value//$'\b'/\\b}"
+  value="${value//$'\f'/\\f}"
   value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
   printf '%s' "${value}"
 }
 
@@ -854,6 +858,13 @@ validate_protected_manifest_repair_scope() {
     case "${code}" in
       missing_integrity_entry|duplicate_integrity_entry)
         add_blocker protected_errors_ref "${code}" "${file}" "${message}" "${next_action}"
+        ;;
+      integrity_policy_mismatch)
+        case "$(integrity_policy_for_path "${file}")" in
+          cli_owned|append_only|managed_prefix)
+            add_blocker protected_errors_ref "${code}" "${file}" "${message}" "${next_action}"
+            ;;
+        esac
         ;;
     esac
     i=$((i + 4))
