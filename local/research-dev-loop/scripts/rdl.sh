@@ -28,14 +28,47 @@ EOF
 
 json_escape() {
   local value="${1-}"
-  value="${value//\\/\\\\}"
-  value="${value//\"/\\\"}"
-  value="${value//$'\b'/\\b}"
-  value="${value//$'\f'/\\f}"
-  value="${value//$'\n'/\\n}"
-  value="${value//$'\r'/\\r}"
-  value="${value//$'\t'/\\t}"
-  printf '%s' "${value}"
+  local output=""
+  local char=""
+  local code=""
+  local escaped=""
+  while [[ -n "${value}" ]]; do
+    char="${value:0:1}"
+    value="${value:1}"
+    case "${char}" in
+      '\')
+        output="${output}\\\\"
+        ;;
+      '"')
+        output="${output}\\\""
+        ;;
+      $'\b')
+        output="${output}\\b"
+        ;;
+      $'\f')
+        output="${output}\\f"
+        ;;
+      $'\n')
+        output="${output}\\n"
+        ;;
+      $'\r')
+        output="${output}\\r"
+        ;;
+      $'\t')
+        output="${output}\\t"
+        ;;
+      *)
+        printf -v code '%d' "'${char}"
+        if [[ "${code}" -lt 32 ]]; then
+          printf -v escaped '\\u%04x' "${code}"
+          output="${output}${escaped}"
+        else
+          output="${output}${char}"
+        fi
+        ;;
+    esac
+  done
+  printf '%s' "${output}"
 }
 
 json_array() {
@@ -434,7 +467,14 @@ integrity_policy_for_path() {
 }
 
 known_protocol_path() {
-  case "$1" in
+  local path="$1"
+  case "${path}" in
+    ""|/*|.|..|./*|*/.|*/./*|../*|*/..|*/../*)
+      return 1
+      ;;
+  esac
+
+  case "${path}" in
     state.json|mission.md|factors.md|artifact-manifest.json|decision-ledger.md|progress.md|final-report.md)
       return 0
       ;;

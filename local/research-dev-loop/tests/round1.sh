@@ -63,6 +63,14 @@ elif script == "unknown-path":
         "policy": "human_owned",
         "sha256": "0" * 64,
     })
+elif script == "traversal-path":
+    with open(target_file, "rb") as fh:
+        digest = hashlib.sha256(fh.read()).hexdigest()
+    data["entries"].append({
+        "path": "rounds/001/../../../../outside/evidence.md",
+        "policy": "human_owned",
+        "sha256": digest,
+    })
 else:
     raise SystemExit(f"unknown manifest script: {script}")
 
@@ -679,6 +687,11 @@ prepare_manifest_repo "${repo_start_prompt_control}" start_prompt_control $'plan
 "${RDL}" doctor > start-prompt-control-doctor.json
 assert_file_contains start-prompt-control-doctor.json '"status": "ok"'
 
+repo_start_prompt_full_control="${tmp_root}/start-prompt-full-control"
+prepare_manifest_repo "${repo_start_prompt_full_control}" start_prompt_full_control $'plan\001name.md'
+"${RDL}" doctor > start-prompt-full-control-doctor.json
+assert_file_contains start-prompt-full-control-doctor.json '"status": "ok"'
+
 repo_repair_legacy_missing_prompt="${tmp_root}/repair-legacy-missing-prompt"
 prepare_manifest_repo "${repo_repair_legacy_missing_prompt}" repair_legacy_missing_prompt
 rm .rdl/sessions/repair_legacy_missing_prompt/rounds/001/prompt.md
@@ -825,6 +838,16 @@ assert_fails repair-unknown-path.json "${RDL}" repair
 assert_file_contains repair-unknown-path.json '"status": "error"'
 assert_file_contains repair-unknown-path.json '"code":"unsafe_integrity_entry"'
 assert_file_contains repair-unknown-path.json '"file":"project-output.log"'
+
+repo_repair_traversal_path="${tmp_root}/repair-traversal-path"
+prepare_manifest_repo "${repo_repair_traversal_path}" repair_traversal_path
+mkdir -p .rdl/outside
+printf 'outside evidence\n' > .rdl/outside/evidence.md
+with_manifest .rdl/sessions/repair_traversal_path/integrity.json traversal-path .rdl/outside/evidence.md
+assert_fails repair-traversal-path.json "${RDL}" repair
+assert_file_contains repair-traversal-path.json '"status": "error"'
+assert_file_contains repair-traversal-path.json '"code":"unsafe_integrity_entry"'
+assert_file_contains repair-traversal-path.json '"file":"rounds/001/../../../../outside/evidence.md"'
 
 repo_guard_none="${tmp_root}/guard-none"
 mkdir -p "${repo_guard_none}"
