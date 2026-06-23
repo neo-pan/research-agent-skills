@@ -439,6 +439,18 @@ EVIDENCE
   fi
 }
 
+assert_repair_blocks_missing_protocol_file() {
+  local repo_dir="$1"
+  local session_id="$2"
+  local missing_file="$3"
+  prepare_manifest_repo "${repo_dir}" "${session_id}"
+  rm ".rdl/sessions/${session_id}/${missing_file}"
+  assert_fails "repair-${session_id}.json" "${RDL}" repair
+  assert_file_contains "repair-${session_id}.json" '"status": "blocked"'
+  assert_file_contains "repair-${session_id}.json" '"code":"unsafe_missing_protocol_file"'
+  assert_file_contains "repair-${session_id}.json" "\"file\":\"${missing_file}\""
+}
+
 tmp_root="$(mktemp -d)"
 trap 'rm -rf "${tmp_root}"' EXIT
 
@@ -574,6 +586,37 @@ assert_file_contains repair-policy-mismatch.json '"next_action": "integrity.json
 "${RDL}" doctor > repair-policy-mismatch-doctor.json
 assert_file_contains repair-policy-mismatch-doctor.json '"status": "ok"'
 
+repo_repair_missing_state_entry="${tmp_root}/repair-missing-state-entry"
+prepare_manifest_repo "${repo_repair_missing_state_entry}" repair_missing_state_entry
+with_manifest .rdl/sessions/repair_missing_state_entry/integrity.json remove-state
+assert_fails repair-missing-state-entry.json "${RDL}" repair
+assert_file_contains repair-missing-state-entry.json '"status": "error"'
+assert_file_contains repair-missing-state-entry.json '"code":"missing_integrity_entry"'
+assert_file_contains repair-missing-state-entry.json '"file":"state.json"'
+assert_fails repair-missing-state-entry-doctor.json "${RDL}" doctor
+assert_file_contains repair-missing-state-entry-doctor.json '"code":"missing_integrity_entry"'
+
+repo_repair_missing_state_entry_changed="${tmp_root}/repair-missing-state-entry-changed"
+prepare_manifest_repo "${repo_repair_missing_state_entry_changed}" repair_missing_state_entry_changed
+with_manifest .rdl/sessions/repair_missing_state_entry_changed/integrity.json remove-state
+sed -i 's/"phase": "plan"/"phase": "work"/' .rdl/sessions/repair_missing_state_entry_changed/state.json
+assert_fails repair-missing-state-entry-changed.json "${RDL}" repair
+assert_file_contains repair-missing-state-entry-changed.json '"status": "error"'
+assert_file_contains repair-missing-state-entry-changed.json '"code":"missing_integrity_entry"'
+assert_file_contains repair-missing-state-entry-changed.json '"file":"state.json"'
+assert_fails repair-missing-state-entry-changed-doctor.json "${RDL}" doctor
+assert_file_contains repair-missing-state-entry-changed-doctor.json '"code":"missing_integrity_entry"'
+
+repo_repair_duplicate_state_entry="${tmp_root}/repair-duplicate-state-entry"
+prepare_manifest_repo "${repo_repair_duplicate_state_entry}" repair_duplicate_state_entry
+with_manifest .rdl/sessions/repair_duplicate_state_entry/integrity.json duplicate-state
+assert_fails repair-duplicate-state-entry.json "${RDL}" repair
+assert_file_contains repair-duplicate-state-entry.json '"status": "error"'
+assert_file_contains repair-duplicate-state-entry.json '"code":"duplicate_integrity_entry"'
+assert_file_contains repair-duplicate-state-entry.json '"file":"state.json"'
+assert_fails repair-duplicate-state-entry-doctor.json "${RDL}" doctor
+assert_file_contains repair-duplicate-state-entry-doctor.json '"code":"duplicate_integrity_entry"'
+
 repo_repair_missing_prompt="${tmp_root}/repair-missing-prompt"
 prepare_manifest_repo "${repo_repair_missing_prompt}" repair_missing_prompt plan.md
 cp .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md original-prompt.md
@@ -655,6 +698,11 @@ assert_fails repair-missing-mission.json "${RDL}" repair
 assert_file_contains repair-missing-mission.json '"status": "blocked"'
 assert_file_contains repair-missing-mission.json '"code":"unsafe_missing_protocol_file"'
 assert_file_contains repair-missing-mission.json '"file":"mission.md"'
+
+assert_repair_blocks_missing_protocol_file "${tmp_root}/repair-missing-factors" repair_missing_factors factors.md
+assert_repair_blocks_missing_protocol_file "${tmp_root}/repair-missing-artifact-manifest" repair_missing_artifact_manifest artifact-manifest.json
+assert_repair_blocks_missing_protocol_file "${tmp_root}/repair-missing-decision-ledger" repair_missing_decision_ledger decision-ledger.md
+assert_repair_blocks_missing_protocol_file "${tmp_root}/repair-missing-progress" repair_missing_progress progress.md
 
 repo_repair_missing_round="${tmp_root}/repair-missing-round"
 prepare_manifest_repo "${repo_repair_missing_round}" repair_missing_round

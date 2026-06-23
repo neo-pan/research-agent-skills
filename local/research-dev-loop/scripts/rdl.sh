@@ -812,6 +812,30 @@ validate_unverified_manifest_repair_scope() {
   add_blocker unverified_errors_ref "unsafe_integrity_manifest" "integrity.json" "repair requires a usable integrity manifest before refreshing trusted records." "Restore integrity.json from a trusted source or start a new session."
 }
 
+validate_protected_manifest_repair_scope() {
+  local session_dir="$1"
+  local manifest="$2"
+  local -n protected_errors_ref="$3"
+
+  local completeness_errors=()
+  validate_integrity_completeness "${session_dir}" "${manifest}" completeness_errors
+
+  local i=0
+  local code file message next_action
+  while [[ "${i}" -lt "${#completeness_errors[@]}" ]]; do
+    code="${completeness_errors[$i]}"
+    file="${completeness_errors[$((i + 1))]}"
+    message="${completeness_errors[$((i + 2))]}"
+    next_action="${completeness_errors[$((i + 3))]}"
+    case "${code}" in
+      missing_integrity_entry|duplicate_integrity_entry)
+        add_blocker protected_errors_ref "${code}" "${file}" "${message}" "${next_action}"
+        ;;
+    esac
+    i=$((i + 4))
+  done
+}
+
 plan_prompt_repair() {
   local session_dir="$1"
   local -n repaired_ref="$2"
@@ -2084,6 +2108,8 @@ cmd_repair() {
   local manifest="${session_dir}/integrity.json"
   if ! manifest_usable_for_repair "${manifest}"; then
     validate_unverified_manifest_repair_scope "${session_dir}" errors
+  else
+    validate_protected_manifest_repair_scope "${session_dir}" "${manifest}" errors
   fi
   validate_existing_manifest_for_repair "${session_dir}" "${manifest}" errors blockers
   if [[ "${#errors[@]}" -gt 0 ]]; then
