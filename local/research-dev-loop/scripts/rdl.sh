@@ -2030,6 +2030,20 @@ validate_round_advance_readiness() {
   validate_mode_round_minimums "${mode}" "${round_dir}" advance_blockers_ref
 }
 
+validate_close_readiness() {
+  local session_dir="$1"
+  local round_dir="$2"
+  local round="$3"
+  local outcome="$4"
+  local -n close_blockers_ref="$5"
+
+  validate_final_report "${session_dir}" "${outcome}" close_blockers_ref
+  validate_close_evidence_discipline "${round_dir}" close_blockers_ref
+  validate_progress_close_readiness "${session_dir}" "${outcome}" close_blockers_ref
+  validate_close_artifact_citations "${session_dir}" "${round_dir}" close_blockers_ref
+  validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" close_blockers_ref
+}
+
 validate_guard_stop_readiness() {
   local session_dir="$1"
   local mode="$2"
@@ -2045,29 +2059,22 @@ validate_guard_stop_readiness() {
     decision="$(md_field_value "${decision_file}" "Decision")"
   fi
 
+  local close_outcome=""
   case "${decision}" in
     close-positive)
-      validate_final_report "${session_dir}" "positive" guard_blockers_ref
-      validate_close_evidence_discipline "${round_dir}" guard_blockers_ref
-      validate_progress_close_readiness "${session_dir}" "positive" guard_blockers_ref
-      validate_close_artifact_citations "${session_dir}" "${round_dir}" guard_blockers_ref
-      validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" guard_blockers_ref
+      close_outcome="positive"
       ;;
     close-negative)
-      validate_final_report "${session_dir}" "negative" guard_blockers_ref
-      validate_close_evidence_discipline "${round_dir}" guard_blockers_ref
-      validate_progress_close_readiness "${session_dir}" "negative" guard_blockers_ref
-      validate_close_artifact_citations "${session_dir}" "${round_dir}" guard_blockers_ref
-      validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" guard_blockers_ref
+      close_outcome="negative"
       ;;
     close-inconclusive)
-      validate_final_report "${session_dir}" "inconclusive" guard_blockers_ref
-      validate_close_evidence_discipline "${round_dir}" guard_blockers_ref
-      validate_progress_close_readiness "${session_dir}" "inconclusive" guard_blockers_ref
-      validate_close_artifact_citations "${session_dir}" "${round_dir}" guard_blockers_ref
-      validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" guard_blockers_ref
+      close_outcome="inconclusive"
       ;;
   esac
+
+  if [[ -n "${close_outcome}" ]]; then
+    validate_close_readiness "${session_dir}" "${round_dir}" "${round}" "${close_outcome}" guard_blockers_ref
+  fi
 }
 
 mark_session_ended() {
@@ -2473,25 +2480,14 @@ cmd_close() {
   mode="$(json_value "${state_file}" "mode")"
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
-  if [[ "${mode}" == "research" ]]; then
-    expected_closes="claim"
-  else
-    expected_closes="capability"
-  fi
+  expected_closes="$(expected_closes_for_mode "${mode}")"
 
   local round_dir="${session_dir}/$(round_path "${round}")"
-  local review_file="${round_dir}/review.md"
   local decision_file="${round_dir}/decision.md"
   local expected_decision="close-${outcome}"
   local blockers=()
-  validate_review_file "${review_file}" blockers
-  validate_decision_file "${decision_file}" "${expected_closes}" blockers
-  validate_mode_round_minimums "${mode}" "${round_dir}" blockers
-  validate_final_report "${session_dir}" "${outcome}" blockers
-  validate_close_evidence_discipline "${round_dir}" blockers
-  validate_progress_close_readiness "${session_dir}" "${outcome}" blockers
-  validate_close_artifact_citations "${session_dir}" "${round_dir}" blockers
-  validate_repeated_negative_evidence "${session_dir}" "${round_dir}" "${round}" blockers
+  validate_round_advance_readiness "${session_dir}" "${mode}" "${round}" blockers
+  validate_close_readiness "${session_dir}" "${round_dir}" "${round}" "${outcome}" blockers
 
   if [[ -f "${decision_file}" && "$(md_field_value "${decision_file}" "Decision")" != "${expected_decision}" ]]; then
     add_blocker blockers "invalid_close_decision" "${decision_file}#Decision" "Close outcome requires Decision: ${expected_decision}." "Run rdl decide ${expected_decision} or update decision.md."
