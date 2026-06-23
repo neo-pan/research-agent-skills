@@ -937,13 +937,7 @@ validate_existing_manifest_for_repair() {
       managed_prefix)
         managed_hash="$(json_entry_field "${entry}" "managed_sha256")"
         if ! actual_managed_hash="$(managed_block_sha256 "${session_dir}/${path}")"; then
-          case "${path}" in
-            rounds/*/prompt.md)
-              ;;
-            *)
-              add_blocker repair_errors_ref "unsafe_managed_prefix_change" "${path}" "Managed-prefix protocol file is missing managed markers." "Restore the managed block before repair."
-              ;;
-          esac
+          add_blocker repair_errors_ref "unsafe_managed_prefix_change" "${path}" "Managed-prefix protocol file is missing managed markers." "Restore the managed block before repair."
           continue
         fi
         if [[ "${actual_managed_hash}" != "${managed_hash}" ]]; then

@@ -699,6 +699,14 @@ assert_file_contains repair-prompt-changed.json '"status": "error"'
 assert_file_contains repair-prompt-changed.json '"code":"unsafe_managed_prefix_change"'
 assert_file_contains repair-prompt-changed.json '"file":"rounds/001/prompt.md"'
 
+repo_repair_prompt_markers="${tmp_root}/repair-prompt-markers"
+prepare_manifest_repo "${repo_repair_prompt_markers}" repair_prompt_markers
+sed -i '/rdl:managed/d' .rdl/sessions/repair_prompt_markers/rounds/001/prompt.md
+assert_fails repair-prompt-markers.json "${RDL}" repair
+assert_file_contains repair-prompt-markers.json '"status": "error"'
+assert_file_contains repair-prompt-markers.json '"code":"unsafe_managed_prefix_change"'
+assert_file_contains repair-prompt-markers.json '"file":"rounds/001/prompt.md"'
+
 assert_repair_blocks_after_manifest_break "${tmp_root}/repair-empty-changed-state" repair_empty_changed_state empty state.json unsafe_integrity_manifest
 assert_repair_blocks_after_manifest_break "${tmp_root}/repair-bad-changed-mission" repair_bad_changed_mission bad mission.md unsafe_integrity_manifest
 assert_repair_blocks_after_manifest_break "${tmp_root}/repair-empty-changed-evidence" repair_empty_changed_evidence empty rounds/001/evidence.md unsafe_integrity_manifest
