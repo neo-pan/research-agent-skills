@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 RDL="${ROOT_DIR}/local/research-dev-loop/scripts/rdl.sh"
 RDL_LIB_ONLY=1 source "${RDL}"
+source "${ROOT_DIR}/local/research-dev-loop/tests/lib/rdl_fixtures.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -43,6 +44,24 @@ assert_template_has_sections() {
   local section
   for section in "$@"; do
     assert_contains "${template}" "^## ${section}$"
+  done
+}
+
+assert_record_has_fields() {
+  local record="$1"
+  shift
+  local field
+  for field in "$@"; do
+    assert_contains "${record}" "^${field}:"
+  done
+}
+
+assert_record_has_sections() {
+  local record="$1"
+  shift
+  local section
+  for section in "$@"; do
+    assert_contains "${record}" "^## ${section}$"
   done
 }
 
@@ -136,6 +155,25 @@ assert_template_has_sections "${ROOT_DIR}/local/research-dev-loop/templates/fina
 mapfile -t progress_sections < <(protocol_progress_required_sections)
 assert_template_has_sections "${ROOT_DIR}/local/research-dev-loop/templates/progress.md" "${progress_sections[@]}"
 
+fixture_dir="${tmp_root}/helper-fixtures"
+mkdir -p "${fixture_dir}/rounds/001" "${fixture_dir}/build-round"
+rdl_write_complete_review "${fixture_dir}/review.md" close PASS "close decision"
+rdl_write_complete_decision "${fixture_dir}/decision.md" close-positive claim none "close the session" "E1 fixture evidence"
+rdl_write_research_evidence "${fixture_dir}/rounds/001" yes
+rdl_write_build_evidence "${fixture_dir}/build-round" yes
+rdl_write_artifact_manifest "${fixture_dir}/artifact-manifest.json"
+rdl_write_final_report "${fixture_dir}/final-report.md" positive "fixture claim"
+rdl_write_ready_progress "${fixture_dir}/progress.md" yes
+assert_record_has_fields "${fixture_dir}/review.md" "${review_fields[@]}"
+assert_record_has_fields "${fixture_dir}/decision.md" "${decision_fields[@]}"
+assert_record_has_sections "${fixture_dir}/final-report.md" "${final_report_sections[@]}"
+assert_record_has_sections "${fixture_dir}/progress.md" "${progress_sections[@]}"
+assert_file "${fixture_dir}/rounds/001/evidence.md"
+assert_file "${fixture_dir}/rounds/001/interpretation.md"
+assert_file "${fixture_dir}/build-round/intent.md"
+assert_file "${fixture_dir}/build-round/work.md"
+assert_file "${fixture_dir}/build-round/evidence.md"
+
 assert_allowed manual review-mode
 assert_allowed PASS review-verdict
 assert_allowed continue decision-type
@@ -186,6 +224,28 @@ assert_contains "${session_dir}/integrity.json" '"path":"state.json","policy":"c
 assert_contains "${session_dir}/integrity.json" '"path":"decision-ledger.md","policy":"append_only"'
 assert_contains "${session_dir}/integrity.json" '"path":"rounds/001/prompt.md","policy":"managed_prefix"'
 assert_contains "${session_dir}/integrity.json" '"path":"mission.md","policy":"human_owned"'
+
+repo_helper_cli="${tmp_root}/helper-cli"
+mkdir -p "${repo_helper_cli}"
+cat > "${repo_helper_cli}/mission.md" <<'MISSION'
+# Mission
+
+Descriptor helper CLI fixture.
+MISSION
+
+cd "${repo_helper_cli}"
+"${RDL}" start research mission.md --session-id descriptor_helper_cli > /dev/null
+"${RDL}" review > /dev/null
+"${RDL}" decide close-positive > /dev/null
+rdl_write_complete_review ".rdl/sessions/descriptor_helper_cli/rounds/001/review.md" close PASS "close decision"
+rdl_write_complete_decision ".rdl/sessions/descriptor_helper_cli/rounds/001/decision.md" close-positive claim none "close the session" "E1 fixture evidence"
+rdl_write_research_evidence ".rdl/sessions/descriptor_helper_cli/rounds/001" yes
+rdl_write_artifact_manifest ".rdl/sessions/descriptor_helper_cli/artifact-manifest.json"
+rdl_write_final_report ".rdl/sessions/descriptor_helper_cli/final-report.md" positive "fixture claim"
+rdl_write_ready_progress ".rdl/sessions/descriptor_helper_cli/progress.md" yes
+"${RDL}" close positive > helper-close.json
+assert_contains helper-close.json '"status": "ok"'
+assert_contains helper-close.json '"phase": "complete"'
 
 repo_nested="${tmp_root}/nested-round-path"
 mkdir -p "${repo_nested}"

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 RDL="${ROOT_DIR}/local/research-dev-loop/scripts/rdl.sh"
+source "${ROOT_DIR}/local/research-dev-loop/tests/lib/rdl_fixtures.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -25,24 +26,7 @@ assert_fails() {
 
 complete_review() {
   local file="$1"
-  cat > "${file}" <<'REVIEW'
-# Review
-
-Reviewer: fixture
-Review Mode: manual
-Review Scope: current round
-Artifacts Reviewed: prompt, evidence, decision
-Verdict: PASS
-Decision Reviewed: pending
-Evidence Reviewed: fixture evidence
-Blocking Evidence Gaps: none
-Implementation Findings: none
-Evaluation Integrity Findings: acceptable
-Overclaim Risks: bounded
-Readiness Level: ready
-Recommended Decision: continue
-
-REVIEW
+  rdl_write_complete_review "${file}" continue
 }
 
 complete_decision() {
@@ -50,94 +34,23 @@ complete_decision() {
   local decision="$2"
   local closes="$3"
   local next_loop="$4"
-  cat > "${file}" <<DECISION
-# Decision
-
-Decision: ${decision}
-Closes: ${closes}
-Evidence: fixture evidence
-Uncertainty: bounded
-What this rules out: unsupported alternatives
-What remains unknown: later work
-Recommended next loop: ${next_loop}
-Next smallest step: continue same mode
-
-DECISION
+  rdl_write_complete_decision "${file}" "${decision}" "${closes}" "${next_loop}"
 }
 
 complete_manifest() {
   local file="$1"
   local artifact_id="${2:-E1}"
-  cat > "${file}" <<MANIFEST
-{
-  "artifacts": [
-    {
-      "id": "${artifact_id}",
-      "kind": "log",
-      "path": "artifacts/run.log",
-      "round": 1,
-      "description": "Fixture evidence artifact"
-    }
-  ]
-}
-MANIFEST
+  rdl_write_artifact_manifest "${file}" "${artifact_id}" artifacts/run.log "Fixture evidence artifact"
 }
 
 add_research_round_records() {
   local round_dir="$1"
-  cat > "${round_dir}/evidence.md" <<'EVIDENCE'
-# Evidence
-
-Research evidence: fixture claim evidence.
-
-## Evaluation Integrity
-
-Manual fixture integrity reviewed.
-
-## Missing Evidence
-
-No blocking missing evidence for this fixture.
-
-## Evidence Budget
-
-One local fixture check.
-EVIDENCE
-  cat > "${round_dir}/interpretation.md" <<'INTERPRETATION'
-# Interpretation
-
-Interpretation: fixture evidence supports the next research step.
-INTERPRETATION
+  rdl_write_research_evidence "${round_dir}" no
 }
 
 add_build_round_records() {
   local round_dir="$1"
-  cat > "${round_dir}/intent.md" <<'INTENT'
-# Intent
-
-Intent: build the fixture capability.
-INTENT
-  cat > "${round_dir}/work.md" <<'WORK'
-# Work
-
-Work completed: fixture implementation change.
-WORK
-  cat > "${round_dir}/evidence.md" <<'EVIDENCE'
-# Evidence
-
-Verification evidence: fixture capability check passed.
-
-## Evaluation Integrity
-
-Manual fixture integrity reviewed.
-
-## Missing Evidence
-
-No blocking missing evidence for this fixture.
-
-## Evidence Budget
-
-One local fixture check.
-EVIDENCE
+  rdl_write_build_evidence "${round_dir}" yes
 }
 
 tmp_root="$(mktemp -d)"

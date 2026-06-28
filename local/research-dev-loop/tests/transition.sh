@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 RDL="${ROOT_DIR}/local/research-dev-loop/scripts/rdl.sh"
+source "${ROOT_DIR}/local/research-dev-loop/tests/lib/rdl_fixtures.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -22,24 +23,7 @@ assert_file_absent() {
 complete_review() {
   local file="$1"
   local recommended="${2:-continue}"
-  cat > "${file}" <<REVIEW
-# Review
-
-Reviewer: fixture
-Review Mode: manual
-Review Scope: current round
-Artifacts Reviewed: prompt, evidence, decision
-Verdict: PASS
-Decision Reviewed: pending
-Evidence Reviewed: fixture evidence
-Blocking Evidence Gaps: none
-Implementation Findings: none
-Evaluation Integrity Findings: acceptable
-Overclaim Risks: bounded
-Readiness Level: ready
-Recommended Decision: ${recommended}
-
-REVIEW
+  rdl_write_complete_review "${file}" "${recommended}"
 }
 
 complete_decision() {
@@ -47,153 +31,28 @@ complete_decision() {
   local decision="$2"
   local closes="$3"
   local next_loop="${4:-none}"
-  cat > "${file}" <<DECISION
-# Decision
-
-Decision: ${decision}
-Closes: ${closes}
-Evidence: E1 fixture evidence
-Uncertainty: bounded
-What this rules out: unsupported alternatives
-What remains unknown: later work
-Recommended next loop: ${next_loop}
-Next smallest step: continue same mode
-
-DECISION
+  rdl_write_complete_decision "${file}" "${decision}" "${closes}" "${next_loop}" "continue same mode" "E1 fixture evidence"
 }
 
 complete_manifest() {
   local file="$1"
-  cat > "${file}" <<'MANIFEST'
-{
-  "artifacts": [
-    {
-      "id": "E1",
-      "kind": "log",
-      "path": "artifacts/check.log",
-      "round": 1,
-      "description": "Fixture transition evidence"
-    }
-  ]
-}
-MANIFEST
+  rdl_write_artifact_manifest "${file}" E1 artifacts/check.log "Fixture transition evidence"
 }
 
 complete_research_records() {
   local round_dir="$1"
-  cat > "${round_dir}/evidence.md" <<'EVIDENCE'
-# Evidence
-
-## Claim Under Review
-
-Fixture claim.
-
-## Evidence Artifacts
-
-| ID | Kind | Path or URL | Supports | Notes |
-|---|---|---|---|---|
-| E1 | log | artifacts/check.log | claim | fixture evidence cited |
-
-## Evaluation Integrity
-
-Manual fixture integrity reviewed.
-
-## Missing Evidence
-
-No blocking missing evidence for this fixture.
-
-## Evidence Budget
-
-One local fixture check.
-EVIDENCE
-  cat > "${round_dir}/interpretation.md" <<'INTERPRETATION'
-# Interpretation
-
-Interpretation: fixture evidence supports the transition.
-INTERPRETATION
+  rdl_write_research_evidence "${round_dir}" yes
 }
 
 complete_final_report() {
   local file="$1"
   local outcome="$2"
-  cat > "${file}" <<REPORT
-# Final Report
-
-## Outcome
-
-${outcome}
-
-## Claim or Capability Closed
-
-Fixture claim.
-
-## Evidence Cited
-
-E1 fixture evidence.
-
-## Missing Evidence and Confounders
-
-No blocking missing evidence or confounders remain.
-
-## Negative, Null, or Inconclusive Results
-
-None beyond the selected close outcome.
-
-## Open Questions
-
-No blocking open questions remain.
-
-## Deferred Items
-
-Deferred fixture follow-up has a revisit trigger.
-
-## Reusable Lessons
-
-No reusable lesson.
-
-## Close Checklist
-
-- [x] Final decision is positive, negative, or inconclusive.
-- [x] Claim or capability closed is named.
-- [x] Evidence artifacts are cited.
-- [x] Missing evidence and known confounders are retained.
-- [x] Negative, null, or inconclusive results are preserved.
-- [x] Open questions are answered or carried forward explicitly.
-- [x] Deferred items have revisit triggers.
-REPORT
+  rdl_write_final_report "${file}" "${outcome}" "Fixture claim."
 }
 
 write_ready_progress() {
   local file="$1"
-  cat > "${file}" <<'PROGRESS'
-# Progress
-
-## Active
-
-| Item | Mode | Claim or Capability | Blocking? | Next Review Trigger |
-|---|---|---|---|---|
-
-## Completed
-
-| Item | Decision | Evidence | Round |
-|---|---|---|---|
-
-## Blocked
-
-| Item | Reason | Needed Evidence or Input | Decision Impact |
-|---|---|---|---|
-
-## Deferred
-
-| Item | Reason | Revisit Trigger |
-|---|---|---|
-| Follow-up calibration | not needed for close | next benchmark expansion |
-
-## Open Questions
-
-| Question | Owner | Blocking? | Resolution |
-|---|---|---|---|
-PROGRESS
+  rdl_write_ready_progress "${file}" no
 }
 
 start_research_repo() {

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 RDL="${ROOT_DIR}/local/research-dev-loop/scripts/rdl.sh"
+source "${ROOT_DIR}/local/research-dev-loop/tests/lib/rdl_fixtures.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -121,291 +122,53 @@ exited_pid() {
 
 complete_guard_review() {
   local file="$1"
-  cat > "${file}" <<'REVIEW'
-# Review
-
-Reviewer: fixture
-Review Mode: manual
-Review Scope: current round
-Artifacts Reviewed: prompt, evidence, decision
-Verdict: PASS
-Decision Reviewed: pending
-Evidence Reviewed: fixture evidence
-Blocking Evidence Gaps: none
-Implementation Findings: none
-Evaluation Integrity Findings: acceptable
-Overclaim Risks: bounded
-Readiness Level: ready
-Recommended Decision: continue
-
-REVIEW
+  rdl_write_complete_review "${file}" continue
 }
 
 complete_guard_decision() {
   local file="$1"
-  cat > "${file}" <<'DECISION'
-# Decision
-
-Decision: continue
-Closes: claim
-Evidence: fixture evidence
-Uncertainty: bounded
-What this rules out: unsupported alternatives
-What remains unknown: later work
-Recommended next loop: none
-Next smallest step: continue same mode
-
-DECISION
+  rdl_write_complete_decision "${file}" continue claim none
 }
 
 complete_guard_research_records() {
   local round_dir="$1"
-  cat > "${round_dir}/evidence.md" <<'EVIDENCE'
-# Evidence
-
-Research evidence: fixture claim evidence.
-
-## Evaluation Integrity
-
-Manual fixture integrity reviewed.
-
-## Missing Evidence
-
-No blocking missing evidence for this fixture.
-
-## Evidence Budget
-
-One local fixture check.
-EVIDENCE
-  cat > "${round_dir}/interpretation.md" <<'INTERPRETATION'
-# Interpretation
-
-Interpretation: fixture evidence supports the next research step.
-INTERPRETATION
+  rdl_write_research_evidence "${round_dir}" no
 }
 
 complete_guard_close_research_records() {
   local round_dir="$1"
-  cat > "${round_dir}/evidence.md" <<'EVIDENCE'
-# Evidence
-
-## Claim Under Review
-
-Fixture claim.
-
-## Evidence Artifacts
-
-| ID | Kind | Path or URL | Supports | Notes |
-|---|---|---|---|---|
-| E1 | log | artifacts/check.log | claim | fixture evidence cited |
-
-## Evaluation Integrity
-
-Manual fixture integrity reviewed.
-
-## Missing Evidence
-
-No blocking missing evidence for this fixture.
-
-## Known Confounders
-
-No known blocking confounders.
-
-## Evidence Budget
-
-One local fixture check.
-EVIDENCE
-  cat > "${round_dir}/interpretation.md" <<'INTERPRETATION'
-# Interpretation
-
-Interpretation: fixture evidence supports closing the claim.
-INTERPRETATION
+  rdl_write_research_evidence "${round_dir}" yes
 }
 
 complete_guard_build_records() {
   local round_dir="$1"
   local verification="${2:-yes}"
-  cat > "${round_dir}/intent.md" <<'INTENT'
-# Intent
-
-Intent: build the fixture capability.
-INTENT
-  cat > "${round_dir}/work.md" <<'WORK'
-# Work
-
-Work completed: fixture implementation change.
-WORK
-  if [[ "${verification}" == "yes" ]]; then
-    cat > "${round_dir}/evidence.md" <<'EVIDENCE'
-# Evidence
-
-Verification evidence: fixture capability check passed.
-
-## Evaluation Integrity
-
-Manual fixture integrity reviewed.
-
-## Missing Evidence
-
-No blocking missing evidence for this fixture.
-
-## Evidence Budget
-
-One local fixture check.
-EVIDENCE
-  else
-    cat > "${round_dir}/evidence.md" <<'EVIDENCE'
-# Evidence
-
-Evidence exists but no verification is recorded.
-
-## Evaluation Integrity
-
-Manual fixture integrity reviewed.
-
-## Missing Evidence
-
-No blocking missing evidence for this fixture.
-
-## Evidence Budget
-
-One local fixture check.
-EVIDENCE
-  fi
+  rdl_write_build_evidence "${round_dir}" "${verification}"
 }
 
 complete_guard_build_decision() {
   local file="$1"
-  cat > "${file}" <<'DECISION'
-# Decision
-
-Decision: accept
-Closes: capability
-Evidence: fixture evidence
-Uncertainty: bounded
-What this rules out: unsupported alternatives
-What remains unknown: later work
-Recommended next loop: none
-Next smallest step: continue same mode
-
-DECISION
+  rdl_write_complete_decision "${file}" accept capability none
 }
 
 complete_guard_close_decision() {
   local file="$1"
-  cat > "${file}" <<'DECISION'
-# Decision
-
-Decision: close-positive
-Closes: claim
-Evidence: E1 fixture evidence
-Uncertainty: bounded
-What this rules out: unsupported alternatives
-What remains unknown: later work
-Recommended next loop: none
-Next smallest step: close the session
-
-DECISION
+  rdl_write_complete_decision "${file}" close-positive claim none "close the session" "E1 fixture evidence"
 }
 
 complete_guard_manifest() {
   local file="$1"
-  cat > "${file}" <<'MANIFEST'
-{
-  "artifacts": [
-    {
-      "id": "E1",
-      "kind": "log",
-      "path": "artifacts/check.log",
-      "round": 1,
-      "description": "Fixture guard evidence"
-    }
-  ]
-}
-MANIFEST
+  rdl_write_artifact_manifest "${file}" E1 artifacts/check.log "Fixture guard evidence"
 }
 
 complete_guard_final_report() {
   local file="$1"
-  cat > "${file}" <<'REPORT'
-# Final Report
-
-## Outcome
-
-positive
-
-## Claim or Capability Closed
-
-fixture claim
-
-## Evidence Cited
-
-E1 fixture evidence.
-
-## Missing Evidence and Confounders
-
-No blocking missing evidence or confounders remain for this fixture.
-
-## Negative, Null, or Inconclusive Results
-
-None beyond the selected close outcome.
-
-## Open Questions
-
-No blocking open questions remain.
-
-## Deferred Items
-
-Deferred fixture follow-up has a revisit trigger.
-
-## Reusable Lessons
-
-No reusable lesson.
-
-## Close Checklist
-
-- [x] Final decision is positive, negative, or inconclusive.
-- [x] Claim or capability closed is named.
-- [x] Evidence artifacts are cited.
-- [x] Missing evidence and known confounders are retained.
-- [x] Negative, null, or inconclusive results are preserved.
-- [x] Open questions are answered or carried forward explicitly.
-- [x] Deferred items have revisit triggers.
-REPORT
+  rdl_write_final_report "${file}" positive "fixture claim"
 }
 
 write_guard_ready_progress() {
   local file="$1"
-  cat > "${file}" <<'PROGRESS'
-# Progress
-
-## Active
-
-| Item | Mode | Claim or Capability | Blocking? | Next Review Trigger |
-|---|---|---|---|---|
-
-## Completed
-
-| Item | Decision | Evidence | Round |
-|---|---|---|---|
-
-## Blocked
-
-| Item | Reason | Needed Evidence or Input | Decision Impact |
-|---|---|---|---|
-
-## Deferred
-
-| Item | Reason | Revisit Trigger |
-|---|---|---|
-| Follow-up calibration | not needed for close | next benchmark expansion |
-
-## Open Questions
-
-| Question | Owner | Blocking? | Resolution |
-|---|---|---|---|
-| Is release timing known? | fixture | no | Non-blocking follow-up. |
-PROGRESS
+  rdl_write_ready_progress "${file}" yes
 }
 
 write_guard_blocking_question_progress() {
