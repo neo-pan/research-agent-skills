@@ -697,8 +697,17 @@ session_protocol_files() {
   done < <(protocol_session_files)
 
   if [[ -d "${session_dir}/rounds" ]]; then
+    local find_args=()
+    local file_name
+    while IFS= read -r file_name; do
+      if [[ "${#find_args[@]}" -gt 0 ]]; then
+        find_args+=(-o)
+      fi
+      find_args+=(-name "${file_name}")
+    done < <(protocol_round_file_names)
+
     find "${session_dir}/rounds" -type f \
-      \( -name 'prompt.md' -o -name 'intent.md' -o -name 'work.md' -o -name 'evidence.md' -o -name 'interpretation.md' -o -name 'review.md' -o -name 'decision.md' \) \
+      \( "${find_args[@]}" \) \
       | sed "s#^${session_dir}/##" \
       | sort
   fi
