@@ -150,6 +150,16 @@ assert_not_allowed partial close-outcome
 
 [[ "$(expected_closes_for_mode research)" == "claim" ]] || fail "research must close claim"
 [[ "$(expected_closes_for_mode build)" == "capability" ]] || fail "build must close capability"
+known_protocol_path "rounds/001/prompt.md" || fail "strict round prompt should be known"
+known_protocol_path "rounds/001/evidence.md" || fail "strict round evidence should be known"
+if known_protocol_path "rounds/001/nested/prompt.md"; then
+  fail "nested round prompt must not be known"
+fi
+if known_protocol_path "rounds/001/notes.md"; then
+  fail "unknown round file must not be known"
+fi
+[[ "$(integrity_policy_for_path "rounds/001/prompt.md")" == "managed_prefix" ]] || fail "strict round prompt must be managed_prefix"
+[[ "$(integrity_policy_for_path "rounds/001/nested/prompt.md")" == "human_owned" ]] || fail "nested round prompt must not be managed_prefix"
 
 repo="${tmp_root}/descriptor"
 mkdir -p "${repo}"
@@ -176,6 +186,39 @@ assert_contains "${session_dir}/integrity.json" '"path":"state.json","policy":"c
 assert_contains "${session_dir}/integrity.json" '"path":"decision-ledger.md","policy":"append_only"'
 assert_contains "${session_dir}/integrity.json" '"path":"rounds/001/prompt.md","policy":"managed_prefix"'
 assert_contains "${session_dir}/integrity.json" '"path":"mission.md","policy":"human_owned"'
+
+repo_nested="${tmp_root}/nested-round-path"
+mkdir -p "${repo_nested}"
+cat > "${repo_nested}/mission.md" <<'MISSION'
+# Mission
+
+Descriptor nested path fixture.
+MISSION
+
+cd "${repo_nested}"
+"${RDL}" start research mission.md --session-id descriptor_nested > /dev/null
+mkdir -p ".rdl/sessions/descriptor_nested/rounds/001/nested"
+printf '# Nested Prompt\n' > ".rdl/sessions/descriptor_nested/rounds/001/nested/prompt.md"
+"${RDL}" doctor > doctor-nested-round-path.json || true
+if grep -q '"file":"rounds/001/nested/prompt.md"' doctor-nested-round-path.json; then
+  fail "nested round prompt must not be treated as expected protocol state"
+fi
+
+repo_unknown_round="${tmp_root}/unknown-round-file"
+mkdir -p "${repo_unknown_round}"
+cat > "${repo_unknown_round}/mission.md" <<'MISSION'
+# Mission
+
+Descriptor unknown round file fixture.
+MISSION
+
+cd "${repo_unknown_round}"
+"${RDL}" start research mission.md --session-id descriptor_unknown_round > /dev/null
+printf 'not a protocol file\n' > ".rdl/sessions/descriptor_unknown_round/rounds/001/notes.md"
+"${RDL}" doctor > doctor-unknown-round-file.json || true
+if grep -q '"file":"rounds/001/notes.md"' doctor-unknown-round-file.json; then
+  fail "unknown round file must not be treated as expected protocol state"
+fi
 
 repo_missing="${tmp_root}/missing-protected-entry"
 mkdir -p "${repo_missing}"
