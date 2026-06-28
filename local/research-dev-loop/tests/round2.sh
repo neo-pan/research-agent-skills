@@ -65,12 +65,42 @@ Next smallest step: continue same mode
 DECISION
 }
 
+complete_manifest() {
+  local file="$1"
+  local artifact_id="${2:-E1}"
+  cat > "${file}" <<MANIFEST
+{
+  "artifacts": [
+    {
+      "id": "${artifact_id}",
+      "kind": "log",
+      "path": "artifacts/run.log",
+      "round": 1,
+      "description": "Fixture evidence artifact"
+    }
+  ]
+}
+MANIFEST
+}
+
 add_research_round_records() {
   local round_dir="$1"
   cat > "${round_dir}/evidence.md" <<'EVIDENCE'
 # Evidence
 
 Research evidence: fixture claim evidence.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
   cat > "${round_dir}/interpretation.md" <<'INTERPRETATION'
 # Interpretation
@@ -95,6 +125,18 @@ WORK
 # Evidence
 
 Verification evidence: fixture capability check passed.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 }
 
@@ -197,6 +239,18 @@ cat > .rdl/sessions/no_interpretation/rounds/001/evidence.md <<'EVIDENCE'
 # Evidence
 
 Research evidence: present.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 assert_fails next-research-missing-interpretation.json "${RDL}" next
 assert_file_contains next-research-missing-interpretation.json '"status": "blocked"'
@@ -236,6 +290,7 @@ cd "${repo6}"
 complete_review .rdl/sessions/table_evidence/rounds/001/review.md
 "${RDL}" decide continue > /dev/null
 complete_decision .rdl/sessions/table_evidence/rounds/001/decision.md continue claim none
+complete_manifest .rdl/sessions/table_evidence/artifact-manifest.json E1
 cat > .rdl/sessions/table_evidence/rounds/001/evidence.md <<'EVIDENCE'
 # Evidence
 
@@ -244,6 +299,18 @@ cat > .rdl/sessions/table_evidence/rounds/001/evidence.md <<'EVIDENCE'
 | ID | Kind | Path or URL | Supports | Notes |
 |---|---|---|---|---|
 | E1 | log | artifacts/run.log | claim | observed expected behavior |
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 cat > .rdl/sessions/table_evidence/rounds/001/interpretation.md <<'INTERPRETATION'
 # Interpretation
@@ -280,6 +347,18 @@ cat > .rdl/sessions/build_missing/rounds/001/evidence.md <<'EVIDENCE'
 # Evidence
 
 Evidence exists but only says implementation happened.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 assert_fails next-build-missing-verification.json "${RDL}" next
 assert_file_contains next-build-missing-verification.json '"status": "blocked"'
@@ -311,6 +390,18 @@ cat > .rdl/sessions/build_empty_label/rounds/001/evidence.md <<'EVIDENCE'
 # Evidence
 
 Verification evidence:
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 assert_fails next-build-empty-verification-label.json "${RDL}" next
 assert_file_contains next-build-empty-verification-label.json '"status": "blocked"'
@@ -343,6 +434,17 @@ cat > .rdl/sessions/build_empty_heading/rounds/001/evidence.md <<'EVIDENCE'
 
 ## Verification Evidence
 
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 assert_fails next-build-empty-verification-heading.json "${RDL}" next
 assert_file_contains next-build-empty-verification-heading.json '"status": "blocked"'
@@ -377,6 +479,18 @@ cat > .rdl/sessions/build_table_verification/rounds/001/evidence.md <<'EVIDENCE'
 
 | ID | Result |
 |---|---|
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 assert_fails next-build-table-verification.json "${RDL}" next
 assert_file_contains next-build-table-verification.json '"status": "blocked"'
@@ -412,6 +526,18 @@ cat > .rdl/sessions/build_filled_table/rounds/001/evidence.md <<'EVIDENCE'
 | ID | Result |
 |---|---|
 | V1 | fixture check passed |
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 "${RDL}" next > next-build-filled-table.json
 assert_file_contains next-build-filled-table.json '"status": "ok"'
@@ -448,6 +574,18 @@ cat > .rdl/sessions/build_one_column_table/rounds/001/evidence.md <<'EVIDENCE'
 | Result |
 |---|
 | fixture check passed |
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 "${RDL}" next > next-build-one-column-table.json
 assert_file_contains next-build-one-column-table.json '"status": "ok"'
@@ -475,6 +613,18 @@ cat > .rdl/sessions/build_no_intent/rounds/001/evidence.md <<'EVIDENCE'
 # Evidence
 
 Verification evidence: present.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 assert_fails next-build-missing-intent.json "${RDL}" next
 assert_file_contains next-build-missing-intent.json '"status": "blocked"'
@@ -501,6 +651,18 @@ cat > .rdl/sessions/build_no_work/rounds/001/evidence.md <<'EVIDENCE'
 # Evidence
 
 Verification evidence: present.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
 assert_fails next-build-missing-work.json "${RDL}" next
 assert_file_contains next-build-missing-work.json '"status": "blocked"'

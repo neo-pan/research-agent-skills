@@ -112,6 +112,13 @@ break_integrity_manifest() {
   esac
 }
 
+exited_pid() {
+  ( : ) &
+  local pid="$!"
+  wait "${pid}" 2>/dev/null || true
+  printf '%s\n' "${pid}"
+}
+
 complete_guard_review() {
   local file="$1"
   cat > "${file}" <<'REVIEW'
@@ -157,6 +164,18 @@ complete_guard_research_records() {
 # Evidence
 
 Research evidence: fixture claim evidence.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
   cat > "${round_dir}/interpretation.md" <<'INTERPRETATION'
 # Interpretation
@@ -221,12 +240,36 @@ WORK
 # Evidence
 
 Verification evidence: fixture capability check passed.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
   else
     cat > "${round_dir}/evidence.md" <<'EVIDENCE'
 # Evidence
 
 Evidence exists but no verification is recorded.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
 EVIDENCE
   fi
 }
@@ -273,7 +316,9 @@ complete_guard_manifest() {
     {
       "id": "E1",
       "kind": "log",
-      "path": "artifacts/check.log"
+      "path": "artifacts/check.log",
+      "round": 1,
+      "description": "Fixture guard evidence"
     }
   ]
 }
@@ -495,11 +540,12 @@ assert_file_contains status-bogus.json '"status": "error"'
 assert_file_contains status-bogus.json '"code":"unknown_option"'
 
 "${RDL}" start research mission.md --session-id r1 > start.json
-"${RDL}" doctor > doctor-ok.json
-assert_file_contains doctor-ok.json '"status": "ok"'
-assert_file_contains doctor-ok.json '"action": "doctor"'
-assert_file_contains doctor-ok.json '"session_id": "r1"'
-assert_file_contains doctor-ok.json '"blockers": \[\]'
+assert_fails doctor-fresh-blocked.json "${RDL}" doctor
+assert_file_contains doctor-fresh-blocked.json '"status": "blocked"'
+assert_file_contains doctor-fresh-blocked.json '"action": "doctor"'
+assert_file_contains doctor-fresh-blocked.json '"session_id": "r1"'
+assert_file_contains doctor-fresh-blocked.json '"code":"missing_review"'
+assert_file_contains doctor-fresh-blocked.json '"code":"missing_decision"'
 
 sed -i 's/"mode": "research"/"mode": "build"/' .rdl/sessions/r1/state.json
 assert_fails doctor-state-integrity.json "${RDL}" doctor
@@ -661,6 +707,33 @@ assert_file_contains repair-missing-evidence-entry-changed.json '"status": "erro
 assert_file_contains repair-missing-evidence-entry-changed.json '"code":"missing_integrity_entry"'
 assert_file_contains repair-missing-evidence-entry-changed.json '"file":"rounds/001/evidence.md"'
 
+repo_repair_stale_lock="${tmp_root}/repair-stale-lock"
+prepare_manifest_repo "${repo_repair_stale_lock}" repair_stale_lock
+stale_pid="$(exited_pid)"
+printf 'pid=%s\naction=test\ncreated_at_utc=2026-06-24T00:00:00Z\n' "${stale_pid}" > .rdl/sessions/repair_stale_lock/.lock
+assert_fails repair-stale-lock-doctor-before.json "${RDL}" doctor
+assert_file_contains repair-stale-lock-doctor-before.json '"status": "blocked"'
+assert_file_contains repair-stale-lock-doctor-before.json '"code":"stale_lock"'
+"${RDL}" repair > repair-stale-lock.json
+assert_file_contains repair-stale-lock.json '"status": "ok"'
+assert_file_contains repair-stale-lock.json '"next_action": ".lock,integrity.json"'
+[[ ! -f .rdl/sessions/repair_stale_lock/.lock ]] || fail "stale lock was not removed"
+assert_fails repair-stale-lock-doctor-after.json "${RDL}" doctor
+assert_file_contains repair-stale-lock-doctor-after.json '"status": "blocked"'
+assert_file_contains repair-stale-lock-doctor-after.json '"code":"missing_review"'
+if grep -q '"code":"stale_lock"' repair-stale-lock-doctor-after.json; then
+  fail "doctor still reported stale lock after repair"
+fi
+
+repo_repair_live_lock="${tmp_root}/repair-live-lock"
+prepare_manifest_repo "${repo_repair_live_lock}" repair_live_lock
+printf 'pid=%s\naction=test\ncreated_at_utc=2026-06-24T00:00:00Z\n' "$$" > .rdl/sessions/repair_live_lock/.lock
+assert_fails repair-live-lock.json "${RDL}" repair
+assert_file_contains repair-live-lock.json '"status": "blocked"'
+assert_file_contains repair-live-lock.json '"code":"session_locked"'
+[[ -f .rdl/sessions/repair_live_lock/.lock ]] || fail "live lock was removed"
+assert_file_contains .rdl/sessions/repair_live_lock/.lock "pid=$$"
+
 repo_repair_missing_prompt="${tmp_root}/repair-missing-prompt"
 prepare_manifest_repo "${repo_repair_missing_prompt}" repair_missing_prompt plan.md
 cp .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md original-prompt.md
@@ -670,8 +743,9 @@ assert_file_contains repair-missing-prompt.json '"status": "ok"'
 assert_file_contains repair-missing-prompt.json '"next_action": "rounds/001/prompt.md,integrity.json"'
 assert_file_contains .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md 'Mode: research'
 cmp original-prompt.md .rdl/sessions/repair_missing_prompt/rounds/001/prompt.md || fail "repaired prompt differed from original prompt"
-"${RDL}" doctor > repair-missing-prompt-doctor.json
-assert_file_contains repair-missing-prompt-doctor.json '"status": "ok"'
+assert_fails repair-missing-prompt-doctor.json "${RDL}" doctor
+assert_file_contains repair-missing-prompt-doctor.json '"status": "blocked"'
+assert_file_contains repair-missing-prompt-doctor.json '"code":"missing_review"'
 
 repo_repair_missing_prompt_escaped="${tmp_root}/repair-missing-prompt-escaped"
 prepare_manifest_repo "${repo_repair_missing_prompt_escaped}" repair_missing_prompt_escaped 'plan"a.md'
@@ -681,18 +755,21 @@ rm .rdl/sessions/repair_missing_prompt_escaped/rounds/001/prompt.md
 assert_file_contains repair-missing-prompt-escaped.json '"status": "ok"'
 assert_file_contains repair-missing-prompt-escaped.json '"next_action": "rounds/001/prompt.md,integrity.json"'
 cmp original-prompt.md .rdl/sessions/repair_missing_prompt_escaped/rounds/001/prompt.md || fail "escaped repaired prompt differed from original prompt"
-"${RDL}" doctor > repair-missing-prompt-escaped-doctor.json
-assert_file_contains repair-missing-prompt-escaped-doctor.json '"status": "ok"'
+assert_fails repair-missing-prompt-escaped-doctor.json "${RDL}" doctor
+assert_file_contains repair-missing-prompt-escaped-doctor.json '"status": "blocked"'
+assert_file_contains repair-missing-prompt-escaped-doctor.json '"code":"missing_review"'
 
 repo_start_prompt_control="${tmp_root}/start-prompt-control"
 prepare_manifest_repo "${repo_start_prompt_control}" start_prompt_control $'plan\tname.md'
-"${RDL}" doctor > start-prompt-control-doctor.json
-assert_file_contains start-prompt-control-doctor.json '"status": "ok"'
+assert_fails start-prompt-control-doctor.json "${RDL}" doctor
+assert_file_contains start-prompt-control-doctor.json '"status": "blocked"'
+assert_file_contains start-prompt-control-doctor.json '"code":"missing_review"'
 
 repo_start_prompt_full_control="${tmp_root}/start-prompt-full-control"
 prepare_manifest_repo "${repo_start_prompt_full_control}" start_prompt_full_control $'plan\001name.md'
-"${RDL}" doctor > start-prompt-full-control-doctor.json
-assert_file_contains start-prompt-full-control-doctor.json '"status": "ok"'
+assert_fails start-prompt-full-control-doctor.json "${RDL}" doctor
+assert_file_contains start-prompt-full-control-doctor.json '"status": "blocked"'
+assert_file_contains start-prompt-full-control-doctor.json '"code":"missing_review"'
 
 repo_repair_legacy_missing_prompt="${tmp_root}/repair-legacy-missing-prompt"
 prepare_manifest_repo "${repo_repair_legacy_missing_prompt}" repair_legacy_missing_prompt
@@ -903,14 +980,17 @@ complete_guard_research_records .rdl/sessions/guard_ok/rounds/001
 assert_file_contains guard-ok-doctor-before.json '"status": "ok"'
 "${RDL}" guard-stop --guard-session-id guard_ok --guard-command-id g1 > guard-ok.json
 assert_file_contains guard-ok.json '"status": "ok"'
-assert_file_contains guard-ok.json '"next_action": "allow"'
+assert_file_contains guard-ok.json '"round": 2'
+assert_file_contains guard-ok.json '"next_action": ".rdl/sessions/guard_ok/rounds/002/prompt.md"'
 assert_file_contains .rdl/sessions/guard_ok/state.json '"last_guard_command_id": "g1"'
+assert_file_contains .rdl/sessions/guard_ok/state.json '"round": 2'
 "${RDL}" guard-stop --guard-session-id guard_ok --guard-command-id g1 > guard-duplicate.json
 assert_file_contains guard-duplicate.json '"status": "ok"'
 assert_file_contains guard-duplicate.json '"next_action": "allow"'
 [[ "$(grep -c '"last_guard_command_id": "g1"' .rdl/sessions/guard_ok/state.json)" -eq 1 ]] || fail "duplicate guard id duplicated state field"
-"${RDL}" doctor > guard-post-doctor.json
-assert_file_contains guard-post-doctor.json '"status": "ok"'
+assert_fails guard-post-doctor.json "${RDL}" doctor
+assert_file_contains guard-post-doctor.json '"status": "blocked"'
+assert_file_contains guard-post-doctor.json '"code":"missing_review"'
 
 repo_guard_command_only="${tmp_root}/guard-command-only"
 prepare_manifest_repo "${repo_guard_command_only}" guard_command_only
@@ -919,7 +999,7 @@ complete_guard_decision .rdl/sessions/guard_command_only/rounds/001/decision.md
 complete_guard_research_records .rdl/sessions/guard_command_only/rounds/001
 "${RDL}" guard-stop --guard-command-id command-only-1 > guard-command-only.json
 assert_file_contains guard-command-only.json '"status": "ok"'
-assert_file_contains guard-command-only.json '"next_action": "allow"'
+assert_file_contains guard-command-only.json '"round": 2'
 assert_file_contains .rdl/sessions/guard_command_only/state.json '"last_guard_command_id": "command-only-1"'
 assert_file_contains .rdl/sessions/guard_command_only/state.json '"guard_session_id": null'
 
@@ -930,11 +1010,11 @@ complete_guard_decision .rdl/sessions/guard_session_only/rounds/001/decision.md
 complete_guard_research_records .rdl/sessions/guard_session_only/rounds/001
 "${RDL}" guard-stop --guard-session-id guard_session_only > guard-session-only.json
 assert_file_contains guard-session-only.json '"status": "ok"'
-assert_file_contains guard-session-only.json '"next_action": "allow"'
+assert_file_contains guard-session-only.json '"round": 2'
 assert_file_contains .rdl/sessions/guard_session_only/state.json '"guard_session_id": "guard_session_only"'
 assert_file_contains .rdl/sessions/guard_session_only/state.json '"last_guard_command_id": null'
-"${RDL}" doctor > guard-session-only-doctor.json
-assert_file_contains guard-session-only-doctor.json '"status": "ok"'
+assert_fails guard-session-only-doctor.json "${RDL}" doctor
+assert_file_contains guard-session-only-doctor.json '"status": "blocked"'
 
 repo_guard_build_missing="${tmp_root}/guard-build-missing-verification"
 mkdir -p "${repo_guard_build_missing}"
@@ -962,7 +1042,8 @@ complete_guard_build_decision .rdl/sessions/guard_build_ok/rounds/001/decision.m
 complete_guard_build_records .rdl/sessions/guard_build_ok/rounds/001 yes
 "${RDL}" guard-stop > guard-build-ok.json
 assert_file_contains guard-build-ok.json '"status": "ok"'
-assert_file_contains guard-build-ok.json '"next_action": "allow"'
+assert_file_contains guard-build-ok.json '"round": 2'
+assert_file_contains .rdl/sessions/guard_build_ok/state.json '"round": 2'
 
 repo_guard_close_missing_report="${tmp_root}/guard-close-missing-report"
 prepare_guard_close_repo "${repo_guard_close_missing_report}" guard_close_missing_report
@@ -1007,7 +1088,8 @@ prepare_guard_close_repo "${repo_guard_close_ok}" guard_close_ok
 complete_guard_final_report .rdl/sessions/guard_close_ok/final-report.md
 "${RDL}" guard-stop > guard-close-ok.json
 assert_file_contains guard-close-ok.json '"status": "ok"'
-assert_file_contains guard-close-ok.json '"next_action": "allow"'
+assert_file_contains guard-close-ok.json '"next_action": "closed-positive"'
+assert_file_contains .rdl/sessions/guard_close_ok/state.json '"status": "closed-positive"'
 
 repo_guard_mismatch="${tmp_root}/guard-mismatch"
 prepare_manifest_repo "${repo_guard_mismatch}" guard_mismatch

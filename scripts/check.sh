@@ -60,3 +60,9 @@ if [[ "${broken_links}" -ne 0 ]]; then
 fi
 
 echo "Skill links ok"
+
+for test_script in "${ROOT_DIR}"/local/research-dev-loop/tests/*.sh; do
+  bash "${test_script}" >/dev/null
+done
+
+echo "RDL tests ok"

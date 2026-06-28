@@ -73,7 +73,9 @@ complete_manifest() {
     {
       "id": "${artifact_id}",
       "kind": "log",
-      "path": "artifacts/check.log"
+      "path": "artifacts/check.log",
+      "round": 1,
+      "description": "Fixture close evidence"
     }
   ]
 }

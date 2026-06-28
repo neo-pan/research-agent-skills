@@ -374,6 +374,8 @@ json_artifacts_valid() {
       (.artifacts // []) | type == "array" and
       all(.[]; (.id | type == "string" and length > 0) and
                (.kind | type == "string" and length > 0) and
+               (.round | type == "number" and (. == floor) and . >= 1) and
+               (.description | type == "string" and length > 0) and
                (((.path // "") | length > 0) or ((.url // "") | length > 0)))
     ' "${file}" >/dev/null 2>&1
     return $?
@@ -393,6 +395,10 @@ for artifact in artifacts:
     if not isinstance(artifact, dict):
         raise SystemExit(1)
     if not artifact.get("id") or not artifact.get("kind"):
+        raise SystemExit(1)
+    if not isinstance(artifact.get("round"), int) or artifact["round"] < 1:
+        raise SystemExit(1)
+    if not artifact.get("description"):
         raise SystemExit(1)
     if not artifact.get("path") and not artifact.get("url"):
         raise SystemExit(1)
@@ -436,6 +442,89 @@ file_sha256() {
 file_size_bytes() {
   local file="$1"
   wc -c < "${file}" | tr -d '[:space:]'
+}
+
+lock_path_for_session() {
+  printf '%s/.lock' "$1"
+}
+
+lock_owner_alive() {
+  local lock_file="$1"
+  local pid=""
+  if [[ -f "${lock_file}" ]]; then
+    pid="$(sed -n 's/^pid=//p' "${lock_file}" | head -n 1)"
+  fi
+  [[ -n "${pid}" && "${pid}" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "${pid}" 2>/dev/null
+}
+
+lock_owner_pid() {
+  local lock_file="$1"
+  sed -n 's/^pid=//p' "${lock_file}" 2>/dev/null | head -n 1
+}
+
+validate_session_lock() {
+  local session_dir="$1"
+  local -n lock_blockers_ref="$2"
+  local lock_file
+  lock_file="$(lock_path_for_session "${session_dir}")"
+  if [[ -n "${RDL_HELD_LOCK:-}" && "${RDL_HELD_LOCK}" == "${lock_file}" ]]; then
+    return
+  fi
+  [[ -f "${lock_file}" ]] || return 0
+  if [[ "$(lock_owner_pid "${lock_file}")" == "$$" ]]; then
+    return 0
+  fi
+  if lock_owner_alive "${lock_file}"; then
+    add_blocker lock_blockers_ref "session_locked" ".lock" "RDL session is locked by another process." "Wait for the command to finish, then retry."
+  else
+    add_blocker lock_blockers_ref "stale_lock" ".lock" "RDL session lock exists but the owning process is gone." "Inspect the interrupted command, then run rdl repair or remove .lock manually."
+  fi
+}
+
+acquire_session_lock() {
+  local action="$1"
+  local session_dir="$2"
+  local session_id="$3"
+  local mode="$4"
+  local phase="$5"
+  local round="$6"
+  local lock_file
+  lock_file="$(lock_path_for_session "${session_dir}")"
+  if ! ( set -o noclobber; printf 'pid=%s\naction=%s\ncreated_at_utc=%s\n' "$$" "${action}" "$(now_utc)" > "${lock_file}" ) 2>/dev/null; then
+    local blockers=()
+    validate_session_lock "${session_dir}" blockers
+    if [[ "${#blockers[@]}" -eq 0 ]]; then
+      add_blocker blockers "session_locked" ".lock" "RDL session is locked by another process." "Wait for the command to finish, then retry."
+    fi
+    emit_problem "blocked" "${action}" "${session_id}" "${mode}" "${phase}" "${round:-0}" "retry after lock clears" "${blockers[@]}"
+    return 2
+  fi
+  RDL_HELD_LOCK="${lock_file}"
+}
+
+release_session_lock() {
+  if [[ -n "${RDL_HELD_LOCK:-}" && -f "${RDL_HELD_LOCK}" ]]; then
+    rm -f "${RDL_HELD_LOCK}"
+  fi
+  RDL_HELD_LOCK=""
+}
+
+repair_stale_session_lock() {
+  local session_dir="$1"
+  local -n repaired_ref="$2"
+  local -n lock_blockers_ref="$3"
+  local lock_file
+  lock_file="$(lock_path_for_session "${session_dir}")"
+  [[ -f "${lock_file}" ]] || return 0
+
+  if lock_owner_alive "${lock_file}"; then
+    add_blocker lock_blockers_ref "session_locked" ".lock" "RDL session is locked by another process." "Wait for the command to finish, then retry."
+    return 2
+  fi
+
+  rm -f "${lock_file}"
+  repaired_ref+=(".lock")
 }
 
 managed_block_sha256() {
@@ -904,7 +993,7 @@ validate_repairable_session_structure() {
       if [[ "${artifact_status}" -eq 2 ]]; then
         add_blocker repair_errors_ref "missing_json_tool" "artifact-manifest.json" "No JSON parser is available for artifact-manifest.json validation." "Install jq or python3."
       elif [[ "${artifact_status}" -ne 0 ]]; then
-        add_blocker repair_blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, and path or url." "Fix artifact entries before repair."
+        add_blocker repair_blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, round, description, and path or url." "Fix artifact entries before repair."
       fi
     fi
   fi
@@ -1225,12 +1314,22 @@ render_prompt() {
   local objective="$3"
   local previous_decision="$4"
   local target="$5"
+  local required_files expected_exit_decision
+  if [[ "${mode}" == "research" ]]; then
+    required_files="prompt.md, evidence.md, interpretation.md, review.md, decision.md"
+    expected_exit_decision="claim decision with evidence and uncertainty"
+  else
+    required_files="prompt.md, intent.md, work.md, evidence.md, review.md, decision.md"
+    expected_exit_decision="capability decision with verification evidence"
+  fi
 
   while IFS= read -r line; do
     line="${line//\{\{MODE\}\}/${mode}}"
     line="${line//\{\{ROUND\}\}/${round}}"
     line="${line//\{\{OBJECTIVE\}\}/${objective}}"
     line="${line//\{\{PREVIOUS_DECISION\}\}/${previous_decision}}"
+    line="${line//\{\{REQUIRED_FILES\}\}/${required_files}}"
+    line="${line//\{\{EXPECTED_EXIT_DECISION\}\}/${expected_exit_decision}}"
     printf '%s\n' "${line}"
   done < "${TEMPLATE_DIR}/prompt.md" > "${target}"
 }
@@ -1427,7 +1526,7 @@ validate_state_file() {
   local state_file="${session_dir}/state.json"
   if [[ ! -f "${state_file}" ]]; then
     add_blocker state_errors_ref "missing_state" "${state_file}" "state.json is missing." "Restore state.json or abandon the session."
-    return
+    return 0
   fi
   local json_status=0
   valid_json_file "${state_file}" || json_status=$?
@@ -1436,7 +1535,7 @@ validate_state_file() {
       "state.json is not valid JSON." "Repair state.json explicitly." \
       "No JSON parser is available for state.json validation." "Install jq or python3." \
       "${json_status}"
-    return
+    return 0
   fi
 
   local schema session_id mode phase round status mission_file
@@ -1481,12 +1580,14 @@ validate_session() {
   local state_file="${session_dir}/state.json"
   validate_state_file "${session_dir}" errors_ref
   if [[ "${#errors_ref[@]}" -gt 0 ]]; then
-    return
+    return 0
   fi
 
   local round mission_file
   round="$(json_number "${state_file}" "round")"
   mission_file="$(json_value "${state_file}" "mission_file")"
+
+  validate_session_lock "${session_dir}" blockers_ref
 
   if [[ ! -f "${session_dir}/${mission_file}" ]]; then
     add_blocker blockers_ref "missing_mission_file" "${mission_file}" "mission file does not exist." "Restore the mission file or repair the session."
@@ -1540,10 +1641,43 @@ validate_session() {
       if [[ "${artifact_status}" -eq 2 ]]; then
         add_blocker errors_ref "missing_json_tool" "artifact-manifest.json" "No JSON parser is available for artifact-manifest.json validation." "Install jq or python3."
       elif [[ "${artifact_status}" -ne 0 ]]; then
-        add_blocker blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, and path or url." "Fix artifact entries or remove invalid artifacts."
+        add_blocker blockers_ref "invalid_artifact_entry" "artifact-manifest.json" "artifact entries need id, kind, round, description, and path or url." "Fix artifact entries or remove invalid artifacts."
       fi
     fi
   fi
+}
+
+validate_current_round_record() {
+  local session_dir="$1"
+  local mode="$2"
+  local round="$3"
+  local -n round_blockers_ref="$4"
+
+  local round_dir="${session_dir}/$(round_path "${round}")"
+  local expected_closes
+  expected_closes="$(expected_closes_for_mode "${mode}")"
+
+  validate_review_file "${round_dir}/review.md" round_blockers_ref
+  validate_decision_file "${round_dir}/decision.md" "${expected_closes}" round_blockers_ref
+  validate_mode_round_minimums "${mode}" "${round_dir}" round_blockers_ref
+  validate_round_evidence_discipline "${round_dir}" round_blockers_ref
+  validate_close_artifact_citations "${session_dir}" "${round_dir}" round_blockers_ref
+
+  local decision=""
+  if [[ -f "${round_dir}/decision.md" ]]; then
+    decision="$(md_field_value "${round_dir}/decision.md" "Decision")"
+  fi
+  case "${decision}" in
+    close-positive)
+      validate_close_readiness "${session_dir}" "${round_dir}" "${round}" "positive" round_blockers_ref
+      ;;
+    close-negative)
+      validate_close_readiness "${session_dir}" "${round_dir}" "${round}" "negative" round_blockers_ref
+      ;;
+    close-inconclusive)
+      validate_close_readiness "${session_dir}" "${round_dir}" "${round}" "inconclusive" round_blockers_ref
+      ;;
+  esac
 }
 
 cmd_doctor() {
@@ -1576,6 +1710,9 @@ cmd_doctor() {
   local errors=()
   local blockers=()
   validate_session "${session_dir}" errors blockers
+  if [[ "${#errors[@]}" -eq 0 && "${#blockers[@]}" -eq 0 ]]; then
+    validate_current_round_record "${session_dir}" "${mode}" "${round:-1}" blockers
+  fi
 
   if [[ "${#errors[@]}" -gt 0 ]]; then
     emit_problem "error" "doctor" "${session_id}" "${mode}" "${phase}" "${round:-0}" "repair RDL session metadata" "${errors[@]}"
@@ -1605,7 +1742,7 @@ validate_review_file() {
   local -n blockers_ref="$2"
   if [[ ! -f "${file}" ]]; then
     add_blocker blockers_ref "missing_review" "${file}" "review.md is missing." "Run rdl review and complete the review record."
-    return
+    return 0
   fi
 
   local field value
@@ -1644,13 +1781,47 @@ validate_review_file() {
   esac
 }
 
+validate_review_decision_alignment() {
+  local review_file="$1"
+  local decision_file="$2"
+  local -n blockers_ref="$3"
+  [[ -f "${review_file}" ]] || return 0
+
+  local verdict decision gaps normalized_gaps
+  verdict="$(md_field_value "${review_file}" "Verdict")"
+  if [[ -f "${decision_file}" ]]; then
+    decision="$(md_field_value "${decision_file}" "Decision")"
+  else
+    decision=""
+  fi
+  gaps="$(md_field_value "${review_file}" "Blocking Evidence Gaps")"
+  normalized_gaps="$(trim "${gaps}")"
+  normalized_gaps="${normalized_gaps,,}"
+
+  if [[ "${verdict}" == "BLOCKED" ]]; then
+    add_blocker blockers_ref "blocking_review_verdict" "${review_file}#Verdict" "Review verdict is BLOCKED." "Resolve the review findings before advancing."
+  elif [[ "${verdict}" == "INCONCLUSIVE" && "${decision}" != "close-inconclusive" ]]; then
+    add_blocker blockers_ref "inconclusive_review_verdict" "${review_file}#Verdict" "Review verdict is INCONCLUSIVE but the decision is not close-inconclusive." "Close inconclusive or complete enough review evidence to proceed."
+  fi
+
+  case "${normalized_gaps}" in
+    ""|none|"no blocking gaps"|"no blocking evidence gaps"|"n/a"|"not applicable")
+      ;;
+    *)
+      if [[ "${decision}" != "close-inconclusive" ]]; then
+        add_blocker blockers_ref "blocking_evidence_gaps" "${review_file}#Blocking Evidence Gaps" "Review records blocking evidence gaps." "Resolve the gaps or close inconclusive."
+      fi
+      ;;
+  esac
+}
+
 validate_decision_file() {
   local file="$1"
   local expected_closes="$2"
   local -n blockers_ref="$3"
   if [[ ! -f "${file}" ]]; then
     add_blocker blockers_ref "missing_decision" "${file}" "decision.md is missing." "Run rdl decide <decision-type> and complete the decision record."
-    return
+    return 0
   fi
 
   local decision closes next_loop field value
@@ -1695,7 +1866,7 @@ validate_build_verification_evidence() {
 
   if [[ ! -f "${evidence_file}" ]]; then
     add_blocker verification_blockers_ref "missing_verification_evidence" "${evidence_file}" "Build rounds require evidence.md with verification evidence for the capability." "Add verification evidence before running rdl next."
-    return
+    return 0
   fi
 
   local label_value
@@ -1720,7 +1891,7 @@ validate_round_file_content() {
 
   if [[ ! -f "${file}" ]]; then
     add_blocker file_blockers_ref "${code}" "${file}" "${message}" "${next_action}"
-    return
+    return 0
   fi
   if ! markdown_has_content "${file}"; then
     add_blocker file_blockers_ref "${code}" "${file}" "${message}" "${next_action}"
@@ -1860,7 +2031,7 @@ validate_close_artifact_citations() {
   local evidence_file="${round_dir}/evidence.md"
   local report_file="${session_dir}/final-report.md"
 
-  [[ -f "${manifest_file}" ]] || return
+  [[ -f "${manifest_file}" ]] || return 0
 
   declare -A manifest_ids=()
   local id
@@ -1904,7 +2075,7 @@ validate_close_evidence_discipline() {
 
   if [[ ! -f "${evidence_file}" ]]; then
     add_blocker evidence_blockers_ref "missing_close_evidence" "${evidence_file}" "Closing requires current-round evidence.md." "Create evidence.md and record close evidence discipline."
-    return
+    return 0
   fi
 
   if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Missing Evidence[[:space:]]*$'; then
@@ -1915,6 +2086,27 @@ validate_close_evidence_discipline() {
   fi
   if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Evidence Budget[[:space:]]*$'; then
     add_blocker evidence_blockers_ref "missing_evidence_budget" "${evidence_file}#Evidence Budget" "Evidence Budget must be recorded before closing." "Record the evidence budget used or remaining."
+  fi
+}
+
+validate_round_evidence_discipline() {
+  local round_dir="$1"
+  local -n evidence_blockers_ref="$2"
+  local evidence_file="${round_dir}/evidence.md"
+
+  if [[ ! -f "${evidence_file}" ]]; then
+    add_blocker evidence_blockers_ref "missing_evidence" "${evidence_file}" "Current round requires evidence.md." "Create evidence.md and record evidence discipline."
+    return 0
+  fi
+
+  if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Missing Evidence[[:space:]]*$'; then
+    add_blocker evidence_blockers_ref "missing_evidence_discipline" "${evidence_file}#Missing Evidence" "Missing Evidence must be recorded for the round." "Record missing evidence or explicitly state none."
+  fi
+  if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Evaluation Integrity[[:space:]]*$'; then
+    add_blocker evidence_blockers_ref "missing_evaluation_integrity" "${evidence_file}#Evaluation Integrity" "Evaluation Integrity must be recorded for the round." "Record evaluation integrity notes or an explicit not-applicable note."
+  fi
+  if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Evidence Budget[[:space:]]*$'; then
+    add_blocker evidence_blockers_ref "missing_evidence_budget" "${evidence_file}#Evidence Budget" "Evidence Budget must be recorded for the round." "Record the evidence budget used or remaining."
   fi
 }
 
@@ -1954,15 +2146,15 @@ validate_repeated_negative_evidence() {
   local decision_file="${round_dir}/decision.md"
   local progress_file="${session_dir}/progress.md"
 
-  [[ -f "${evidence_file}" ]] || return
+  [[ -f "${evidence_file}" ]] || return 0
   if ! markdown_section_has_content "${evidence_file}" '^[[:space:]]*##[[:space:]]+Repeated Negative Evidence[[:space:]]*$'; then
-    return
+    return 0
   fi
   if ! prior_continue_decision_exists "${session_dir}" "${current_round}"; then
-    return
+    return 0
   fi
   if repeated_negative_acknowledged "${decision_file}" "${progress_file}"; then
-    return
+    return 0
   fi
 
   add_blocker repeated_blockers_ref "unacknowledged_repeated_negative_evidence" "${evidence_file}#Repeated Negative Evidence" "Repeated negative evidence after a continue decision must be acknowledged before closing." "Record why continuation or closure is justified in decision.md or progress.md, or close negative/inconclusive."
@@ -2079,7 +2271,10 @@ validate_round_advance_readiness() {
 
   validate_review_file "${review_file}" advance_blockers_ref
   validate_decision_file "${decision_file}" "${expected_closes}" advance_blockers_ref
+  validate_review_decision_alignment "${review_file}" "${decision_file}" advance_blockers_ref
   validate_mode_round_minimums "${mode}" "${round_dir}" advance_blockers_ref
+  validate_round_evidence_discipline "${round_dir}" advance_blockers_ref
+  validate_close_artifact_citations "${session_dir}" "${round_dir}" advance_blockers_ref
 }
 
 validate_close_readiness() {
@@ -2129,6 +2324,49 @@ validate_guard_stop_readiness() {
   fi
 }
 
+advance_to_next_round() {
+  local action="$1"
+  local session_dir="$2"
+  local session_id="$3"
+  local mode="$4"
+  local round="$5"
+  local -n next_result_ref="$6"
+  local -n next_blockers_ref="$7"
+
+  local expected_closes
+  expected_closes="$(expected_closes_for_mode "${mode}")"
+  local round_dir="${session_dir}/$(round_path "${round}")"
+  local next_round=$((round + 1))
+  local next_round_dir="${session_dir}/$(round_path "${next_round}")"
+  if [[ -e "${next_round_dir}" ]]; then
+    add_blocker next_blockers_ref "next_round_exists" "$(round_path "${next_round}")" "Next round directory already exists." "Inspect the existing next round before advancing."
+    return 2
+  fi
+
+  local decision next_loop previous_decision now state_file
+  state_file="${session_dir}/state.json"
+  decision="$(md_field_value "${round_dir}/decision.md" "Decision")"
+  next_loop="$(md_field_value "${round_dir}/decision.md" "Recommended next loop")"
+  previous_decision="${decision}; closes ${expected_closes}; recommended next loop ${next_loop}"
+  now="$(now_utc)"
+  mkdir -p "${next_round_dir}"
+  render_prompt "${mode}" "${next_round}" "Continue ${mode} session ${session_id}" "${previous_decision}" "${next_round_dir}/prompt.md"
+
+  sed -i "s/^[[:space:]]*\"round\"[[:space:]]*:.*/  \"round\": ${next_round},/" "${state_file}"
+  sed -i "s/^[[:space:]]*\"phase\"[[:space:]]*:.*/  \"phase\": \"plan\",/" "${state_file}"
+  sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
+
+  {
+    printf '\n## Round %s Decision\n\n' "${round}"
+    printf '%s\n' "- Decision: ${decision}"
+    printf '%s\n' "- Closes: ${expected_closes}"
+    printf '%s\n' "- Recommended next loop: ${next_loop}"
+    printf '%s\n' "- Next round: $(printf '%03d' "${next_round}")"
+  } >> "${session_dir}/decision-ledger.md"
+
+  next_result_ref=("${next_round}" "${next_round_dir}/prompt.md")
+}
+
 mark_session_ended() {
   local session_dir="$1"
   local status="$2"
@@ -2138,6 +2376,61 @@ mark_session_ended() {
   sed -i "s/^[[:space:]]*\"status\"[[:space:]]*:.*/  \"status\": \"${status}\",/" "${state_file}"
   sed -i "s/^[[:space:]]*\"phase\"[[:space:]]*:.*/  \"phase\": \"complete\",/" "${state_file}"
   sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
+}
+
+close_session_record() {
+  local session_dir="$1"
+  local outcome="$2"
+  local expected_closes="$3"
+  local round="$4"
+  local now status
+  now="$(now_utc)"
+  status="closed-${outcome}"
+  mark_session_ended "${session_dir}" "${status}" "${now}"
+
+  {
+    printf '\n## Session Closed\n\n'
+    printf '%s\n' "- Outcome: ${outcome}"
+    printf '%s\n' "- Decision: close-${outcome}"
+    printf '%s\n' "- Closes: ${expected_closes}"
+    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
+    printf '%s\n' "- Closed at UTC: ${now}"
+  } >> "${session_dir}/decision-ledger.md"
+}
+
+guard_transition() {
+  local session_dir="$1"
+  local session_id="$2"
+  local mode="$3"
+  local round="$4"
+  local -n transition_result_ref="$5"
+  local -n transition_blockers_ref="$6"
+
+  local decision_file="${session_dir}/$(round_path "${round}")/decision.md"
+  local decision expected_closes
+  decision="$(md_field_value "${decision_file}" "Decision")"
+  expected_closes="$(expected_closes_for_mode "${mode}")"
+  case "${decision}" in
+    close-positive)
+      close_session_record "${session_dir}" "positive" "${expected_closes}" "${round}"
+      transition_result_ref=("complete" "${round}" "closed-positive")
+      ;;
+    close-negative)
+      close_session_record "${session_dir}" "negative" "${expected_closes}" "${round}"
+      transition_result_ref=("complete" "${round}" "closed-negative")
+      ;;
+    close-inconclusive)
+      close_session_record "${session_dir}" "inconclusive" "${expected_closes}" "${round}"
+      transition_result_ref=("complete" "${round}" "closed-inconclusive")
+      ;;
+    *)
+      local next_result=()
+      if ! advance_to_next_round "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${round}" next_result transition_blockers_ref; then
+        return 2
+      fi
+      transition_result_ref=("plan" "${next_result[0]}" "${next_result[1]}")
+      ;;
+  esac
 }
 
 mark_guard_seen() {
@@ -2204,21 +2497,29 @@ cmd_guard_stop() {
     emit_ok "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "allow"
     return 0
   fi
+  if [[ -n "${guard_command_id}" && "${guard_command_id}" == "${last_guard_command_id}" ]]; then
+    emit_ok "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "allow"
+    return 0
+  fi
+  acquire_session_lock "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
 
   local errors=()
   local blockers=()
   validate_session "${session_dir}" errors blockers
   if [[ "${#errors[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "error" "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "block" "${errors[@]}"
     return 2
   fi
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "block" "${blockers[@]}"
     return 2
   fi
 
   validate_guard_stop_readiness "${session_dir}" "${mode}" "${round:-1}" blockers
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "block" "${blockers[@]}"
     return 2
   fi
@@ -2232,14 +2533,29 @@ cmd_guard_stop() {
     command_id_needs_update=1
   fi
 
-  if [[ "${session_id_needs_update}" -eq 1 || "${command_id_needs_update}" -eq 1 ]]; then
-    local now
-    now="$(now_utc)"
-    mark_guard_seen "${session_dir}" "${guard_session_id}" "${guard_command_id}" "${now}"
-    refresh_integrity_or_error "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
+  local transition_result=()
+  guard_transition "${session_dir}" "${session_id}" "${mode}" "${round:-1}" transition_result blockers
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
+    emit_problem "blocked" "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "block" "${blockers[@]}"
+    return 2
   fi
 
-  emit_ok "guard-stop" "${session_id}" "${mode}" "${phase}" "${round:-0}" "allow"
+  local next_phase="${transition_result[0]}"
+  local next_round="${transition_result[1]}"
+  local next_action="${transition_result[2]}"
+  local now
+  now="$(now_utc)"
+  if [[ "${session_id_needs_update}" -eq 1 || "${command_id_needs_update}" -eq 1 ]]; then
+    mark_guard_seen "${session_dir}" "${guard_session_id}" "${guard_command_id}" "${now}"
+  fi
+
+  if ! refresh_integrity_or_error "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${next_phase}" "${next_round:-0}"; then
+    release_session_lock
+    return 1
+  fi
+  release_session_lock
+  emit_ok "guard-stop" "${session_id}" "${mode}" "${next_phase}" "${next_round:-0}" "${next_action}"
 }
 
 join_csv() {
@@ -2277,19 +2593,28 @@ cmd_repair() {
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
 
+  local repaired=()
   local errors=()
   local blockers=()
+  repair_stale_session_lock "${session_dir}" repaired blockers || true
+  if [[ "${#blockers[@]}" -gt 0 ]]; then
+    emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "retry after lock clears" "${blockers[@]}"
+    return 2
+  fi
+  acquire_session_lock "repair" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
+
   validate_repairable_session_structure "${session_dir}" errors blockers
   if [[ "${#errors[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "error" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${errors[@]}"
     return 1
   fi
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${blockers[@]}"
     return 2
   fi
 
-  local repaired=()
   local manifest="${session_dir}/integrity.json"
   if ! manifest_usable_for_repair "${manifest}"; then
     validate_unverified_manifest_repair_scope "${session_dir}" errors
@@ -2298,34 +2623,43 @@ cmd_repair() {
   fi
   validate_existing_manifest_for_repair "${session_dir}" "${manifest}" errors blockers
   if [[ "${#errors[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "error" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${errors[@]}"
     return 1
   fi
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${blockers[@]}"
     return 2
   fi
 
   plan_prompt_repair "${session_dir}" repaired blockers
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "restore unsafe files before repair" "${blockers[@]}"
     return 2
   fi
   repaired+=("integrity.json")
-  refresh_integrity_or_error "repair" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
+  if ! refresh_integrity_or_error "repair" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}"; then
+    release_session_lock
+    return 1
+  fi
 
   errors=()
   blockers=()
   validate_session "${session_dir}" errors blockers
   if [[ "${#errors[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "error" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "inspect repaired session" "${errors[@]}"
     return 1
   fi
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "inspect repaired session" "${blockers[@]}"
     return 2
   fi
 
+  release_session_lock
   emit_ok "repair" "${session_id}" "${mode}" "${phase}" "${round:-0}" "$(join_csv "${repaired[@]}")"
 }
 
@@ -2352,12 +2686,17 @@ cmd_review() {
   mode="$(json_value "${state_file}" "mode")"
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
+  acquire_session_lock "review" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
 
   local round_dir="${session_dir}/$(round_path "${round}")"
   local review_file="${round_dir}/review.md"
   if [[ ! -f "${review_file}" ]]; then
     cp "${TEMPLATE_DIR}/review.md" "${review_file}"
-    refresh_integrity_or_error "review" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round}" || return $?
+    if ! refresh_integrity_or_error "review" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round}"; then
+      release_session_lock
+      return 1
+    fi
+    release_session_lock
     emit_ok "review" "${session_id}" "${mode}" "${phase}" "${round}" "${review_file}"
     return 0
   fi
@@ -2365,10 +2704,12 @@ cmd_review() {
   local blockers=()
   validate_review_file "${review_file}" blockers
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "review" "${session_id}" "${mode}" "${phase}" "${round}" "complete review.md" "${blockers[@]}"
     return 2
   fi
 
+  release_session_lock
   emit_ok "review" "${session_id}" "${mode}" "${phase}" "${round}" "rdl decide <decision-type>"
 }
 
@@ -2404,6 +2745,7 @@ cmd_decide() {
   mode="$(json_value "${state_file}" "mode")"
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
+  acquire_session_lock "decide" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
   if [[ "${mode}" == "research" ]]; then
     expected_closes="claim"
   else
@@ -2416,7 +2758,11 @@ cmd_decide() {
     cp "${TEMPLATE_DIR}/decision.md" "${decision_file}"
     sed -i "s/^Decision:.*/Decision: ${decision_type}/" "${decision_file}"
     sed -i "s/^Closes:.*/Closes: ${expected_closes}/" "${decision_file}"
-    refresh_integrity_or_error "decide" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round}" || return $?
+    if ! refresh_integrity_or_error "decide" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round}"; then
+      release_session_lock
+      return 1
+    fi
+    release_session_lock
     emit_ok "decide" "${session_id}" "${mode}" "${phase}" "${round}" "${decision_file}"
     return 0
   fi
@@ -2427,10 +2773,12 @@ cmd_decide() {
     add_blocker blockers "decision_type_mismatch" "${decision_file}#Decision" "Decision does not match the requested decision type." "Run rdl decide with the recorded decision type or update decision.md."
   fi
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "decide" "${session_id}" "${mode}" "${phase}" "${round}" "complete decision.md" "${blockers[@]}"
     return 2
   fi
 
+  release_session_lock
   emit_ok "decide" "${session_id}" "${mode}" "${phase}" "${round}" "rdl next"
 }
 
@@ -2458,46 +2806,32 @@ cmd_next() {
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
   expected_closes="$(expected_closes_for_mode "${mode}")"
+  acquire_session_lock "next" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
 
   local round_dir="${session_dir}/$(round_path "${round}")"
   local blockers=()
   validate_round_advance_readiness "${session_dir}" "${mode}" "${round}" blockers
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "next" "${session_id}" "${mode}" "${phase}" "${round}" "complete current round review and decision" "${blockers[@]}"
     return 2
   fi
 
-  local next_round=$((round + 1))
-  local next_round_dir="${session_dir}/$(round_path "${next_round}")"
-  if [[ -e "${next_round_dir}" ]]; then
-    emit_problem "blocked" "next" "${session_id}" "${mode}" "${phase}" "${round}" "inspect existing next round" \
-      "next_round_exists" "$(round_path "${next_round}")" "Next round directory already exists." "Inspect the existing next round before advancing."
+  local next_result=()
+  if ! advance_to_next_round "next" "${session_dir}" "${session_id}" "${mode}" "${round}" next_result blockers; then
+    release_session_lock
+    emit_problem "blocked" "next" "${session_id}" "${mode}" "${phase}" "${round}" "inspect existing next round" "${blockers[@]}"
     return 2
   fi
+  local next_round="${next_result[0]}"
+  local next_prompt="${next_result[1]}"
 
-  local decision next_loop previous_decision now
-  local decision_file="${round_dir}/decision.md"
-  decision="$(md_field_value "${decision_file}" "Decision")"
-  next_loop="$(md_field_value "${decision_file}" "Recommended next loop")"
-  previous_decision="${decision}; closes ${expected_closes}; recommended next loop ${next_loop}"
-  now="$(now_utc)"
-  mkdir -p "${next_round_dir}"
-  render_prompt "${mode}" "${next_round}" "Continue ${mode} session ${session_id}" "${previous_decision}" "${next_round_dir}/prompt.md"
-
-  sed -i "s/^[[:space:]]*\"round\"[[:space:]]*:.*/  \"round\": ${next_round},/" "${state_file}"
-  sed -i "s/^[[:space:]]*\"phase\"[[:space:]]*:.*/  \"phase\": \"plan\",/" "${state_file}"
-  sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
-
-  {
-    printf '\n## Round %s Decision\n\n' "${round}"
-    printf '%s\n' "- Decision: ${decision}"
-    printf '%s\n' "- Closes: ${expected_closes}"
-    printf '%s\n' "- Recommended next loop: ${next_loop}"
-    printf '%s\n' "- Next round: $(printf '%03d' "${next_round}")"
-  } >> "${session_dir}/decision-ledger.md"
-
-  refresh_integrity_or_error "next" "${session_dir}" "${session_id}" "${mode}" "plan" "${next_round}" || return $?
-  emit_ok "next" "${session_id}" "${mode}" "plan" "${next_round}" "${next_round_dir}/prompt.md"
+  if ! refresh_integrity_or_error "next" "${session_dir}" "${session_id}" "${mode}" "plan" "${next_round}"; then
+    release_session_lock
+    return 1
+  fi
+  release_session_lock
+  emit_ok "next" "${session_id}" "${mode}" "plan" "${next_round}" "${next_prompt}"
 }
 
 cmd_close() {
@@ -2533,6 +2867,7 @@ cmd_close() {
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
   expected_closes="$(expected_closes_for_mode "${mode}")"
+  acquire_session_lock "close" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
 
   local round_dir="${session_dir}/$(round_path "${round}")"
   local decision_file="${round_dir}/decision.md"
@@ -2546,26 +2881,19 @@ cmd_close() {
   fi
 
   if [[ "${#blockers[@]}" -gt 0 ]]; then
+    release_session_lock
     emit_problem "blocked" "close" "${session_id}" "${mode}" "${phase}" "${round}" "complete close records" "${blockers[@]}"
     return 2
   fi
 
-  local now status
-  now="$(now_utc)"
-  status="closed-${outcome}"
-  mark_session_ended "${session_dir}" "${status}" "${now}"
+  close_session_record "${session_dir}" "${outcome}" "${expected_closes}" "${round}"
 
-  {
-    printf '\n## Session Closed\n\n'
-    printf '%s\n' "- Outcome: ${outcome}"
-    printf '%s\n' "- Decision: ${expected_decision}"
-    printf '%s\n' "- Closes: ${expected_closes}"
-    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
-    printf '%s\n' "- Closed at UTC: ${now}"
-  } >> "${session_dir}/decision-ledger.md"
-
-  refresh_integrity_or_error "close" "${session_dir}" "${session_id}" "${mode}" "complete" "${round}" || return $?
-  emit_ok "close" "${session_id}" "${mode}" "complete" "${round}" "${status}"
+  if ! refresh_integrity_or_error "close" "${session_dir}" "${session_id}" "${mode}" "complete" "${round}"; then
+    release_session_lock
+    return 1
+  fi
+  release_session_lock
+  emit_ok "close" "${session_id}" "${mode}" "complete" "${round}" "closed-${outcome}"
 }
 
 cmd_abandon() {
@@ -2603,6 +2931,7 @@ cmd_abandon() {
   mode="$(json_value "${state_file}" "mode")"
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
+  acquire_session_lock "abandon" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
   now="$(now_utc)"
 
   mark_session_ended "${session_dir}" "abandoned" "${now}"
@@ -2622,7 +2951,11 @@ cmd_abandon() {
     printf '%s\n' "- Scientific outcome claimed: none"
   } >> "${session_dir}/progress.md"
 
-  refresh_integrity_or_error "abandon" "${session_dir}" "${session_id}" "${mode}" "complete" "${round}" || return $?
+  if ! refresh_integrity_or_error "abandon" "${session_dir}" "${session_id}" "${mode}" "complete" "${round}"; then
+    release_session_lock
+    return 1
+  fi
+  release_session_lock
   emit_ok "abandon" "${session_id}" "${mode}" "complete" "${round}" "abandoned"
 }
 
