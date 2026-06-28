@@ -548,7 +548,43 @@ managed_block_sha256() {
   ' "${file}" | file_sha256 -
 }
 
-integrity_policy_for_path() {
+protocol_session_files() {
+  printf '%s\n' \
+    state.json \
+    mission.md \
+    factors.md \
+    artifact-manifest.json \
+    decision-ledger.md \
+    progress.md
+}
+
+protocol_optional_session_files() {
+  printf '%s\n' final-report.md
+}
+
+protocol_round_file_names() {
+  printf '%s\n' \
+    prompt.md \
+    intent.md \
+    work.md \
+    evidence.md \
+    interpretation.md \
+    review.md \
+    decision.md
+}
+
+protocol_completed_round_file_names_for_mode() {
+  local mode="$1"
+  printf '%s\n' prompt.md
+  if [[ "${mode}" == "research" ]]; then
+    printf '%s\n' evidence.md interpretation.md
+  else
+    printf '%s\n' intent.md work.md evidence.md
+  fi
+  printf '%s\n' review.md decision.md
+}
+
+protocol_policy_for_path() {
   case "$1" in
     state.json)
       printf 'cli_owned'
@@ -565,13 +601,20 @@ integrity_policy_for_path() {
   esac
 }
 
-known_protocol_path() {
-  local path="$1"
-  case "${path}" in
+protocol_path_is_safe_relative() {
+  case "$1" in
     ""|/*|.|..|./*|*/.|*/./*|../*|*/..|*/../*)
       return 1
       ;;
+    *)
+      return 0
+      ;;
   esac
+}
+
+protocol_path_known() {
+  local path="$1"
+  protocol_path_is_safe_relative "${path}" || return 1
 
   case "${path}" in
     state.json|mission.md|factors.md|artifact-manifest.json|decision-ledger.md|progress.md|final-report.md)
@@ -586,20 +629,72 @@ known_protocol_path() {
   esac
 }
 
+protocol_review_required_fields() {
+  printf '%s\n' \
+    "Reviewer" \
+    "Review Mode" \
+    "Review Scope" \
+    "Artifacts Reviewed" \
+    "Verdict" \
+    "Decision Reviewed" \
+    "Evidence Reviewed" \
+    "Blocking Evidence Gaps" \
+    "Implementation Findings" \
+    "Evaluation Integrity Findings" \
+    "Overclaim Risks" \
+    "Readiness Level" \
+    "Recommended Decision"
+}
+
+protocol_decision_required_fields() {
+  printf '%s\n' \
+    "Decision" \
+    "Closes" \
+    "Evidence" \
+    "Uncertainty" \
+    "What this rules out" \
+    "What remains unknown" \
+    "Recommended next loop" \
+    "Next smallest step"
+}
+
+protocol_final_report_required_sections() {
+  printf '%s\n' \
+    "Outcome" \
+    "Claim or Capability Closed" \
+    "Evidence Cited" \
+    "Missing Evidence and Confounders" \
+    "Negative, Null, or Inconclusive Results" \
+    "Open Questions" \
+    "Deferred Items" \
+    "Close Checklist"
+}
+
+protocol_progress_required_sections() {
+  printf '%s\n' \
+    "Active" \
+    "Completed" \
+    "Blocked" \
+    "Deferred" \
+    "Open Questions"
+}
+
+integrity_policy_for_path() {
+  protocol_policy_for_path "$1"
+}
+
+known_protocol_path() {
+  protocol_path_known "$1"
+}
+
 session_protocol_files() {
   local session_dir="$1"
   local path
-  for path in \
-    state.json \
-    mission.md \
-    factors.md \
-    artifact-manifest.json \
-    decision-ledger.md \
-    progress.md; do
+  while IFS= read -r path; do
     if [[ -f "${session_dir}/${path}" ]]; then
       printf '%s\n' "${path}"
     fi
-  done
+  done < <(protocol_session_files)
 
   if [[ -d "${session_dir}/rounds" ]]; then
     find "${session_dir}/rounds" -type f \
@@ -608,9 +703,11 @@ session_protocol_files() {
       | sort
   fi
 
-  if [[ -f "${session_dir}/final-report.md" ]]; then
-    printf '%s\n' "final-report.md"
-  fi
+  while IFS= read -r path; do
+    if [[ -f "${session_dir}/${path}" ]]; then
+      printf '%s\n' "${path}"
+    fi
+  done < <(protocol_optional_session_files)
 }
 
 completed_round_protocol_files() {
@@ -619,17 +716,10 @@ completed_round_protocol_files() {
   local round_dir
   round_dir="$(round_path "${round}")"
 
-  printf '%s\n' "${round_dir}/prompt.md"
-  if [[ "${mode}" == "research" ]]; then
-    printf '%s\n' "${round_dir}/evidence.md"
-    printf '%s\n' "${round_dir}/interpretation.md"
-  else
-    printf '%s\n' "${round_dir}/intent.md"
-    printf '%s\n' "${round_dir}/work.md"
-    printf '%s\n' "${round_dir}/evidence.md"
-  fi
-  printf '%s\n' "${round_dir}/review.md"
-  printf '%s\n' "${round_dir}/decision.md"
+  local file_name
+  while IFS= read -r file_name; do
+    printf '%s/%s\n' "${round_dir}" "${file_name}"
+  done < <(protocol_completed_round_file_names_for_mode "${mode}")
 }
 
 write_integrity_manifest() {
@@ -1619,11 +1709,11 @@ validate_session() {
   local progress="${session_dir}/progress.md"
   if [[ -f "${progress}" ]]; then
     local section
-    for section in "Active" "Completed" "Blocked" "Deferred" "Open Questions"; do
+    while IFS= read -r section; do
       if ! grep -q "^## ${section}$" "${progress}"; then
         add_blocker blockers_ref "missing_progress_section" "progress.md#${section}" "progress.md is missing section ${section}." "Add the required progress section."
       fi
-    done
+    done < <(protocol_progress_required_sections)
   fi
 
   local manifest="${session_dir}/artifact-manifest.json"
@@ -1746,27 +1836,12 @@ validate_review_file() {
   fi
 
   local field value
-  local required_fields=(
-    "Reviewer"
-    "Review Mode"
-    "Review Scope"
-    "Artifacts Reviewed"
-    "Verdict"
-    "Decision Reviewed"
-    "Evidence Reviewed"
-    "Blocking Evidence Gaps"
-    "Implementation Findings"
-    "Evaluation Integrity Findings"
-    "Overclaim Risks"
-    "Readiness Level"
-    "Recommended Decision"
-  )
-  for field in "${required_fields[@]}"; do
+  while IFS= read -r field; do
     value="$(md_field_value "${file}" "${field}")"
     if [[ -z "${value}" || "${value}" == *"|"* ]]; then
       add_blocker blockers_ref "missing_review_field" "${file}#${field}" "${field} is missing or still a placeholder." "Complete ${field} in review.md."
     fi
-  done
+  done < <(protocol_review_required_fields)
 
   value="$(md_field_value "${file}" "Review Mode")"
   case "${value}" in
@@ -1825,22 +1900,12 @@ validate_decision_file() {
   fi
 
   local decision closes next_loop field value
-  local required_fields=(
-    "Decision"
-    "Closes"
-    "Evidence"
-    "Uncertainty"
-    "What this rules out"
-    "What remains unknown"
-    "Recommended next loop"
-    "Next smallest step"
-  )
-  for field in "${required_fields[@]}"; do
+  while IFS= read -r field; do
     value="$(md_field_value "${file}" "${field}")"
     if [[ -z "${value}" || "${value}" == *"|"* ]]; then
       add_blocker blockers_ref "missing_decision_field" "${file}#${field}" "${field} is missing or still a placeholder." "Complete ${field} in decision.md."
     fi
-  done
+  done < <(protocol_decision_required_fields)
 
   decision="$(md_field_value "${file}" "Decision")"
   if ! valid_decision_type "${decision}"; then
@@ -1936,21 +2001,11 @@ validate_final_report() {
   fi
 
   local section
-  local required_sections=(
-    "Outcome"
-    "Claim or Capability Closed"
-    "Evidence Cited"
-    "Missing Evidence and Confounders"
-    "Negative, Null, or Inconclusive Results"
-    "Open Questions"
-    "Deferred Items"
-    "Close Checklist"
-  )
-  for section in "${required_sections[@]}"; do
+  while IFS= read -r section; do
     if ! markdown_section_has_content "${report_file}" "^[[:space:]]*##[[:space:]]+${section}[[:space:]]*$"; then
       add_blocker report_blockers_ref "missing_final_report_section" "${report_file}#${section}" "${section} is missing or still a placeholder." "Complete ${section} in final-report.md."
     fi
-  done
+  done < <(protocol_final_report_required_sections)
 
   if grep -q '^[[:space:]]*-[[:space:]]*\[[[:space:]]\]' "${report_file}"; then
     add_blocker report_blockers_ref "incomplete_close_checklist" "${report_file}#Close Checklist" "Close checklist still has unchecked items." "Check every close checklist item that is true for this close record."
