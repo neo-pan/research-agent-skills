@@ -66,3 +66,8 @@ for test_script in "${ROOT_DIR}"/local/research-dev-loop/tests/*.sh; do
 done
 
 echo "RDL tests ok"
+
+PYTHONPATH="${ROOT_DIR}/local/research-dev-loop" \
+  python3 -m unittest discover -s "${ROOT_DIR}/local/research-dev-loop/tests_py" >/dev/null
+
+echo "RDL Python tests ok"
