@@ -548,7 +548,7 @@ managed_block_sha256() {
   ' "${file}" | file_sha256 -
 }
 
-protocol_session_files() {
+descriptor_session_files() {
   printf '%s\n' \
     state.json \
     mission.md \
@@ -558,11 +558,11 @@ protocol_session_files() {
     progress.md
 }
 
-protocol_optional_session_files() {
+descriptor_optional_session_files() {
   printf '%s\n' final-report.md
 }
 
-protocol_round_file_names() {
+descriptor_round_file_names() {
   printf '%s\n' \
     prompt.md \
     intent.md \
@@ -573,7 +573,7 @@ protocol_round_file_names() {
     decision.md
 }
 
-protocol_completed_round_file_names_for_mode() {
+descriptor_completed_round_file_names_for_mode() {
   local mode="$1"
   printf '%s\n' prompt.md
   if [[ "${mode}" == "research" ]]; then
@@ -584,7 +584,7 @@ protocol_completed_round_file_names_for_mode() {
   printf '%s\n' review.md decision.md
 }
 
-protocol_policy_for_path() {
+descriptor_policy_for_path() {
   case "$1" in
     state.json)
       printf 'cli_owned'
@@ -601,7 +601,7 @@ protocol_policy_for_path() {
   esac
 }
 
-protocol_path_known() {
+descriptor_path_known() {
   local path="$1"
   case "${path}" in
     ""|/*|.|..|./*|*/.|*/./*|../*|*/..|*/../*)
@@ -622,54 +622,157 @@ protocol_path_known() {
   esac
 }
 
+descriptor_required_fields() {
+  case "$1" in
+    review)
+      printf '%s\n' \
+        "Reviewer" \
+        "Review Mode" \
+        "Review Scope" \
+        "Artifacts Reviewed" \
+        "Verdict" \
+        "Decision Reviewed" \
+        "Evidence Reviewed" \
+        "Blocking Evidence Gaps" \
+        "Implementation Findings" \
+        "Evaluation Integrity Findings" \
+        "Overclaim Risks" \
+        "Readiness Level" \
+        "Recommended Decision"
+      ;;
+    decision)
+      printf '%s\n' \
+        "Decision" \
+        "Closes" \
+        "Evidence" \
+        "Uncertainty" \
+        "What this rules out" \
+        "What remains unknown" \
+        "Recommended next loop" \
+        "Next smallest step"
+      ;;
+  esac
+}
+
+descriptor_required_sections() {
+  case "$1" in
+    final-report)
+      printf '%s\n' \
+        "Outcome" \
+        "Claim or Capability Closed" \
+        "Evidence Cited" \
+        "Missing Evidence and Confounders" \
+        "Negative, Null, or Inconclusive Results" \
+        "Open Questions" \
+        "Deferred Items" \
+        "Close Checklist"
+      ;;
+    progress)
+      printf '%s\n' \
+        "Active" \
+        "Completed" \
+        "Blocked" \
+        "Deferred" \
+        "Open Questions"
+      ;;
+  esac
+}
+
+descriptor_allowed_values() {
+  case "$1" in
+    review-mode)
+      printf '%s\n' manual checklist phase-review subagent project-adapter
+      ;;
+    review-verdict)
+      printf '%s\n' PASS PASS_WITH_NOTES BLOCKED INCONCLUSIVE
+      ;;
+    decision-type)
+      printf '%s\n' \
+        continue \
+        pivot \
+        narrow \
+        broaden \
+        diagnose \
+        build \
+        profile \
+        rerun \
+        accept \
+        reject \
+        close-positive \
+        close-negative \
+        close-inconclusive
+      ;;
+    close-outcome)
+      printf '%s\n' positive negative inconclusive
+      ;;
+    recommended-next-loop)
+      printf '%s\n' research build none
+      ;;
+  esac
+}
+
+descriptor_value_allowed() {
+  local value="$1"
+  local kind="$2"
+  local allowed
+  while IFS= read -r allowed; do
+    [[ "${value}" == "${allowed}" ]] && return 0
+  done < <(descriptor_allowed_values "${kind}")
+  return 1
+}
+
+descriptor_expected_closes_for_mode() {
+  case "$1" in
+    research)
+      printf 'claim'
+      ;;
+    build)
+      printf 'capability'
+      ;;
+    *)
+      printf ''
+      ;;
+  esac
+}
+
+protocol_session_files() {
+  descriptor_session_files
+}
+
+protocol_optional_session_files() {
+  descriptor_optional_session_files
+}
+
+protocol_round_file_names() {
+  descriptor_round_file_names
+}
+
+protocol_completed_round_file_names_for_mode() {
+  descriptor_completed_round_file_names_for_mode "$1"
+}
+
+protocol_policy_for_path() {
+  descriptor_policy_for_path "$1"
+}
+
+protocol_path_known() {
+  descriptor_path_known "$1"
+}
+
 protocol_review_required_fields() {
-  printf '%s\n' \
-    "Reviewer" \
-    "Review Mode" \
-    "Review Scope" \
-    "Artifacts Reviewed" \
-    "Verdict" \
-    "Decision Reviewed" \
-    "Evidence Reviewed" \
-    "Blocking Evidence Gaps" \
-    "Implementation Findings" \
-    "Evaluation Integrity Findings" \
-    "Overclaim Risks" \
-    "Readiness Level" \
-    "Recommended Decision"
+  descriptor_required_fields review
 }
 
 protocol_decision_required_fields() {
-  printf '%s\n' \
-    "Decision" \
-    "Closes" \
-    "Evidence" \
-    "Uncertainty" \
-    "What this rules out" \
-    "What remains unknown" \
-    "Recommended next loop" \
-    "Next smallest step"
+  descriptor_required_fields decision
 }
 
 protocol_final_report_required_sections() {
-  printf '%s\n' \
-    "Outcome" \
-    "Claim or Capability Closed" \
-    "Evidence Cited" \
-    "Missing Evidence and Confounders" \
-    "Negative, Null, or Inconclusive Results" \
-    "Open Questions" \
-    "Deferred Items" \
-    "Close Checklist"
+  descriptor_required_sections final-report
 }
 
 protocol_progress_required_sections() {
-  printf '%s\n' \
-    "Active" \
-    "Completed" \
-    "Blocked" \
-    "Deferred" \
-    "Open Questions"
+  descriptor_required_sections progress
 }
 
 integrity_policy_for_path() {
@@ -1819,14 +1922,7 @@ cmd_doctor() {
 }
 
 valid_decision_type() {
-  case "$1" in
-    continue|pivot|narrow|broaden|diagnose|build|profile|rerun|accept|reject|close-positive|close-negative|close-inconclusive)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  descriptor_value_allowed "$1" decision-type
 }
 
 validate_review_file() {
@@ -1846,16 +1942,14 @@ validate_review_file() {
   done < <(protocol_review_required_fields)
 
   value="$(md_field_value "${file}" "Review Mode")"
-  case "${value}" in
-    manual|checklist|phase-review|subagent|project-adapter) ;;
-    *) add_blocker blockers_ref "invalid_review_mode" "${file}#Review Mode" "Review Mode is unsupported." "Use manual, checklist, phase-review, subagent, or project-adapter." ;;
-  esac
+  if ! descriptor_value_allowed "${value}" review-mode; then
+    add_blocker blockers_ref "invalid_review_mode" "${file}#Review Mode" "Review Mode is unsupported." "Use manual, checklist, phase-review, subagent, or project-adapter."
+  fi
 
   value="$(md_field_value "${file}" "Verdict")"
-  case "${value}" in
-    PASS|PASS_WITH_NOTES|BLOCKED|INCONCLUSIVE) ;;
-    *) add_blocker blockers_ref "invalid_review_verdict" "${file}#Verdict" "Verdict is unsupported." "Use PASS, PASS_WITH_NOTES, BLOCKED, or INCONCLUSIVE." ;;
-  esac
+  if ! descriptor_value_allowed "${value}" review-verdict; then
+    add_blocker blockers_ref "invalid_review_verdict" "${file}#Verdict" "Verdict is unsupported." "Use PASS, PASS_WITH_NOTES, BLOCKED, or INCONCLUSIVE."
+  fi
 }
 
 validate_review_decision_alignment() {
@@ -1920,10 +2014,9 @@ validate_decision_file() {
   fi
 
   next_loop="$(md_field_value "${file}" "Recommended next loop")"
-  case "${next_loop}" in
-    research|build|none) ;;
-    *) add_blocker blockers_ref "invalid_recommended_next_loop" "${file}#Recommended next loop" "Recommended next loop is unsupported." "Use research, build, or none." ;;
-  esac
+  if ! descriptor_value_allowed "${next_loop}" recommended-next-loop; then
+    add_blocker blockers_ref "invalid_recommended_next_loop" "${file}#Recommended next loop" "Recommended next loop is unsupported." "Use research, build, or none."
+  fi
 }
 
 validate_build_verification_evidence() {
@@ -1981,14 +2074,7 @@ validate_mode_round_minimums() {
 }
 
 valid_close_outcome() {
-  case "$1" in
-    positive|negative|inconclusive)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  descriptor_value_allowed "$1" close-outcome
 }
 
 validate_final_report() {
@@ -2301,17 +2387,7 @@ validate_progress_close_readiness() {
 }
 
 expected_closes_for_mode() {
-  case "$1" in
-    research)
-      printf 'claim'
-      ;;
-    build)
-      printf 'capability'
-      ;;
-    *)
-      printf ''
-      ;;
-  esac
+  descriptor_expected_closes_for_mode "$1"
 }
 
 validate_round_advance_readiness() {
@@ -3140,4 +3216,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${RDL_LIB_ONLY:-0}" != "1" ]]; then
+  main "$@"
+fi

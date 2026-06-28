@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 RDL="${ROOT_DIR}/local/research-dev-loop/scripts/rdl.sh"
+RDL_LIB_ONLY=1 source "${RDL}"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -24,6 +25,38 @@ assert_fails() {
   shift
   if "$@" > "${output}"; then
     fail "command unexpectedly succeeded: $*"
+  fi
+}
+
+assert_template_has_fields() {
+  local template="$1"
+  shift
+  local field
+  for field in "$@"; do
+    assert_contains "${template}" "^${field}:"
+  done
+}
+
+assert_template_has_sections() {
+  local template="$1"
+  shift
+  local section
+  for section in "$@"; do
+    assert_contains "${template}" "^## ${section}$"
+  done
+}
+
+assert_allowed() {
+  local value="$1"
+  local kind="$2"
+  descriptor_value_allowed "${value}" "${kind}" || fail "expected ${value} to be allowed for ${kind}"
+}
+
+assert_not_allowed() {
+  local value="$1"
+  local kind="$2"
+  if descriptor_value_allowed "${value}" "${kind}"; then
+    fail "expected ${value} to be rejected for ${kind}"
   fi
 }
 
@@ -90,6 +123,33 @@ DECISION
 
 tmp_root="$(mktemp -d)"
 trap 'rm -rf "${tmp_root}"' EXIT
+
+mapfile -t review_fields < <(protocol_review_required_fields)
+assert_template_has_fields "${ROOT_DIR}/local/research-dev-loop/templates/review.md" "${review_fields[@]}"
+
+mapfile -t decision_fields < <(protocol_decision_required_fields)
+assert_template_has_fields "${ROOT_DIR}/local/research-dev-loop/templates/decision.md" "${decision_fields[@]}"
+
+mapfile -t final_report_sections < <(protocol_final_report_required_sections)
+assert_template_has_sections "${ROOT_DIR}/local/research-dev-loop/templates/final-report.md" "${final_report_sections[@]}"
+
+mapfile -t progress_sections < <(protocol_progress_required_sections)
+assert_template_has_sections "${ROOT_DIR}/local/research-dev-loop/templates/progress.md" "${progress_sections[@]}"
+
+assert_allowed manual review-mode
+assert_allowed PASS review-verdict
+assert_allowed continue decision-type
+assert_allowed close-positive decision-type
+assert_allowed none recommended-next-loop
+assert_allowed positive close-outcome
+assert_not_allowed unsupported review-mode
+assert_not_allowed MAYBE review-verdict
+assert_not_allowed close-unknown decision-type
+assert_not_allowed deploy recommended-next-loop
+assert_not_allowed partial close-outcome
+
+[[ "$(expected_closes_for_mode research)" == "claim" ]] || fail "research must close claim"
+[[ "$(expected_closes_for_mode build)" == "capability" ]] || fail "build must close capability"
 
 repo="${tmp_root}/descriptor"
 mkdir -p "${repo}"
