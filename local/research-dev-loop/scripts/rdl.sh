@@ -2473,13 +2473,12 @@ transition_append_abandon_records() {
 }
 
 transition_advance_to_next_round() {
-  local action="$1"
-  local session_dir="$2"
-  local session_id="$3"
-  local mode="$4"
-  local round="$5"
-  local -n next_result_ref="$6"
-  local -n next_blockers_ref="$7"
+  local session_dir="$1"
+  local session_id="$2"
+  local mode="$3"
+  local round="$4"
+  local -n next_result_ref="$5"
+  local -n next_blockers_ref="$6"
 
   local expected_closes
   expected_closes="$(expected_closes_for_mode "${mode}")"
@@ -2509,6 +2508,7 @@ transition_advance_to_next_round() {
 }
 
 advance_to_next_round() {
+  shift
   transition_advance_to_next_round "$@"
 }
 
@@ -2574,7 +2574,7 @@ transition_from_decision() {
       ;;
     *)
       local next_result=()
-      if ! transition_advance_to_next_round "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${round}" next_result transition_blockers_ref; then
+      if ! transition_advance_to_next_round "${session_dir}" "${session_id}" "${mode}" "${round}" next_result transition_blockers_ref; then
         return 2
       fi
       transition_result_ref=("plan" "${next_result[0]}" "${next_result[1]}")
