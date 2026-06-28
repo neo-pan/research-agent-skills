@@ -29,39 +29,21 @@ assert_fails() {
   fi
 }
 
-assert_template_has_fields() {
-  local template="$1"
+assert_file_has_fields() {
+  local file="$1"
   shift
   local field
   for field in "$@"; do
-    assert_contains "${template}" "^${field}:"
+    assert_contains "${file}" "^${field}:"
   done
 }
 
-assert_template_has_sections() {
-  local template="$1"
+assert_file_has_sections() {
+  local file="$1"
   shift
   local section
   for section in "$@"; do
-    assert_contains "${template}" "^## ${section}$"
-  done
-}
-
-assert_record_has_fields() {
-  local record="$1"
-  shift
-  local field
-  for field in "$@"; do
-    assert_contains "${record}" "^${field}:"
-  done
-}
-
-assert_record_has_sections() {
-  local record="$1"
-  shift
-  local section
-  for section in "$@"; do
-    assert_contains "${record}" "^## ${section}$"
+    assert_contains "${file}" "^## ${section}$"
   done
 }
 
@@ -144,16 +126,16 @@ tmp_root="$(mktemp -d)"
 trap 'rm -rf "${tmp_root}"' EXIT
 
 mapfile -t review_fields < <(protocol_review_required_fields)
-assert_template_has_fields "${ROOT_DIR}/local/research-dev-loop/templates/review.md" "${review_fields[@]}"
+assert_file_has_fields "${ROOT_DIR}/local/research-dev-loop/templates/review.md" "${review_fields[@]}"
 
 mapfile -t decision_fields < <(protocol_decision_required_fields)
-assert_template_has_fields "${ROOT_DIR}/local/research-dev-loop/templates/decision.md" "${decision_fields[@]}"
+assert_file_has_fields "${ROOT_DIR}/local/research-dev-loop/templates/decision.md" "${decision_fields[@]}"
 
 mapfile -t final_report_sections < <(protocol_final_report_required_sections)
-assert_template_has_sections "${ROOT_DIR}/local/research-dev-loop/templates/final-report.md" "${final_report_sections[@]}"
+assert_file_has_sections "${ROOT_DIR}/local/research-dev-loop/templates/final-report.md" "${final_report_sections[@]}"
 
 mapfile -t progress_sections < <(protocol_progress_required_sections)
-assert_template_has_sections "${ROOT_DIR}/local/research-dev-loop/templates/progress.md" "${progress_sections[@]}"
+assert_file_has_sections "${ROOT_DIR}/local/research-dev-loop/templates/progress.md" "${progress_sections[@]}"
 
 fixture_dir="${tmp_root}/helper-fixtures"
 mkdir -p "${fixture_dir}/rounds/001" "${fixture_dir}/build-round"
@@ -164,10 +146,10 @@ rdl_write_build_evidence "${fixture_dir}/build-round" yes
 rdl_write_artifact_manifest "${fixture_dir}/artifact-manifest.json"
 rdl_write_final_report "${fixture_dir}/final-report.md" positive "fixture claim"
 rdl_write_ready_progress "${fixture_dir}/progress.md" yes
-assert_record_has_fields "${fixture_dir}/review.md" "${review_fields[@]}"
-assert_record_has_fields "${fixture_dir}/decision.md" "${decision_fields[@]}"
-assert_record_has_sections "${fixture_dir}/final-report.md" "${final_report_sections[@]}"
-assert_record_has_sections "${fixture_dir}/progress.md" "${progress_sections[@]}"
+assert_file_has_fields "${fixture_dir}/review.md" "${review_fields[@]}"
+assert_file_has_fields "${fixture_dir}/decision.md" "${decision_fields[@]}"
+assert_file_has_sections "${fixture_dir}/final-report.md" "${final_report_sections[@]}"
+assert_file_has_sections "${fixture_dir}/progress.md" "${progress_sections[@]}"
 assert_file "${fixture_dir}/rounds/001/evidence.md"
 assert_file "${fixture_dir}/rounds/001/interpretation.md"
 assert_file "${fixture_dir}/build-round/intent.md"
