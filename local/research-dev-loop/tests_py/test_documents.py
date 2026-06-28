@@ -36,6 +36,14 @@ class DocumentTests(unittest.TestCase):
             self.assertTrue(documents.section_has_content(path, "Missing Evidence"))
             self.assertFalse(documents.section_has_content(path, "Evaluation Integrity"))
 
+    def test_unchecked_checklist_does_not_satisfy_section_content(self):
+        with markdown("# Final Report\n\n## Close Checklist\n\n- [ ] Final decision is positive.\n") as path:
+            self.assertFalse(documents.section_has_content(path, "Close Checklist"))
+
+    def test_checked_checklist_satisfies_section_content(self):
+        with markdown("# Final Report\n\n## Close Checklist\n\n- [x] Final decision is positive.\n") as path:
+            self.assertTrue(documents.section_has_content(path, "Close Checklist"))
+
     def test_missing_file_has_no_content(self):
         self.assertFalse(documents.has_content(Path("/tmp/rdl-definitely-missing-file.md")))
 
@@ -95,6 +103,16 @@ class DocumentTests(unittest.TestCase):
             self.assertIn("missing_final_report_section", codes)
             self.assertIn("incomplete_close_checklist", codes)
             self.assertIn("close_outcome_mismatch", codes)
+
+    def test_final_report_validation_treats_unchecked_close_checklist_as_missing_section_content(self):
+        incomplete = COMPLETE_FINAL_REPORT.replace("- [x] Final decision", "- [ ] Final decision")
+        with markdown(incomplete) as path:
+            blockers = documents.validate("final-report", path, {"outcome": "positive"})
+            self.assertIn(
+                ("missing_final_report_section", f"{path}#Close Checklist"),
+                {(blocker.code, blocker.file) for blocker in blockers},
+            )
+            self.assertIn("incomplete_close_checklist", {blocker.code for blocker in blockers})
 
     def test_final_report_validation_blocks_missing_file(self):
         blockers = documents.validate("final-report", Path("/tmp/rdl-missing-final-report.md"))

@@ -58,11 +58,11 @@ def section(path: str | Path, heading: str) -> MarkdownSection:
 
 
 def has_content(path: str | Path) -> bool:
-    return _text_has_content("\n".join(_read_lines(path)), ignore_checklist=True)
+    return _text_has_content("\n".join(_read_lines(path)))
 
 
 def section_has_content(path: str | Path, heading: str) -> bool:
-    return _text_has_content(section(path, heading).content, ignore_checklist=False)
+    return _text_has_content(section(path, heading).content)
 
 
 def extract_artifact_ids(markdown_text: str) -> set[str]:
@@ -277,7 +277,7 @@ def _placeholder(value: str) -> bool:
     return normalized in {"", "-", "...", "tbd", "todo", "n/a"}
 
 
-def _text_has_content(text: str, *, ignore_checklist: bool) -> bool:
+def _text_has_content(text: str) -> bool:
     pending_table_row = ""
     for line in text.splitlines():
         if _is_table_row(line):
@@ -298,8 +298,10 @@ def _text_has_content(text: str, *, ignore_checklist: bool) -> bool:
             continue
         if stripped.startswith("#") or stripped.startswith("<!--"):
             continue
-        if ignore_checklist and re.match(r"^-\s*\[[ xX]\]", stripped):
+        if re.match(r"^-\s*\[[ \t]\]", stripped):
             continue
+        if re.match(r"^-\s*\[[xX]\]", stripped):
+            return True
         if _strength_option_line(stripped):
             continue
         if not _placeholder(stripped) and re.search(r"[A-Za-z0-9]", stripped):
