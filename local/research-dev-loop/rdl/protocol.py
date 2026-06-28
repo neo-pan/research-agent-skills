@@ -89,6 +89,7 @@ class ProtocolDescriptor:
                 "Negative, Null, or Inconclusive Results",
                 "Open Questions",
                 "Deferred Items",
+                "Reusable Lessons",
                 "Close Checklist",
             )
         if kind == "progress":

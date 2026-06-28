@@ -48,7 +48,20 @@ class ProtocolDescriptorTests(unittest.TestCase):
             descriptor.required_sections("progress"),
             ("Active", "Completed", "Blocked", "Deferred", "Open Questions"),
         )
-        self.assertIn("Close Checklist", descriptor.required_sections("final-report"))
+        self.assertEqual(
+            descriptor.required_sections("final-report"),
+            (
+                "Outcome",
+                "Claim or Capability Closed",
+                "Evidence Cited",
+                "Missing Evidence and Confounders",
+                "Negative, Null, or Inconclusive Results",
+                "Open Questions",
+                "Deferred Items",
+                "Reusable Lessons",
+                "Close Checklist",
+            ),
+        )
 
     def test_allowed_values(self):
         self.assertTrue(descriptor.value_allowed("review-mode", "manual"))

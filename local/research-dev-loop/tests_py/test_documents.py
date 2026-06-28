@@ -114,6 +114,26 @@ class DocumentTests(unittest.TestCase):
             )
             self.assertIn("incomplete_close_checklist", {blocker.code for blocker in blockers})
 
+    def test_final_report_validation_requires_reusable_lessons_section(self):
+        missing_section = COMPLETE_FINAL_REPORT.replace(
+            "\n## Reusable Lessons\n\nNo reusable lesson.\n",
+            "",
+        )
+        with markdown(missing_section) as path:
+            blockers = documents.validate("final-report", path, {"outcome": "positive"})
+            self.assertIn(
+                ("missing_final_report_section", f"{path}#Reusable Lessons"),
+                {(blocker.code, blocker.file) for blocker in blockers},
+            )
+
+        empty_section = COMPLETE_FINAL_REPORT.replace("No reusable lesson.", "")
+        with markdown(empty_section) as path:
+            blockers = documents.validate("final-report", path, {"outcome": "positive"})
+            self.assertIn(
+                ("missing_final_report_section", f"{path}#Reusable Lessons"),
+                {(blocker.code, blocker.file) for blocker in blockers},
+            )
+
     def test_final_report_validation_blocks_missing_file(self):
         blockers = documents.validate("final-report", Path("/tmp/rdl-missing-final-report.md"))
         self.assertEqual([blocker.code for blocker in blockers], ["missing_final_report"])
@@ -203,6 +223,10 @@ No blocking open questions remain.
 ## Deferred Items
 
 Deferred fixture follow-up has a revisit trigger.
+
+## Reusable Lessons
+
+No reusable lesson.
 
 ## Close Checklist
 
