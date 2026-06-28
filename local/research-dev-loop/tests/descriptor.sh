@@ -71,6 +71,23 @@ Recommended Decision:
 REVIEW
 }
 
+write_incomplete_decision() {
+  local file="$1"
+  cat > "${file}" <<'DECISION'
+# Decision
+
+Decision: continue
+Closes: claim
+Evidence:
+Uncertainty: bounded
+What this rules out: unsupported alternatives
+What remains unknown: later work
+Recommended next loop: none
+Next smallest step: continue same mode
+
+DECISION
+}
+
 tmp_root="$(mktemp -d)"
 trap 'rm -rf "${tmp_root}"' EXIT
 
@@ -130,5 +147,36 @@ write_incomplete_review ".rdl/sessions/descriptor_review/rounds/001/review.md"
 assert_fails doctor-missing-review-field.json "${RDL}" doctor
 assert_contains doctor-missing-review-field.json '"code":"missing_review_field"'
 assert_contains doctor-missing-review-field.json '"file":".rdl/sessions/descriptor_review/rounds/001/review.md#Recommended Decision"'
+
+repo_decision="${tmp_root}/missing-decision-field"
+mkdir -p "${repo_decision}"
+cat > "${repo_decision}/mission.md" <<'MISSION'
+# Mission
+
+Descriptor decision field fixture.
+MISSION
+
+cd "${repo_decision}"
+"${RDL}" start research mission.md --session-id descriptor_decision > /dev/null
+"${RDL}" decide continue > /dev/null
+write_incomplete_decision ".rdl/sessions/descriptor_decision/rounds/001/decision.md"
+assert_fails doctor-missing-decision-field.json "${RDL}" doctor
+assert_contains doctor-missing-decision-field.json '"code":"missing_decision_field"'
+assert_contains doctor-missing-decision-field.json '"file":".rdl/sessions/descriptor_decision/rounds/001/decision.md#Evidence"'
+
+repo_progress="${tmp_root}/missing-progress-section"
+mkdir -p "${repo_progress}"
+cat > "${repo_progress}/mission.md" <<'MISSION'
+# Mission
+
+Descriptor progress section fixture.
+MISSION
+
+cd "${repo_progress}"
+"${RDL}" start research mission.md --session-id descriptor_progress > /dev/null
+sed -i '/^## Open Questions$/,$d' ".rdl/sessions/descriptor_progress/progress.md"
+assert_fails doctor-missing-progress-section.json "${RDL}" doctor
+assert_contains doctor-missing-progress-section.json '"code":"missing_progress_section"'
+assert_contains doctor-missing-progress-section.json '"file":"progress.md#Open Questions"'
 
 echo "descriptor tests ok"
