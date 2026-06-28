@@ -62,7 +62,11 @@ fi
 echo "Skill links ok"
 
 for test_script in "${ROOT_DIR}"/local/research-dev-loop/tests/*.sh; do
+  test_name="$(basename "${test_script}")"
+  start_seconds="${SECONDS}"
+  echo "RDL shell test start: ${test_name}"
   bash "${test_script}" >/dev/null
+  echo "RDL shell test ok: ${test_name} ($((SECONDS - start_seconds))s)"
 done
 
 echo "RDL tests ok"
