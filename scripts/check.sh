@@ -71,7 +71,17 @@ done
 
 echo "RDL tests ok"
 
+RDL_PYTHON_BIN="${RDL_PYTHON_BIN:-python3}"
+if ! command -v "${RDL_PYTHON_BIN}" >/dev/null 2>&1; then
+  echo "Missing python3: RDL Python tests require python3 for repository checks." >&2
+  exit 1
+fi
+
 PYTHONPATH="${ROOT_DIR}/local/research-dev-loop" \
-  python3 -m unittest discover -s "${ROOT_DIR}/local/research-dev-loop/tests_py" >/dev/null
+  "${RDL_PYTHON_BIN}" -m unittest discover -s "${ROOT_DIR}/local/research-dev-loop/tests_py" >/dev/null
 
 echo "RDL Python tests ok"
+
+bash "${ROOT_DIR}/tests/check-python-prereq.sh" >/dev/null
+
+echo "Check prerequisites ok"
