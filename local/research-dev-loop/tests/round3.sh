@@ -300,6 +300,27 @@ assert_fails close-missing-negative-section.json "${RDL}" close positive
 assert_file_contains close-missing-negative-section.json '"status": "blocked"'
 assert_file_contains close-missing-negative-section.json '"code":"missing_final_report_section"'
 
+repo_missing_lessons="${tmp_root}/close-missing-reusable-lessons-section"
+mkdir -p "${repo_missing_lessons}"
+cat > "${repo_missing_lessons}/mission.md" <<'MISSION'
+# Mission
+MISSION
+cd "${repo_missing_lessons}"
+"${RDL}" start research mission.md --session-id close_missing_lessons > /dev/null
+"${RDL}" review > /dev/null
+complete_review .rdl/sessions/close_missing_lessons/rounds/001/review.md
+"${RDL}" decide close-positive > /dev/null
+complete_decision .rdl/sessions/close_missing_lessons/rounds/001/decision.md close-positive claim
+complete_research_records .rdl/sessions/close_missing_lessons/rounds/001
+complete_manifest .rdl/sessions/close_missing_lessons/artifact-manifest.json
+complete_final_report .rdl/sessions/close_missing_lessons/final-report.md positive "fixture claim"
+sed -i '/^## Reusable Lessons$/,/^## Close Checklist$/ { /^## Close Checklist$/!d; }' .rdl/sessions/close_missing_lessons/final-report.md
+write_ready_progress .rdl/sessions/close_missing_lessons/progress.md
+assert_fails close-missing-reusable-lessons-section.json "${RDL}" close positive
+assert_file_contains close-missing-reusable-lessons-section.json '"status": "blocked"'
+assert_file_contains close-missing-reusable-lessons-section.json '"code":"missing_final_report_section"'
+assert_file_contains close-missing-reusable-lessons-section.json '#Reusable Lessons'
+
 repo_not_positive="${tmp_root}/close-not-positive"
 mkdir -p "${repo_not_positive}"
 cat > "${repo_not_positive}/mission.md" <<'MISSION'

@@ -678,6 +678,7 @@ descriptor_required_sections() {
         "Negative, Null, or Inconclusive Results" \
         "Open Questions" \
         "Deferred Items" \
+        "Reusable Lessons" \
         "Close Checklist"
       ;;
     progress)
