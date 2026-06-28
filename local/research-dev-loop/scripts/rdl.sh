@@ -601,20 +601,13 @@ protocol_policy_for_path() {
   esac
 }
 
-protocol_path_is_safe_relative() {
-  case "$1" in
+protocol_path_known() {
+  local path="$1"
+  case "${path}" in
     ""|/*|.|..|./*|*/.|*/./*|../*|*/..|*/../*)
       return 1
       ;;
-    *)
-      return 0
-      ;;
   esac
-}
-
-protocol_path_known() {
-  local path="$1"
-  protocol_path_is_safe_relative "${path}" || return 1
 
   case "${path}" in
     state.json|mission.md|factors.md|artifact-manifest.json|decision-ledger.md|progress.md|final-report.md)
