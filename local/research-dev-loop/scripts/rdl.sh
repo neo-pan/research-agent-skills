@@ -2381,7 +2381,98 @@ validate_guard_stop_readiness() {
   fi
 }
 
-advance_to_next_round() {
+transition_update_state_field() {
+  local state_file="$1"
+  local field="$2"
+  local value="$3"
+  local comma=","
+  if [[ "$#" -ge 4 ]]; then
+    comma="$4"
+  fi
+
+  sed -i "s/^[[:space:]]*\"${field}\"[[:space:]]*:.*/  \"${field}\": ${value}${comma}/" "${state_file}"
+}
+
+transition_update_state_string() {
+  local state_file="$1"
+  local field="$2"
+  local value="$3"
+  local comma=","
+  if [[ "$#" -ge 4 ]]; then
+    comma="$4"
+  fi
+
+  transition_update_state_field "${state_file}" "${field}" "\"$(json_escape "${value}")\"" "${comma}"
+}
+
+transition_mark_session_ended() {
+  local session_dir="$1"
+  local status="$2"
+  local now="$3"
+  local state_file="${session_dir}/state.json"
+
+  transition_update_state_string "${state_file}" "status" "${status}"
+  transition_update_state_string "${state_file}" "phase" "complete"
+  transition_update_state_string "${state_file}" "updated_at_utc" "${now}" ""
+}
+
+transition_append_round_decision() {
+  local session_dir="$1"
+  local round="$2"
+  local decision="$3"
+  local expected_closes="$4"
+  local next_loop="$5"
+  local next_round="$6"
+
+  {
+    printf '\n## Round %s Decision\n\n' "${round}"
+    printf '%s\n' "- Decision: ${decision}"
+    printf '%s\n' "- Closes: ${expected_closes}"
+    printf '%s\n' "- Recommended next loop: ${next_loop}"
+    printf '%s\n' "- Next round: $(printf '%03d' "${next_round}")"
+  } >> "${session_dir}/decision-ledger.md"
+}
+
+transition_append_close_record() {
+  local session_dir="$1"
+  local outcome="$2"
+  local expected_closes="$3"
+  local round="$4"
+  local now="$5"
+
+  {
+    printf '\n## Session Closed\n\n'
+    printf '%s\n' "- Outcome: ${outcome}"
+    printf '%s\n' "- Decision: close-${outcome}"
+    printf '%s\n' "- Closes: ${expected_closes}"
+    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
+    printf '%s\n' "- Closed at UTC: ${now}"
+  } >> "${session_dir}/decision-ledger.md"
+}
+
+transition_append_abandon_records() {
+  local session_dir="$1"
+  local reason="$2"
+  local round="$3"
+  local now="$4"
+
+  {
+    printf '\n## Session Abandoned\n\n'
+    printf '%s\n' "- Reason: ${reason}"
+    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
+    printf '%s\n' "- Abandoned at UTC: ${now}"
+    printf '%s\n' "- Scientific outcome claimed: none"
+  } >> "${session_dir}/decision-ledger.md"
+
+  {
+    printf '\n## Abandon Record\n\n'
+    printf '%s\n' "- Reason: ${reason}"
+    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
+    printf '%s\n' "- Scientific outcome claimed: none"
+  } >> "${session_dir}/progress.md"
+}
+
+transition_advance_to_next_round() {
   local action="$1"
   local session_dir="$2"
   local session_id="$3"
@@ -2409,33 +2500,27 @@ advance_to_next_round() {
   mkdir -p "${next_round_dir}"
   render_prompt "${mode}" "${next_round}" "Continue ${mode} session ${session_id}" "${previous_decision}" "${next_round_dir}/prompt.md"
 
-  sed -i "s/^[[:space:]]*\"round\"[[:space:]]*:.*/  \"round\": ${next_round},/" "${state_file}"
-  sed -i "s/^[[:space:]]*\"phase\"[[:space:]]*:.*/  \"phase\": \"plan\",/" "${state_file}"
-  sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
-
-  {
-    printf '\n## Round %s Decision\n\n' "${round}"
-    printf '%s\n' "- Decision: ${decision}"
-    printf '%s\n' "- Closes: ${expected_closes}"
-    printf '%s\n' "- Recommended next loop: ${next_loop}"
-    printf '%s\n' "- Next round: $(printf '%03d' "${next_round}")"
-  } >> "${session_dir}/decision-ledger.md"
+  transition_update_state_field "${state_file}" "round" "${next_round}"
+  transition_update_state_string "${state_file}" "phase" "plan"
+  transition_update_state_string "${state_file}" "updated_at_utc" "${now}" ""
+  transition_append_round_decision "${session_dir}" "${round}" "${decision}" "${expected_closes}" "${next_loop}" "${next_round}"
 
   next_result_ref=("${next_round}" "${next_round_dir}/prompt.md")
+}
+
+advance_to_next_round() {
+  transition_advance_to_next_round "$@"
 }
 
 mark_session_ended() {
   local session_dir="$1"
   local status="$2"
   local now="$3"
-  local state_file="${session_dir}/state.json"
 
-  sed -i "s/^[[:space:]]*\"status\"[[:space:]]*:.*/  \"status\": \"${status}\",/" "${state_file}"
-  sed -i "s/^[[:space:]]*\"phase\"[[:space:]]*:.*/  \"phase\": \"complete\",/" "${state_file}"
-  sed -i "s/^[[:space:]]*\"updated_at_utc\"[[:space:]]*:.*/  \"updated_at_utc\": \"${now}\"/" "${state_file}"
+  transition_mark_session_ended "${session_dir}" "${status}" "${now}"
 }
 
-close_session_record() {
+transition_close_session() {
   local session_dir="$1"
   local outcome="$2"
   local expected_closes="$3"
@@ -2443,19 +2528,26 @@ close_session_record() {
   local now status
   now="$(now_utc)"
   status="closed-${outcome}"
-  mark_session_ended "${session_dir}" "${status}" "${now}"
-
-  {
-    printf '\n## Session Closed\n\n'
-    printf '%s\n' "- Outcome: ${outcome}"
-    printf '%s\n' "- Decision: close-${outcome}"
-    printf '%s\n' "- Closes: ${expected_closes}"
-    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
-    printf '%s\n' "- Closed at UTC: ${now}"
-  } >> "${session_dir}/decision-ledger.md"
+  transition_mark_session_ended "${session_dir}" "${status}" "${now}"
+  transition_append_close_record "${session_dir}" "${outcome}" "${expected_closes}" "${round}" "${now}"
 }
 
-guard_transition() {
+close_session_record() {
+  transition_close_session "$@"
+}
+
+transition_abandon_session() {
+  local session_dir="$1"
+  local reason="$2"
+  local round="$3"
+  local now
+  now="$(now_utc)"
+
+  transition_mark_session_ended "${session_dir}" "abandoned" "${now}"
+  transition_append_abandon_records "${session_dir}" "${reason}" "${round}" "${now}"
+}
+
+transition_from_decision() {
   local session_dir="$1"
   local session_id="$2"
   local mode="$3"
@@ -2469,25 +2561,29 @@ guard_transition() {
   expected_closes="$(expected_closes_for_mode "${mode}")"
   case "${decision}" in
     close-positive)
-      close_session_record "${session_dir}" "positive" "${expected_closes}" "${round}"
+      transition_close_session "${session_dir}" "positive" "${expected_closes}" "${round}"
       transition_result_ref=("complete" "${round}" "closed-positive")
       ;;
     close-negative)
-      close_session_record "${session_dir}" "negative" "${expected_closes}" "${round}"
+      transition_close_session "${session_dir}" "negative" "${expected_closes}" "${round}"
       transition_result_ref=("complete" "${round}" "closed-negative")
       ;;
     close-inconclusive)
-      close_session_record "${session_dir}" "inconclusive" "${expected_closes}" "${round}"
+      transition_close_session "${session_dir}" "inconclusive" "${expected_closes}" "${round}"
       transition_result_ref=("complete" "${round}" "closed-inconclusive")
       ;;
     *)
       local next_result=()
-      if ! advance_to_next_round "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${round}" next_result transition_blockers_ref; then
+      if ! transition_advance_to_next_round "guard-stop" "${session_dir}" "${session_id}" "${mode}" "${round}" next_result transition_blockers_ref; then
         return 2
       fi
       transition_result_ref=("plan" "${next_result[0]}" "${next_result[1]}")
       ;;
   esac
+}
+
+guard_transition() {
+  transition_from_decision "$@"
 }
 
 mark_guard_seen() {
@@ -2983,30 +3079,13 @@ cmd_abandon() {
   validate_active_session abandon "${session_dir}" || return $?
 
   local state_file="${session_dir}/state.json"
-  local session_id mode phase round now
+  local session_id mode phase round
   session_id="$(json_value "${state_file}" "session_id")"
   mode="$(json_value "${state_file}" "mode")"
   phase="$(json_value "${state_file}" "phase")"
   round="$(json_number "${state_file}" "round")"
   acquire_session_lock "abandon" "${session_dir}" "${session_id}" "${mode}" "${phase}" "${round:-0}" || return $?
-  now="$(now_utc)"
-
-  mark_session_ended "${session_dir}" "abandoned" "${now}"
-
-  {
-    printf '\n## Session Abandoned\n\n'
-    printf '%s\n' "- Reason: ${reason}"
-    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
-    printf '%s\n' "- Abandoned at UTC: ${now}"
-    printf '%s\n' "- Scientific outcome claimed: none"
-  } >> "${session_dir}/decision-ledger.md"
-
-  {
-    printf '\n## Abandon Record\n\n'
-    printf '%s\n' "- Reason: ${reason}"
-    printf '%s\n' "- Round: $(printf '%03d' "${round}")"
-    printf '%s\n' "- Scientific outcome claimed: none"
-  } >> "${session_dir}/progress.md"
+  transition_abandon_session "${session_dir}" "${reason}" "${round}"
 
   if ! refresh_integrity_or_error "abandon" "${session_dir}" "${session_id}" "${mode}" "complete" "${round}"; then
     release_session_lock
