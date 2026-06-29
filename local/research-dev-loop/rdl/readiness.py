@@ -74,11 +74,11 @@ def _validate_review_decision_alignment(round_dir: Path) -> list[Blocker]:
     decision_file = round_dir / "decision.md"
     if not review_file.is_file() or not decision_file.is_file():
         return []
-    review_blockers = _validate_review_not_blocked(review_file)
+    decision = documents.field(decision_file, "Decision")
+    review_blockers = _validate_review_not_blocked(review_file, decision)
     if review_blockers:
         return review_blockers
     recommended = documents.field(review_file, "Recommended Decision")
-    decision = documents.field(decision_file, "Decision")
     if recommended and decision and recommended != decision:
         return [
             Blocker(
@@ -91,9 +91,18 @@ def _validate_review_decision_alignment(round_dir: Path) -> list[Blocker]:
     return []
 
 
-def _validate_review_not_blocked(review_file: Path) -> list[Blocker]:
+def _validate_review_not_blocked(review_file: Path, decision: str) -> list[Blocker]:
     verdict = documents.field(review_file, "Verdict")
     gaps = documents.field(review_file, "Blocking Evidence Gaps")
+    if verdict == "INCONCLUSIVE" and decision != "close-inconclusive":
+        return [
+            Blocker(
+                "inconclusive_review_verdict",
+                f"{review_file}#Verdict",
+                "Review verdict is INCONCLUSIVE but the decision is not close-inconclusive.",
+                "Close inconclusive or complete enough review evidence to proceed.",
+            )
+        ]
     if verdict == "BLOCKED" or (gaps and gaps.strip().lower() not in {"none", "no", "n/a", "-", "...", "tbd", "todo"}):
         return [
             Blocker(

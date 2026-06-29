@@ -131,6 +131,16 @@ class ReadinessTests(unittest.TestCase):
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
             self.assertIn("blocked_review", codes)
 
+    def test_advance_blocks_inconclusive_review_without_close_inconclusive_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research")
+            complete_research_round(session_dir, decision="continue")
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(review_file.read_text(encoding="utf-8").replace("Verdict: PASS", "Verdict: INCONCLUSIVE"), encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+            self.assertIn("inconclusive_review_verdict", codes)
+
     def test_advance_blocks_nonempty_blocking_evidence_gaps(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp), mode="research")
