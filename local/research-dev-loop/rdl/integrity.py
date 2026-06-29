@@ -144,7 +144,7 @@ def expected_policies(session: Any) -> dict[str, str]:
 
 def session_path_known(session: Any, relative: str) -> bool:
     if relative == session.state.mission_file:
-        return descriptor.path_policy(relative) is not None or _safe_state_mission_path(relative)
+        return descriptor.path_policy(relative) is not None or descriptor.path_safe_relative(relative)
     return descriptor.path_known(relative)
 
 
@@ -264,15 +264,6 @@ def file_sha256(path: Path) -> str:
 
 def bytes_sha256(data: bytes) -> str:
     return _sha256(data)
-
-
-def _safe_state_mission_path(relative: str) -> bool:
-    if relative in {"", ".", ".."}:
-        return False
-    if relative.startswith("/") or relative.startswith("./") or relative.startswith("../"):
-        return False
-    parts = relative.split("/")
-    return "." not in parts and ".." not in parts
 
 
 def _validate_integrity_entry_hash(path: Path, entry: dict[str, Any], errors: list[Blocker]) -> None:

@@ -267,6 +267,9 @@ class ProtocolDescriptor:
             return False
         return self.session_path_known(path) or self.round_path_known(path)
 
+    def path_safe_relative(self, path: str) -> bool:
+        return _safe_relative_protocol_path(path)
+
     def readiness_plan(self, name: str) -> tuple[str, ...]:
         return READINESS_PLANS.get(name, ())
 
