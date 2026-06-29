@@ -101,6 +101,25 @@ class CliStartStatusTests(unittest.TestCase):
             self.assertEqual(result["blockers"][0]["code"], "invalid_session_id")
             self.assertFalse((root / ".rdl" / "sessions" / "bad").exists())
 
+    def test_start_json_rejects_dot_only_session_ids_without_parent_writes(self):
+        for session_id, forbidden_files in (
+            (".", (".rdl/sessions/state.json", ".rdl/sessions/rounds")),
+            ("..", (".rdl/state.json", ".rdl/rounds")),
+        ):
+            with self.subTest(session_id=session_id):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    mission = root / "mission.md"
+                    mission.write_text("# Mission\n", encoding="utf-8")
+
+                    code, result = run_cli(root, ["start", "research", str(mission), "--session-id", session_id, "--json"])
+
+                    self.assertEqual(code, 1)
+                    self.assertEqual(result["status"], "error")
+                    self.assertEqual(result["blockers"][0]["code"], "invalid_session_id")
+                    for relative in forbidden_files:
+                        self.assertFalse((root / relative).exists(), relative)
+
     def test_start_json_blocks_existing_session_id_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

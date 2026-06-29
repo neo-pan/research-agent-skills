@@ -206,6 +206,8 @@ class SessionStore:
 
 
 def valid_session_id(session_id: str) -> bool:
+    if session_id in {".", ".."}:
+        return False
     return re.fullmatch(r"[A-Za-z0-9._-]+", session_id) is not None
 
 
