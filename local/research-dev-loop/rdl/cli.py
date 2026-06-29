@@ -7,7 +7,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import asdict
 
-from . import readiness
+from . import integrity, readiness, transition
 from .model import Blocker, CommandResult
 from .session import SessionStore
 
@@ -55,6 +55,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         return 0
 
+    if args.command == "next":
+        result = _next()
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
     parser.error(
         f"{args.command!r} is not implemented in the Python phase-1 slice; "
         "use the existing Bash RDL CLI for full command behavior."
@@ -63,66 +72,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _doctor() -> CommandResult:
-    try:
-        session = SessionStore.cwd().active_session()
-    except ValueError:
-        return CommandResult(
-            status="error",
-            action="doctor",
-            blockers=(
-                Blocker(
-                    "multiple_active_sessions",
-                    ".rdl/sessions",
-                    "Multiple active RDL sessions exist.",
-                    "Close or abandon all but one active session.",
-                ),
-            ),
-            next_action="repair RDL session metadata",
-        )
-
-    if session is None:
-        return CommandResult(
-            status="blocked",
-            action="doctor",
-            blockers=(
-                Blocker(
-                    "no_active_session",
-                    ".rdl/sessions",
-                    "No active RDL session exists.",
-                    "Start an RDL session.",
-                ),
-            ),
-            next_action="rdl start research <mission.md>",
-        )
-
-    audit = session.audit()
-    state = session.state
-    if audit.errors:
-        return CommandResult(
-            status="error",
-            action="doctor",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round if state.round > 0 else 0,
-            missing=_missing_from_blockers(audit.errors),
-            blockers=audit.errors,
-            next_action="repair RDL session metadata",
-        )
-    if audit.blockers:
-        return CommandResult(
-            status="blocked",
-            action="doctor",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(audit.blockers),
-            blockers=audit.blockers,
-            next_action="complete missing RDL records",
-        )
+    loaded = _active_session_result("doctor")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
 
     blockers = tuple(readiness.check(session, "doctor-current"))
+    state = session.state
     if blockers:
         return CommandResult(
             status="blocked",
@@ -145,6 +101,140 @@ def _doctor() -> CommandResult:
         round=state.round,
         next_action="rdl review",
     )
+
+
+def _next() -> CommandResult:
+    loaded = _active_session_result("next")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
+    state = session.state
+
+    blockers = tuple(readiness.check(session, "advance"))
+    if blockers:
+        return CommandResult(
+            status="blocked",
+            action="next",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(blockers),
+            blockers=blockers,
+            next_action="complete current round review and decision",
+        )
+
+    try:
+        result = transition.advance(session)
+    except transition.TransitionBlocked as exc:
+        return CommandResult(
+            status="blocked",
+            action="next",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers((exc.blocker,)),
+            blockers=(exc.blocker,),
+            next_action="inspect existing next round",
+        )
+
+    try:
+        refreshed = SessionStore.cwd().active_session()
+        if refreshed is None:
+            raise ValueError("active session disappeared after transition")
+        integrity.refresh(refreshed)
+    except Exception as exc:
+        blocker = Blocker(
+            "integrity_refresh_failed",
+            "integrity.json",
+            f"Integrity refresh failed: {exc}",
+            "Inspect the session and run rdl repair when available.",
+        )
+        return CommandResult(
+            status="error",
+            action="next",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=result.phase,
+            round=result.round,
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="repair RDL session metadata",
+        )
+
+    return CommandResult(
+        status="ok",
+        action="next",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=result.phase,
+        round=result.round,
+        next_action=result.next_action,
+    )
+
+
+def _active_session_result(action: str):
+    try:
+        session = SessionStore.cwd().active_session()
+    except ValueError:
+        return CommandResult(
+            status="error",
+            action=action,
+            blockers=(
+                Blocker(
+                    "multiple_active_sessions",
+                    ".rdl/sessions",
+                    "Multiple active RDL sessions exist.",
+                    "Close or abandon all but one active session.",
+                ),
+            ),
+            next_action="repair RDL session metadata",
+        )
+
+    if session is None:
+        return CommandResult(
+            status="blocked",
+            action=action,
+            blockers=(
+                Blocker(
+                    "no_active_session",
+                    ".rdl/sessions",
+                    "No active RDL session exists.",
+                    "Start an RDL session.",
+                ),
+            ),
+            next_action="rdl start research <mission.md>",
+        )
+
+    audit = session.audit()
+    state = session.state
+    if audit.errors:
+        return CommandResult(
+            status="error",
+            action=action,
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round if state.round > 0 else 0,
+            missing=_missing_from_blockers(audit.errors),
+            blockers=audit.errors,
+            next_action="repair RDL session metadata",
+        )
+    if audit.blockers:
+        return CommandResult(
+            status="blocked",
+            action=action,
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(audit.blockers),
+            blockers=audit.blockers,
+            next_action="complete missing RDL records",
+        )
+
+    return session
 
 
 def _emit(result: CommandResult, json_output: bool) -> None:
