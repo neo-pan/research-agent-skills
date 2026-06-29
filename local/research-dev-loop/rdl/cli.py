@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -14,8 +15,17 @@ from .protocol import descriptor
 from .session import SessionStore, valid_session_id
 
 
+class RdlArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise RdlParserError(message)
+
+
+class RdlParserError(Exception):
+    pass
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = RdlArgumentParser(
         prog="rdl",
         description="Research Development Loop Python implementation slice.",
     )
@@ -73,9 +83,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(argv) if argv is not None else None
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
+    except RdlParserError as exc:
+        if argv is not None and "--json" in argv:
+            result = _parser_error_result(argv, str(exc))
+            _emit(result, json_output=True)
+            return 1
+        parser.print_usage(sys.stderr)
+        print(f"{parser.prog}: error: {exc}", file=sys.stderr)
+        return 2
     except SystemExit as exc:
         if exc.code == 0:
             return 0
@@ -179,6 +198,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         "use the existing Bash RDL CLI for full command behavior."
     )
     return 2
+
+
+def _parser_error_result(argv: Sequence[str], message: str) -> CommandResult:
+    action = argv[0] if argv else ""
+    code = "parser_error"
+    next_action = "Run rdl --help."
+    detail = message
+    if "invalid choice" in message:
+        code = "unknown_command"
+        detail = f"unknown command: {action}"
+    elif "expected one argument" in message:
+        option = _missing_value_option(argv)
+        detail = f"{option} requires a value." if option else message
+        code, next_action = _missing_value_code(action, option)
+    elif "unrecognized arguments:" in message:
+        option = message.split("unrecognized arguments:", 1)[1].strip().split()[0]
+        detail = f"unknown option: {option}"
+        code = "unknown_option"
+    blocker = Blocker(code, "", detail, next_action)
+    return CommandResult(
+        status="error",
+        action=action,
+        missing=_missing_from_blockers((blocker,)),
+        blockers=(blocker,),
+        next_action=next_action,
+    )
+
+
+def _missing_value_option(argv: Sequence[str]) -> str:
+    for index, token in enumerate(argv):
+        if token in {"--session-id", "--guard-session-id", "--guard-command-id"}:
+            if index + 1 >= len(argv) or argv[index + 1].startswith("--"):
+                return token
+    return ""
+
+
+def _missing_value_code(action: str, option: str) -> tuple[str, str]:
+    if action == "start" and option == "--session-id":
+        return "missing_session_id", "Pass --session-id <id>."
+    if action == "guard-stop" and option == "--guard-session-id":
+        return "missing_guard_session_id", "Pass --guard-session-id <id>."
+    if action == "guard-stop" and option == "--guard-command-id":
+        return "missing_guard_command_id", "Pass --guard-command-id <id>."
+    return "missing_option_value", "Run rdl --help."
 
 
 def _start(mode: str | None, mission_file: str | None, session_id: str | None) -> CommandResult:

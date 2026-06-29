@@ -26,9 +26,7 @@ class ModelCliTests(unittest.TestCase):
 
     def test_python_cli_rejects_unknown_command(self):
         with redirect_stderr(StringIO()):
-            with self.assertRaises(SystemExit) as raised:
-                main(["unknown-command"])
-        self.assertEqual(raised.exception.code, 2)
+            self.assertEqual(main(["unknown-command"]), 2)
 
 
 if __name__ == "__main__":

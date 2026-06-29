@@ -105,9 +105,7 @@ class CliDoctorTests(unittest.TestCase):
 
     def test_unknown_command_remains_unsupported(self):
         with redirect_stderr(StringIO()):
-            with self.assertRaises(SystemExit) as raised:
-                main(["unknown-command"])
-        self.assertEqual(raised.exception.code, 2)
+            self.assertEqual(main(["unknown-command"]), 2)
 
 
 class change_dir:
