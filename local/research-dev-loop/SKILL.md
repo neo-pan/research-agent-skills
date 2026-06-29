@@ -38,13 +38,12 @@ logic inside the CLI.
 During the Python rewrite, use `./scripts/check-fast.sh` or
 `./scripts/check.sh --fast` for the development inner loop. Fast mode runs
 manifest/link checks, RDL Python tests, and repository prerequisite checks while
-skipping the legacy Bash CLI compatibility suite under
+skipping the public wrapper compatibility suite under
 `local/research-dev-loop/tests/*.sh`.
 
 Use `./scripts/check.sh` or `./scripts/check.sh --full` before committing,
-before removing legacy Bash implementation files, or when checking public CLI
-compatibility through `scripts/rdl.sh`. Full mode retains the shell compatibility
-suite with per-test timeouts.
+or when checking public CLI compatibility through `scripts/rdl.sh`. Full mode
+retains the shell compatibility suite with per-test timeouts.
 
 ## Principles
 

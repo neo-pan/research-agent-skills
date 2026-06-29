@@ -9,7 +9,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/check.sh [--full|--fast]
 
-  --full  Run all repository checks, including legacy RDL Bash compat tests.
+  --full  Run all repository checks, including RDL wrapper compatibility tests.
   --fast  Run manifest/link checks, RDL Python tests, and prerequisites only.
 EOF
 }
