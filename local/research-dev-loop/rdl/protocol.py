@@ -16,130 +16,228 @@ IntegrityPolicy = Literal["cli_owned", "append_only", "managed_prefix", "human_o
 
 
 @dataclass(frozen=True)
+class ModeSpec:
+    completed_round_files: tuple[str, ...]
+    expected_closes: str
+    prompt_expected_exit_decision: str
+
+
+@dataclass(frozen=True)
+class DocumentSpec:
+    required_fields: tuple[str, ...] = ()
+    required_sections: tuple[str, ...] = ()
+    allowed_values: dict[str, tuple[str, ...]] | None = None
+
+    def values_for_field(self, field_name: str) -> tuple[str, ...]:
+        return (self.allowed_values or {}).get(field_name, ())
+
+
+SESSION_FILES = (
+    "state.json",
+    "mission.md",
+    "factors.md",
+    "artifact-manifest.json",
+    "decision-ledger.md",
+    "progress.md",
+)
+
+OPTIONAL_SESSION_FILES = ("final-report.md",)
+
+ROUND_FILES = (
+    "prompt.md",
+    "intent.md",
+    "work.md",
+    "evidence.md",
+    "interpretation.md",
+    "review.md",
+    "decision.md",
+)
+
+MODE_SPECS = {
+    SessionMode.RESEARCH.value: ModeSpec(
+        completed_round_files=("prompt.md", "evidence.md", "interpretation.md", "review.md", "decision.md"),
+        expected_closes="claim",
+        prompt_expected_exit_decision="claim decision with evidence and uncertainty",
+    ),
+    SessionMode.BUILD.value: ModeSpec(
+        completed_round_files=("prompt.md", "intent.md", "work.md", "evidence.md", "review.md", "decision.md"),
+        expected_closes="capability",
+        prompt_expected_exit_decision="capability decision with verification evidence",
+    ),
+}
+
+VALUE_SETS = {
+    "review-mode": ("manual", "checklist", "phase-review", "subagent", "project-adapter"),
+    "review-verdict": ("PASS", "PASS_WITH_NOTES", "BLOCKED", "INCONCLUSIVE"),
+    "decision-type": (
+        "continue",
+        "pivot",
+        "narrow",
+        "broaden",
+        "diagnose",
+        "build",
+        "profile",
+        "rerun",
+        "accept",
+        "reject",
+        "close-positive",
+        "close-negative",
+        "close-inconclusive",
+    ),
+    "close-outcome": ("positive", "negative", "inconclusive"),
+    "recommended-next-loop": ("research", "build", "none"),
+}
+
+DOCUMENT_SPECS = {
+    "review": DocumentSpec(
+        required_fields=(
+            "Reviewer",
+            "Review Mode",
+            "Review Scope",
+            "Artifacts Reviewed",
+            "Verdict",
+            "Decision Reviewed",
+            "Evidence Reviewed",
+            "Blocking Evidence Gaps",
+            "Implementation Findings",
+            "Evaluation Integrity Findings",
+            "Overclaim Risks",
+            "Readiness Level",
+            "Recommended Decision",
+        ),
+        allowed_values={
+            "Review Mode": VALUE_SETS["review-mode"],
+            "Verdict": VALUE_SETS["review-verdict"],
+        },
+    ),
+    "decision": DocumentSpec(
+        required_fields=(
+            "Decision",
+            "Closes",
+            "Evidence",
+            "Uncertainty",
+            "What this rules out",
+            "What remains unknown",
+            "Recommended next loop",
+            "Next smallest step",
+        ),
+        allowed_values={
+            "Decision": VALUE_SETS["decision-type"],
+            "Recommended next loop": VALUE_SETS["recommended-next-loop"],
+        },
+    ),
+    "final-report": DocumentSpec(
+        required_sections=(
+            "Outcome",
+            "Claim or Capability Closed",
+            "Evidence Cited",
+            "Missing Evidence and Confounders",
+            "Negative, Null, or Inconclusive Results",
+            "Open Questions",
+            "Deferred Items",
+            "Reusable Lessons",
+            "Close Checklist",
+        ),
+    ),
+    "progress": DocumentSpec(
+        required_sections=("Active", "Completed", "Blocked", "Deferred", "Open Questions"),
+    ),
+}
+
+READINESS_PLANS = {
+    "doctor-current": (
+        "review",
+        "decision",
+        "mode-minimums",
+        "round-evidence-discipline",
+        "artifact-citations",
+        "close-if-decision",
+    ),
+    "advance": (
+        "review",
+        "decision",
+        "review-decision-alignment",
+        "mode-minimums",
+        "round-evidence-discipline",
+        "artifact-citations",
+    ),
+    "guard-stop-advance": (
+        "review",
+        "decision",
+        "review-decision-alignment",
+        "mode-minimums",
+        "round-evidence-discipline",
+        "artifact-citations",
+    ),
+    "close": (
+        "final-report",
+        "close-evidence-discipline",
+        "progress-close-readiness",
+        "artifact-citations",
+        "repeated-negative-evidence",
+    ),
+    "guard-stop-close": (
+        "final-report",
+        "close-evidence-discipline",
+        "progress-close-readiness",
+        "artifact-citations",
+        "repeated-negative-evidence",
+    ),
+}
+
+CLOSE_OUTCOME_BY_DECISION = {
+    "close-positive": "positive",
+    "close-negative": "negative",
+    "close-inconclusive": "inconclusive",
+}
+
+
+@dataclass(frozen=True)
 class ProtocolDescriptor:
     def required_session_files(self) -> tuple[str, ...]:
-        return (
-            "state.json",
-            "mission.md",
-            "factors.md",
-            "artifact-manifest.json",
-            "decision-ledger.md",
-            "progress.md",
-        )
+        return SESSION_FILES
 
     def optional_session_files(self) -> tuple[str, ...]:
-        return ("final-report.md",)
+        return OPTIONAL_SESSION_FILES
 
     def round_file_names(self) -> tuple[str, ...]:
-        return (
-            "prompt.md",
-            "intent.md",
-            "work.md",
-            "evidence.md",
-            "interpretation.md",
-            "review.md",
-            "decision.md",
-        )
+        return ROUND_FILES
 
     def completed_round_files(self, mode: SessionMode | str) -> tuple[str, ...]:
-        mode_value = _mode_value(mode)
-        if mode_value == SessionMode.RESEARCH.value:
-            return ("prompt.md", "evidence.md", "interpretation.md", "review.md", "decision.md")
-        if mode_value == SessionMode.BUILD.value:
-            return ("prompt.md", "intent.md", "work.md", "evidence.md", "review.md", "decision.md")
-        return ()
+        spec = self.mode_spec(mode)
+        return spec.completed_round_files if spec is not None else ()
 
     def required_fields(self, kind: str) -> tuple[str, ...]:
-        if kind == "review":
-            return (
-                "Reviewer",
-                "Review Mode",
-                "Review Scope",
-                "Artifacts Reviewed",
-                "Verdict",
-                "Decision Reviewed",
-                "Evidence Reviewed",
-                "Blocking Evidence Gaps",
-                "Implementation Findings",
-                "Evaluation Integrity Findings",
-                "Overclaim Risks",
-                "Readiness Level",
-                "Recommended Decision",
-            )
-        if kind == "decision":
-            return (
-                "Decision",
-                "Closes",
-                "Evidence",
-                "Uncertainty",
-                "What this rules out",
-                "What remains unknown",
-                "Recommended next loop",
-                "Next smallest step",
-            )
-        return ()
+        spec = self.document_spec(kind)
+        return spec.required_fields if spec is not None else ()
 
     def required_sections(self, kind: str) -> tuple[str, ...]:
-        if kind == "final-report":
-            return (
-                "Outcome",
-                "Claim or Capability Closed",
-                "Evidence Cited",
-                "Missing Evidence and Confounders",
-                "Negative, Null, or Inconclusive Results",
-                "Open Questions",
-                "Deferred Items",
-                "Reusable Lessons",
-                "Close Checklist",
-            )
-        if kind == "progress":
-            return ("Active", "Completed", "Blocked", "Deferred", "Open Questions")
-        return ()
+        spec = self.document_spec(kind)
+        return spec.required_sections if spec is not None else ()
 
     def allowed_values(self, kind: str) -> tuple[str, ...]:
-        values = {
-            "review-mode": ("manual", "checklist", "phase-review", "subagent", "project-adapter"),
-            "review-verdict": ("PASS", "PASS_WITH_NOTES", "BLOCKED", "INCONCLUSIVE"),
-            "decision-type": (
-                "continue",
-                "pivot",
-                "narrow",
-                "broaden",
-                "diagnose",
-                "build",
-                "profile",
-                "rerun",
-                "accept",
-                "reject",
-                "close-positive",
-                "close-negative",
-                "close-inconclusive",
-            ),
-            "close-outcome": ("positive", "negative", "inconclusive"),
-            "recommended-next-loop": ("research", "build", "none"),
-        }
-        return values.get(kind, ())
+        return VALUE_SETS.get(kind, ())
 
     def value_allowed(self, kind: str, value: str) -> bool:
         return value in self.allowed_values(kind)
 
     def expected_closes(self, mode: SessionMode | str) -> str:
-        mode_value = _mode_value(mode)
-        if mode_value == SessionMode.RESEARCH.value:
-            return "claim"
-        if mode_value == SessionMode.BUILD.value:
-            return "capability"
-        return ""
+        spec = self.mode_spec(mode)
+        return spec.expected_closes if spec is not None else ""
 
     def prompt_expected_exit_decision(self, mode: SessionMode | str) -> str:
-        mode_value = _mode_value(mode)
-        if mode_value == SessionMode.RESEARCH.value:
-            return "claim decision with evidence and uncertainty"
-        if mode_value == SessionMode.BUILD.value:
-            return "capability decision with verification evidence"
-        return ""
+        spec = self.mode_spec(mode)
+        return spec.prompt_expected_exit_decision if spec is not None else ""
 
     def policy_for_path(self, path: str) -> IntegrityPolicy:
+        policy = self.path_policy(path)
+        if policy is not None:
+            return policy
+        return "human_owned"
+
+    def path_policy(self, path: str) -> IntegrityPolicy | None:
+        if not self.path_known(path):
+            return None
         if path == "state.json":
             return "cli_owned"
         if path == "decision-ledger.md":
@@ -163,47 +261,16 @@ class ProtocolDescriptor:
         return self.session_path_known(path) or self.round_path_known(path)
 
     def readiness_plan(self, name: str) -> tuple[str, ...]:
-        plans = {
-            "doctor-current": (
-                "review",
-                "decision",
-                "mode-minimums",
-                "round-evidence-discipline",
-                "artifact-citations",
-                "close-if-decision",
-            ),
-            "advance": (
-                "review",
-                "decision",
-                "review-decision-alignment",
-                "mode-minimums",
-                "round-evidence-discipline",
-                "artifact-citations",
-            ),
-            "guard-stop-advance": (
-                "review",
-                "decision",
-                "review-decision-alignment",
-                "mode-minimums",
-                "round-evidence-discipline",
-                "artifact-citations",
-            ),
-            "close": (
-                "final-report",
-                "close-evidence-discipline",
-                "progress-close-readiness",
-                "artifact-citations",
-                "repeated-negative-evidence",
-            ),
-            "guard-stop-close": (
-                "final-report",
-                "close-evidence-discipline",
-                "progress-close-readiness",
-                "artifact-citations",
-                "repeated-negative-evidence",
-            ),
-        }
-        return plans.get(name, ())
+        return READINESS_PLANS.get(name, ())
+
+    def document_spec(self, kind: str) -> DocumentSpec | None:
+        return DOCUMENT_SPECS.get(kind)
+
+    def mode_spec(self, mode: SessionMode | str) -> ModeSpec | None:
+        return MODE_SPECS.get(_mode_value(mode))
+
+    def close_outcome_for_decision(self, decision: str) -> str:
+        return CLOSE_OUTCOME_BY_DECISION.get(decision, "")
 
 
 def _mode_value(mode: SessionMode | str) -> str:

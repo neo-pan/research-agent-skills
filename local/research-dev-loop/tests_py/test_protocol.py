@@ -159,6 +159,53 @@ class ProtocolDescriptorTests(unittest.TestCase):
         )
         self.assertIn("final-report", descriptor.readiness_plan("close"))
 
+    def test_document_specs_collect_fields_sections_and_values(self):
+        review = descriptor.document_spec("review")
+        self.assertEqual(review.required_fields, descriptor.required_fields("review"))
+        self.assertEqual(review.required_sections, ())
+        self.assertEqual(review.values_for_field("Review Mode"), descriptor.allowed_values("review-mode"))
+        self.assertEqual(review.values_for_field("Verdict"), descriptor.allowed_values("review-verdict"))
+
+        decision = descriptor.document_spec("decision")
+        self.assertEqual(decision.required_fields, descriptor.required_fields("decision"))
+        self.assertEqual(decision.values_for_field("Decision"), descriptor.allowed_values("decision-type"))
+        self.assertEqual(decision.values_for_field("Recommended next loop"), descriptor.allowed_values("recommended-next-loop"))
+
+        final_report = descriptor.document_spec("final-report")
+        self.assertEqual(final_report.required_sections, descriptor.required_sections("final-report"))
+        self.assertEqual(final_report.required_fields, ())
+
+        self.assertIsNone(descriptor.document_spec("unknown"))
+
+    def test_mode_specs_collect_mode_protocol_facts(self):
+        research = descriptor.mode_spec(SessionMode.RESEARCH)
+        self.assertIsNotNone(research)
+        self.assertEqual(research.completed_round_files, descriptor.completed_round_files("research"))
+        self.assertEqual(research.expected_closes, "claim")
+        self.assertEqual(research.prompt_expected_exit_decision, "claim decision with evidence and uncertainty")
+
+        build = descriptor.mode_spec("build")
+        self.assertIsNotNone(build)
+        self.assertEqual(build.completed_round_files, descriptor.completed_round_files(SessionMode.BUILD))
+        self.assertEqual(build.expected_closes, "capability")
+        self.assertEqual(build.prompt_expected_exit_decision, "capability decision with verification evidence")
+
+        self.assertIsNone(descriptor.mode_spec("unknown"))
+
+    def test_close_outcome_for_decision_is_protocol_owned(self):
+        self.assertEqual(descriptor.close_outcome_for_decision("close-positive"), "positive")
+        self.assertEqual(descriptor.close_outcome_for_decision("close-negative"), "negative")
+        self.assertEqual(descriptor.close_outcome_for_decision("close-inconclusive"), "inconclusive")
+        self.assertEqual(descriptor.close_outcome_for_decision("continue"), "")
+
+    def test_protocol_file_policy_for_known_and_unknown_paths(self):
+        self.assertEqual(descriptor.path_policy("state.json"), "cli_owned")
+        self.assertEqual(descriptor.path_policy("decision-ledger.md"), "append_only")
+        self.assertEqual(descriptor.path_policy("rounds/001/prompt.md"), "managed_prefix")
+        self.assertEqual(descriptor.path_policy("rounds/001/evidence.md"), "human_owned")
+        self.assertIsNone(descriptor.path_policy("../state.json"))
+        self.assertIsNone(descriptor.path_policy("rounds/001/notes.md"))
+
 
 if __name__ == "__main__":
     unittest.main()
