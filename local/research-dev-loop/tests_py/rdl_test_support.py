@@ -132,6 +132,8 @@ def _managed_block(text: str) -> str:
         return text
     start_index = text.index(start)
     end_index = text.index(end) + len(end)
+    if len(text) > end_index and text[end_index] == "\n":
+        end_index += 1
     return text[start_index:end_index]
 
 

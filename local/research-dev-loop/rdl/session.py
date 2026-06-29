@@ -241,17 +241,17 @@ def _validate_artifact_manifest(path: Path, errors: list[Blocker], blockers: lis
             )
         )
         return
-    artifacts = data.get("artifacts", []) if isinstance(data, dict) else []
-    if not isinstance(artifacts, list):
+    if not isinstance(data, dict) or not isinstance(data.get("artifacts"), list):
         blockers.append(
             Blocker(
-                "invalid_artifact_entry",
+                "invalid_artifact_manifest",
                 "artifact-manifest.json",
-                "artifact entries need id, kind, round, description, and path or url.",
-                "Fix artifact entries or remove invalid artifacts.",
+                "artifact-manifest.json must be an object with an artifacts array.",
+                "Fix artifact-manifest.json.",
             )
         )
         return
+    artifacts = data["artifacts"]
     for artifact in artifacts:
         if not isinstance(artifact, dict):
             blockers.append(_invalid_artifact_entry())
@@ -533,6 +533,8 @@ def _managed_block(text: str) -> str | None:
         return None
     start_index = text.index(start)
     end_index = text.index(end) + len(end)
+    if len(text) > end_index and text[end_index] == "\n":
+        end_index += 1
     return text[start_index:end_index]
 
 

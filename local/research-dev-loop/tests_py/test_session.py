@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import os
 import subprocess
+import hashlib
 from pathlib import Path
 
 from rdl import store
@@ -57,6 +58,24 @@ class StoreSessionTests(unittest.TestCase):
 
             audit = SessionStore(Path(tmp)).active_session().audit()
             self.assertIn("integrity_violation_cli_owned", {blocker.code for blocker in audit.errors})
+
+    def test_integrity_managed_prefix_hash_matches_bash_newline_semantics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            manifest = store.read_json(session_dir / "integrity.json")
+            prompt_path = session_dir / "rounds" / "001" / "prompt.md"
+            text = prompt_path.read_text(encoding="utf-8")
+            end = "<!-- /rdl:managed -->"
+            managed = text[: text.index(end) + len(end)]
+            managed_with_closing_newline = managed + "\n"
+            for entry in manifest["entries"]:
+                if entry["path"] == "rounds/001/prompt.md":
+                    entry["managed_sha256"] = hashlib.sha256(managed_with_closing_newline.encode("utf-8")).hexdigest()
+                    break
+            write_json(session_dir / "integrity.json", manifest)
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertEqual(audit.errors, ())
 
     def test_integrity_missing_protected_entry_is_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,6 +189,15 @@ class StoreSessionTests(unittest.TestCase):
             codes = [blocker.code for blocker in audit.blockers]
             self.assertIn("missing_required_file", codes)
             self.assertIn("missing_prompt", codes)
+
+    def test_artifact_manifest_must_be_object_with_artifacts_array(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            (session_dir / "artifact-manifest.json").write_text("[]\n", encoding="utf-8")
+            refresh_integrity(session_dir)
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("invalid_artifact_manifest", {blocker.code for blocker in audit.blockers})
 
     def test_session_state_requires_object(self):
         with self.assertRaises(ValueError):
