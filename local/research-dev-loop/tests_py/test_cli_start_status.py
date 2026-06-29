@@ -159,6 +159,86 @@ class CliStartStatusTests(unittest.TestCase):
             self.assertEqual(result["round"], 1)
             self.assertEqual(result["next_action"], "active")
 
+    def test_status_json_ignores_malformed_integrity_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "status_bad_integrity")
+            (session_dir / "integrity.json").write_text("{ broken\n", encoding="utf-8")
+
+            code, result = run_cli(root, ["status", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["session_id"], "status_bad_integrity")
+            self.assertEqual(result["next_action"], "active")
+
+    def test_status_json_ignores_missing_non_state_protocol_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "status_missing_progress")
+            (session_dir / "progress.md").unlink()
+
+            code, result = run_cli(root, ["status", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["session_id"], "status_missing_progress")
+            self.assertEqual(result["next_action"], "active")
+
+    def test_status_json_errors_for_invalid_state_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = root / ".rdl" / "sessions" / "bad_state"
+            session_dir.mkdir(parents=True)
+            (session_dir / "state.json").write_text("{ broken\n", encoding="utf-8")
+
+            code, result = run_cli(root, ["status", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "invalid_state_json")
+
+    def test_status_json_errors_for_invalid_state_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "bad_values")
+            state = store.read_json(session_dir / "state.json")
+            state["schema_version"] = 2
+            state["status"] = "bad"
+            write_json(session_dir / "state.json", state)
+
+            code, result = run_cli(root, ["status", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            codes = {blocker["code"] for blocker in result["blockers"]}
+            self.assertIn("unsupported_schema", codes)
+            self.assertIn("invalid_status", codes)
+
+    def test_status_json_errors_for_missing_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = root / ".rdl" / "sessions" / "missing_state"
+            session_dir.mkdir(parents=True)
+
+            code, result = run_cli(root, ["status", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "missing_state")
+
+    def test_status_json_errors_for_multiple_active_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "active_one")
+            create_session(root, "active_two")
+
+            code, result = run_cli(root, ["status", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "multiple_active_sessions")
+
     def test_status_json_without_active_session_points_to_start(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, result = run_cli(Path(tmp), ["status", "--json"])
@@ -175,6 +255,10 @@ def run_cli(root: Path, argv: list[str]) -> tuple[int, dict]:
     with change_dir(root), redirect_stdout(stdout), redirect_stderr(StringIO()):
         code = main(argv)
     return code, json.loads(stdout.getvalue())
+
+
+def write_json(path: Path, data) -> None:
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 class change_dir:

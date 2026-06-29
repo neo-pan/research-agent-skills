@@ -30,6 +30,11 @@ class Session:
         round_number = round if round is not None else max(self.state.round, 1)
         return self.root / "rounds" / f"{round_number:03d}"
 
+    def state_errors(self) -> tuple[Blocker, ...]:
+        if self.state_error is not None:
+            return (self.state_error,)
+        return _state_value_errors(self)
+
     def audit(self) -> AuditResult:
         errors: list[Blocker] = []
         blockers: list[Blocker] = []

@@ -414,9 +414,9 @@ def _status() -> CommandResult:
     if session is None:
         return CommandResult(status="ok", action="status", next_action="rdl start research <mission.md>")
 
-    audit = session.audit()
     state = session.state
-    if audit.errors:
+    state_errors = session.state_errors()
+    if state_errors:
         return CommandResult(
             status="error",
             action="status",
@@ -424,8 +424,8 @@ def _status() -> CommandResult:
             mode=str(state.mode),
             phase=str(state.phase),
             round=state.round if state.round > 0 else 0,
-            missing=_missing_from_blockers(audit.errors),
-            blockers=audit.errors,
+            missing=_missing_from_blockers(state_errors),
+            blockers=state_errors,
             next_action="repair RDL session metadata",
         )
     return CommandResult(
