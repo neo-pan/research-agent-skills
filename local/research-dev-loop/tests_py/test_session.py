@@ -123,6 +123,25 @@ class StoreSessionTests(unittest.TestCase):
             audit = session.audit()
             self.assertEqual([blocker.code for blocker in audit.errors], ["invalid_state_json"])
 
+    def test_invalid_closed_state_metadata_is_not_hidden_by_active_filter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "active")
+            bad_dir = create_session(root, "closed_bad")
+            state = store.read_json(bad_dir / "state.json")
+            state["schema_version"] = 2
+            state["session_id"] = ""
+            state["status"] = "closed-positive"
+            state["mission_file"] = ""
+            write_json(bad_dir / "state.json", state)
+
+            session = SessionStore(root).active_session()
+            self.assertEqual(session.root.name, "closed_bad")
+            codes = {blocker.code for blocker in session.audit().errors}
+            self.assertIn("unsupported_schema", codes)
+            self.assertIn("missing_session_id", codes)
+            self.assertIn("missing_mission_file_field", codes)
+
     def test_invalid_state_values_are_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp))

@@ -82,6 +82,10 @@ class CliDoctorTests(unittest.TestCase):
             codes = {blocker["code"] for blocker in result["blockers"]}
             self.assertIn("missing_review", codes)
             self.assertIn("missing_decision", codes)
+            blocker_files = {blocker["file"] for blocker in result["blockers"]}
+            self.assertIn(str(root / ".rdl" / "sessions" / "r1" / "rounds" / "001" / "review.md"), blocker_files)
+            self.assertIn(str(root / ".rdl" / "sessions" / "r1" / "rounds" / "001" / "decision.md"), blocker_files)
+            self.assertTrue(blocker_files.issubset(set(result["missing"])))
 
     def test_doctor_json_blocks_for_close_readiness_progress_gap(self):
         with tempfile.TemporaryDirectory() as tmp:

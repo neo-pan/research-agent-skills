@@ -122,6 +122,8 @@ class SessionStore:
                 if fallback_error is None:
                     fallback_error = session
                 return fallback_error
+            if _state_value_errors(session):
+                return session
             if session.state.status == SessionStatus.ACTIVE:
                 active.append(session)
 
@@ -226,6 +228,12 @@ def _validate_state_values(path: Path, state: SessionState, errors: list[Blocker
         add("invalid_status", "status is unsupported.")
     if not raw.get("mission_file", state.mission_file):
         add("missing_mission_file_field", "mission_file is missing.")
+
+
+def _state_value_errors(session: Session) -> tuple[Blocker, ...]:
+    errors: list[Blocker] = []
+    _validate_state_values(session.root / "state.json", session.state, errors, session.raw_state)
+    return tuple(errors)
 
 
 def _validate_artifact_manifest(path: Path, errors: list[Blocker], blockers: list[Blocker]) -> None:

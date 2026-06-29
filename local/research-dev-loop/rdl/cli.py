@@ -105,6 +105,7 @@ def _doctor() -> CommandResult:
             mode=str(state.mode),
             phase=str(state.phase),
             round=state.round if state.round > 0 else 0,
+            missing=_missing_from_blockers(audit.errors),
             blockers=audit.errors,
             next_action="repair RDL session metadata",
         )
@@ -116,6 +117,7 @@ def _doctor() -> CommandResult:
             mode=str(state.mode),
             phase=str(state.phase),
             round=state.round,
+            missing=_missing_from_blockers(audit.blockers),
             blockers=audit.blockers,
             next_action="complete missing RDL records",
         )
@@ -129,6 +131,7 @@ def _doctor() -> CommandResult:
             mode=str(state.mode),
             phase=str(state.phase),
             round=state.round,
+            missing=_missing_from_blockers(blockers),
             blockers=blockers,
             next_action="complete missing RDL records",
         )
@@ -153,6 +156,17 @@ def _emit(result: CommandResult, json_output: bool) -> None:
         return
     for blocker in result.blockers:
         print(f"{result.status}: {blocker.code}: {blocker.message}")
+
+
+def _missing_from_blockers(blockers: Sequence[Blocker]) -> tuple[str, ...]:
+    missing: list[str] = []
+    seen: set[str] = set()
+    for blocker in blockers:
+        path = blocker.file
+        if path and path not in seen:
+            seen.add(path)
+            missing.append(path)
+    return tuple(missing)
 
 
 def _result_dict(result: CommandResult) -> dict[str, object]:
