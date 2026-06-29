@@ -77,6 +77,19 @@ class StoreSessionTests(unittest.TestCase):
             audit = SessionStore(Path(tmp)).active_session().audit()
             self.assertEqual(audit.errors, ())
 
+    def test_integrity_duplicate_managed_prompt_start_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            prompt_path = session_dir / "rounds" / "001" / "prompt.md"
+            prompt_path.write_text(
+                prompt_path.read_text(encoding="utf-8")
+                + "\n<!-- rdl:managed policy=managed_prefix -->\n# Prompt\n\nDuplicate\n<!-- /rdl:managed -->\n",
+                encoding="utf-8",
+            )
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("missing_managed_block", {blocker.code for blocker in audit.errors})
+
     def test_integrity_missing_protected_entry_is_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp))

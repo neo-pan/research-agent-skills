@@ -538,10 +538,12 @@ def _validate_integrity_entry_hash(path: Path, entry: dict[str, Any], errors: li
 def _managed_block(text: str) -> str | None:
     start = "<!-- rdl:managed policy=managed_prefix -->"
     end = "<!-- /rdl:managed -->"
-    if start not in text or end not in text:
+    if text.count(start) != 1 or text.count(end) != 1:
         return None
     start_index = text.index(start)
     end_index = text.index(end) + len(end)
+    if end_index <= start_index + len(start):
+        return None
     if len(text) > end_index and text[end_index] == "\n":
         end_index += 1
     return text[start_index:end_index]
