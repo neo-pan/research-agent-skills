@@ -15,35 +15,27 @@ state, experiment queues, benchmark runners, or deployment state.
 
 ## CLI
 
-Run the local wrapper from a project repository:
+Run the Python module from a project repository:
 
 ```bash
-local/research-dev-loop/scripts/rdl.sh start research mission.md
-local/research-dev-loop/scripts/rdl.sh start build plan.md
-local/research-dev-loop/scripts/rdl.sh status
+PYTHONPATH=local/research-dev-loop python3 -m rdl start research mission.md --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl start build plan.md --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl status --json
 ```
 
 ## Requirements
 
-The wrapper requires Bash and `python3`. It dispatches to the Python RDL
-implementation under `local/research-dev-loop/rdl/`; set `RDL_PYTHON_BIN` to
-use a different Python executable.
+RDL requires `python3`. Its implementation lives under
+`local/research-dev-loop/rdl/`.
 
 The manual profile should remain usable without hooks. Guarded operation, when
 implemented, should call `rdl guard-stop` as thin transport and keep all RDL
 logic inside the CLI.
 
-## Python Refactor Checks
+## Checks
 
-During the Python rewrite, use `./scripts/check-fast.sh` or
-`./scripts/check.sh --fast` for the development inner loop. Fast mode runs
-manifest/link checks, RDL Python tests, and repository prerequisite checks while
-skipping the public wrapper compatibility suite under
-`local/research-dev-loop/tests/*.sh`.
-
-Use `./scripts/check.sh` or `./scripts/check.sh --full` before committing,
-or when checking public CLI compatibility through `scripts/rdl.sh`. Full mode
-retains the shell compatibility suite with per-test timeouts.
+Use `./scripts/check.sh` before committing changes. It runs manifest/link
+checks, RDL Python tests, and repository prerequisite checks.
 
 ## Principles
 

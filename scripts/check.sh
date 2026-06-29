@@ -3,25 +3,17 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="${ROOT_DIR}/selected-skills.conf"
-MODE="full"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/check.sh [--full|--fast]
+Usage: scripts/check.sh
 
-  --full  Run all repository checks, including RDL wrapper compatibility tests.
-  --fast  Run manifest/link checks, RDL Python tests, and prerequisites only.
+Run manifest/link checks, RDL Python tests, and prerequisites.
 EOF
 }
 
 case "${1:-}" in
   "")
-    ;;
-  --full)
-    MODE="full"
-    ;;
-  --fast)
-    MODE="fast"
     ;;
   -h|--help)
     usage
@@ -95,37 +87,13 @@ fi
 
 echo "Skill links ok"
 
-if [[ "${MODE}" == "full" ]]; then
-  RDL_BASH_TEST_TIMEOUT_SECONDS="${RDL_BASH_TEST_TIMEOUT_SECONDS:-300}"
-  for test_script in "${ROOT_DIR}"/local/research-dev-loop/tests/*.sh; do
-    test_name="$(basename "${test_script}")"
-    start_seconds="${SECONDS}"
-    echo "RDL shell test start: ${test_name}"
-    if command -v timeout >/dev/null 2>&1; then
-      if ! timeout "${RDL_BASH_TEST_TIMEOUT_SECONDS}s" bash "${test_script}" >/dev/null; then
-        echo "RDL shell test failed or timed out: ${test_name} (${RDL_BASH_TEST_TIMEOUT_SECONDS}s limit)" >&2
-        exit 1
-      fi
-    elif ! bash "${test_script}" >/dev/null; then
-      echo "RDL shell test failed: ${test_name}" >&2
-      exit 1
-    fi
-    echo "RDL shell test ok: ${test_name} ($((SECONDS - start_seconds))s)"
-  done
-
-  echo "RDL shell tests ok"
-else
-  echo "RDL shell tests skipped (fast mode)"
-fi
-
-RDL_PYTHON_BIN="${RDL_PYTHON_BIN:-python3}"
-if ! command -v "${RDL_PYTHON_BIN}" >/dev/null 2>&1; then
+if ! command -v python3 >/dev/null 2>&1; then
   echo "Missing python3: RDL Python tests require python3 for repository checks." >&2
   exit 1
 fi
 
 PYTHONPATH="${ROOT_DIR}/local/research-dev-loop" \
-  "${RDL_PYTHON_BIN}" -m unittest discover -s "${ROOT_DIR}/local/research-dev-loop/tests_py" >/dev/null
+  python3 -m unittest discover -s "${ROOT_DIR}/local/research-dev-loop/tests_py" >/dev/null
 
 echo "RDL Python tests ok"
 

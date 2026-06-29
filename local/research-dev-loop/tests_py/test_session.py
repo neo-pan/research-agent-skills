@@ -59,7 +59,7 @@ class StoreSessionTests(unittest.TestCase):
             audit = SessionStore(Path(tmp)).active_session().audit()
             self.assertIn("integrity_violation_cli_owned", {blocker.code for blocker in audit.errors})
 
-    def test_integrity_managed_prefix_hash_matches_bash_newline_semantics(self):
+    def test_integrity_managed_prefix_hash_includes_closing_marker_newline(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp))
             manifest = store.read_json(session_dir / "integrity.json")

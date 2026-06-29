@@ -193,10 +193,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         return 0
 
-    parser.error(
-        f"{args.command!r} is not implemented in the Python phase-1 slice; "
-        "use the existing Bash RDL CLI for full command behavior."
-    )
+    parser.error(f"unsupported command: {args.command!r}")
     return 2
 
 

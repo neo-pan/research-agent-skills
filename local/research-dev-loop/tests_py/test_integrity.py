@@ -73,7 +73,7 @@ class IntegrityTests(unittest.TestCase):
             self.assertIn("missing_integrity_entry", {blocker.code for blocker in audit.errors})
             self.assertIn("missing_prompt", {blocker.code for blocker in audit.blockers})
 
-    def test_managed_block_matches_bash_newline_semantics(self):
+    def test_managed_block_includes_closing_marker_newline(self):
         text = "<!-- rdl:managed policy=managed_prefix -->\n# Prompt\n<!-- /rdl:managed -->\n\n## Notes\n"
 
         block = integrity.managed_block(text)
