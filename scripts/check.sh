@@ -97,6 +97,6 @@ PYTHONPATH="${ROOT_DIR}/local/research-dev-loop" \
 
 echo "RDL Python tests ok"
 
-bash "${ROOT_DIR}/tests/check-python-prereq.sh" >/dev/null
+bash "${ROOT_DIR}/tests/check-removed-check-modes.sh" >/dev/null
 
-echo "Check prerequisites ok"
+echo "Removed check modes ok"

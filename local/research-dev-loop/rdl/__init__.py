@@ -1,4 +1,4 @@
-"""Python implementation slice for the Research Development Loop skill."""
+"""Research Development Loop Python package."""
 
 __all__ = [
     "documents",

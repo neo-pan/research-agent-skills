@@ -27,7 +27,7 @@ class RdlParserError(Exception):
 def build_parser() -> argparse.ArgumentParser:
     parser = RdlArgumentParser(
         prog="rdl",
-        description="Research Development Loop Python implementation slice.",
+        description="Research Development Loop CLI.",
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
