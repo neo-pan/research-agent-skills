@@ -22,7 +22,8 @@ source for the selected upstream entries.
 | `local/` | Personal local skills, maintained separately from upstream. |
 | `scripts/link_selected_skills.sh` | Rebuilds `skills/` symlinks from the selected list. |
 | `scripts/install_selected_skills.sh` | Installs selected skill links into a target skill directory. |
-| `scripts/check.sh` | Validates the manifest, skill sources, and generated links. |
+| `scripts/check.sh` | Runs repository checks; defaults to the full suite. |
+| `scripts/check-fast.sh` | Runs the fast development check without legacy RDL Bash compat tests. |
 | `scripts/update_upstream.sh` | Explicitly updates the upstream submodule and relinks. |
 
 ## Setup
@@ -32,6 +33,16 @@ git submodule update --init --recursive
 ./scripts/link_selected_skills.sh
 ./scripts/check.sh
 ```
+
+During RDL Python refactoring, use the faster development check for the inner
+loop:
+
+```bash
+./scripts/check-fast.sh
+```
+
+Run `./scripts/check.sh` before committing changes that should pass the full
+legacy compatibility suite.
 
 Install the selected skills into an agent or project skill directory:
 

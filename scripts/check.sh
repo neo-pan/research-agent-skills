@@ -3,6 +3,40 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="${ROOT_DIR}/selected-skills.conf"
+MODE="full"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/check.sh [--full|--fast]
+
+  --full  Run all repository checks, including legacy RDL Bash compat tests.
+  --fast  Run manifest/link checks, RDL Python tests, and prerequisites only.
+EOF
+}
+
+case "${1:-}" in
+  "")
+    ;;
+  --full)
+    MODE="full"
+    ;;
+  --fast)
+    MODE="fast"
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$#" -gt 1 ]]; then
+  usage >&2
+  exit 2
+fi
 
 UPSTREAM_PATH="$(git config --file "${MANIFEST}" --get upstream.mattpocock.path)"
 UPSTREAM_DIR="${ROOT_DIR}/${UPSTREAM_PATH}"
@@ -61,15 +95,28 @@ fi
 
 echo "Skill links ok"
 
-for test_script in "${ROOT_DIR}"/local/research-dev-loop/tests/*.sh; do
-  test_name="$(basename "${test_script}")"
-  start_seconds="${SECONDS}"
-  echo "RDL shell test start: ${test_name}"
-  bash "${test_script}" >/dev/null
-  echo "RDL shell test ok: ${test_name} ($((SECONDS - start_seconds))s)"
-done
+if [[ "${MODE}" == "full" ]]; then
+  RDL_BASH_TEST_TIMEOUT_SECONDS="${RDL_BASH_TEST_TIMEOUT_SECONDS:-120}"
+  for test_script in "${ROOT_DIR}"/local/research-dev-loop/tests/*.sh; do
+    test_name="$(basename "${test_script}")"
+    start_seconds="${SECONDS}"
+    echo "RDL shell test start: ${test_name}"
+    if command -v timeout >/dev/null 2>&1; then
+      if ! timeout "${RDL_BASH_TEST_TIMEOUT_SECONDS}s" bash "${test_script}" >/dev/null; then
+        echo "RDL shell test failed or timed out: ${test_name} (${RDL_BASH_TEST_TIMEOUT_SECONDS}s limit)" >&2
+        exit 1
+      fi
+    elif ! bash "${test_script}" >/dev/null; then
+      echo "RDL shell test failed: ${test_name}" >&2
+      exit 1
+    fi
+    echo "RDL shell test ok: ${test_name} ($((SECONDS - start_seconds))s)"
+  done
 
-echo "RDL tests ok"
+  echo "RDL shell tests ok"
+else
+  echo "RDL shell tests skipped (fast mode)"
+fi
 
 RDL_PYTHON_BIN="${RDL_PYTHON_BIN:-python3}"
 if ! command -v "${RDL_PYTHON_BIN}" >/dev/null 2>&1; then

@@ -34,6 +34,19 @@ The manual profile should remain usable without hooks. Guarded operation, when
 implemented, should call `rdl guard-stop` as thin transport and keep all RDL
 logic inside the CLI.
 
+## Python Refactor Checks
+
+During the Python rewrite, use `./scripts/check-fast.sh` or
+`./scripts/check.sh --fast` for the development inner loop. Fast mode runs
+manifest/link checks, RDL Python tests, and repository prerequisite checks while
+skipping the legacy Bash CLI compatibility suite under
+`local/research-dev-loop/tests/*.sh`.
+
+Use `./scripts/check.sh` or `./scripts/check.sh --full` before committing,
+before removing Bash behavior, or when checking parity against the existing
+`scripts/rdl.sh` implementation. Full mode retains the Bash compatibility suite
+with per-test timeouts.
+
 ## Principles
 
 - Keep one active RDL session per repository.
