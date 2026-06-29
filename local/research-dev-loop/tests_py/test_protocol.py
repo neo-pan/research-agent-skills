@@ -18,6 +18,15 @@ class ProtocolDescriptorTests(unittest.TestCase):
             ),
         )
         self.assertEqual(descriptor.optional_session_files(), ("final-report.md",))
+        self.assertEqual(
+            descriptor.initialized_session_templates(),
+            (
+                "factors.md",
+                "artifact-manifest.json",
+                "decision-ledger.md",
+                "progress.md",
+            ),
+        )
 
     def test_round_files(self):
         self.assertEqual(

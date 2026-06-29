@@ -58,7 +58,7 @@ def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocke
         return _validate_repeated_negative_evidence(session, round_dir)
     if rule == "close-if-decision":
         decision = documents.field(round_dir / "decision.md", "Decision")
-        close_outcome = _close_outcome_for_decision(decision)
+        close_outcome = descriptor.close_outcome_for_decision(decision)
         if close_outcome:
             return check(session, "close", close_outcome)
         return []
@@ -343,14 +343,6 @@ def _citation_sources(session_dir: Path, round_dir: Path) -> list[tuple[Path, st
     if report_file.is_file():
         sources.append((report_file, "Evidence Cited", documents.section(report_file, "Evidence Cited").content))
     return sources
-
-
-def _close_outcome_for_decision(decision: str) -> str:
-    return {
-        "close-positive": "positive",
-        "close-negative": "negative",
-        "close-inconclusive": "inconclusive",
-    }.get(decision, "")
 
 
 def _table_rows(markdown: str) -> list[dict[str, str]]:

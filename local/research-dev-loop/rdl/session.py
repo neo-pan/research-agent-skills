@@ -60,7 +60,15 @@ class Session:
                 )
             )
 
-        for file_name in ("integrity.json", "factors.md", "artifact-manifest.json", "decision-ledger.md", "progress.md"):
+        required_files = (
+            "integrity.json",
+            *(
+                file_name
+                for file_name in descriptor.required_session_files()
+                if file_name not in {"state.json", "mission.md"}
+            ),
+        )
+        for file_name in required_files:
             if not (self.root / file_name).is_file():
                 blockers.append(
                     Blocker(

@@ -57,6 +57,27 @@ class IntegrityTests(unittest.TestCase):
             self.assertEqual(integrity.expected_policies(session)["rounds/002/prompt.md"], "managed_prefix")
             self.assertNotIn("rounds/002/prompt.md", integrity.existing_protocol_files(session))
 
+    def test_protocol_files_use_descriptor_session_files_and_custom_mission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            state = store.read_json(session_dir / "state.json")
+            state["mission_file"] = "custom-mission.md"
+            store.write_json_atomic(session_dir / "state.json", state)
+            (session_dir / "mission.md").unlink()
+            (session_dir / "custom-mission.md").write_text("# Mission\n\nCustom.\n", encoding="utf-8")
+            (session_dir / "final-report.md").write_text("# Final Report\n", encoding="utf-8")
+            session = SessionStore(root).active_session()
+
+            files = integrity.protocol_files(session)
+
+            self.assertIn("state.json", files)
+            self.assertIn("custom-mission.md", files)
+            self.assertNotIn("mission.md", files)
+            for relative in descriptor.initialized_session_templates():
+                self.assertIn(relative, files)
+            self.assertIn("final-report.md", files)
+
     def test_audit_reports_missing_state_required_managed_prompt_entry_even_if_file_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

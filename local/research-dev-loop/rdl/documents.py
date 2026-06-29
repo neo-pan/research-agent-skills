@@ -93,8 +93,9 @@ def _validate_review(path: Path) -> list[Blocker]:
             )
         ]
 
+    spec = descriptor.document_spec("review")
     blockers: list[Blocker] = []
-    for required_field in descriptor.required_fields("review"):
+    for required_field in spec.required_fields if spec is not None else ():
         value = field(path, required_field)
         if _placeholder(value) or "|" in value:
             blockers.append(
@@ -107,7 +108,7 @@ def _validate_review(path: Path) -> list[Blocker]:
             )
 
     review_mode = field(path, "Review Mode")
-    if not descriptor.value_allowed("review-mode", review_mode):
+    if spec is None or review_mode not in spec.values_for_field("Review Mode"):
         blockers.append(
             Blocker(
                 "invalid_review_mode",
@@ -118,7 +119,7 @@ def _validate_review(path: Path) -> list[Blocker]:
         )
 
     verdict = field(path, "Verdict")
-    if not descriptor.value_allowed("review-verdict", verdict):
+    if spec is None or verdict not in spec.values_for_field("Verdict"):
         blockers.append(
             Blocker(
                 "invalid_review_verdict",
@@ -141,8 +142,9 @@ def _validate_decision(path: Path, context: dict[str, Any]) -> list[Blocker]:
             )
         ]
 
+    spec = descriptor.document_spec("decision")
     blockers: list[Blocker] = []
-    for required_field in descriptor.required_fields("decision"):
+    for required_field in spec.required_fields if spec is not None else ():
         value = field(path, required_field)
         if _placeholder(value) or "|" in value:
             blockers.append(
@@ -155,7 +157,7 @@ def _validate_decision(path: Path, context: dict[str, Any]) -> list[Blocker]:
             )
 
     decision = field(path, "Decision")
-    if not descriptor.value_allowed("decision-type", decision):
+    if spec is None or decision not in spec.values_for_field("Decision"):
         blockers.append(
             Blocker(
                 "invalid_decision_type",
@@ -178,7 +180,7 @@ def _validate_decision(path: Path, context: dict[str, Any]) -> list[Blocker]:
         )
 
     next_loop = field(path, "Recommended next loop")
-    if not descriptor.value_allowed("recommended-next-loop", next_loop):
+    if spec is None or next_loop not in spec.values_for_field("Recommended next loop"):
         blockers.append(
             Blocker(
                 "invalid_recommended_next_loop",
@@ -201,8 +203,9 @@ def _validate_final_report(path: Path, context: dict[str, Any]) -> list[Blocker]
             )
         ]
 
+    spec = descriptor.document_spec("final-report")
     blockers: list[Blocker] = []
-    for required_section in descriptor.required_sections("final-report"):
+    for required_section in spec.required_sections if spec is not None else ():
         if not section_has_content(path, required_section):
             blockers.append(
                 Blocker(
@@ -251,8 +254,9 @@ def _validate_progress(path: Path) -> list[Blocker]:
             )
         ]
 
+    spec = descriptor.document_spec("progress")
     blockers: list[Blocker] = []
-    for required_section in descriptor.required_sections("progress"):
+    for required_section in spec.required_sections if spec is not None else ():
         if section(path, required_section).start_line is None:
             blockers.append(
                 Blocker(

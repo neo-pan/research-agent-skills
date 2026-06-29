@@ -30,7 +30,7 @@ def copy_mission(source: str | Path, destination: str | Path) -> None:
 def initialize_session_files(session_dir: str | Path, mission_source: str | Path) -> None:
     root = Path(session_dir)
     copy_mission(mission_source, root / "mission.md")
-    for name in ("factors.md", "artifact-manifest.json", "decision-ledger.md", "progress.md"):
+    for name in descriptor.initialized_session_templates():
         copy_template(name, root / name)
 
 

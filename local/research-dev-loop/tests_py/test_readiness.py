@@ -85,6 +85,25 @@ class ReadinessTests(unittest.TestCase):
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
             self.assertIn("unresolved_blocking_open_questions", codes)
 
+    def test_doctor_current_routes_close_decisions_through_close_readiness(self):
+        cases = (
+            ("close-positive", "positive", "unresolved_blocking_open_questions"),
+            ("close-negative", "negative", "unresolved_blocking_open_questions"),
+            ("close-inconclusive", "inconclusive", "missing_final_report_section"),
+        )
+        for decision, outcome, expected_code in cases:
+            with self.subTest(decision=decision):
+                with tempfile.TemporaryDirectory() as tmp:
+                    session_dir = close_ready_session(Path(tmp), decision, outcome)
+                    if outcome == "inconclusive":
+                        (session_dir / "final-report.md").write_text("# Final Report\n\n## Outcome\n\ninconclusive\n", encoding="utf-8")
+                    else:
+                        (session_dir / "progress.md").write_text(PROGRESS_WITH_BLOCKING_OPEN_QUESTION, encoding="utf-8")
+
+                    codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+
+                    self.assertIn(expected_code, codes)
+
     def test_close_positive_reads_generated_blocking_question_header(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = close_ready_session(Path(tmp), "close-positive", "positive")

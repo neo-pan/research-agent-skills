@@ -200,6 +200,13 @@ class ProtocolDescriptor:
     def optional_session_files(self) -> tuple[str, ...]:
         return OPTIONAL_SESSION_FILES
 
+    def initialized_session_templates(self) -> tuple[str, ...]:
+        return tuple(
+            file_name
+            for file_name in self.required_session_files()
+            if file_name not in {"state.json", "mission.md"}
+        )
+
     def round_file_names(self) -> tuple[str, ...]:
         return ROUND_FILES
 

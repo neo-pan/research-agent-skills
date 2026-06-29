@@ -1005,18 +1005,10 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
 def _guard_stop_readiness(session) -> list[Blocker]:
     blockers = list(readiness.check(session, "guard-stop-advance"))
     decision = documents.field(session.round_dir() / "decision.md", "Decision")
-    outcome = _close_outcome_for_decision(decision)
+    outcome = descriptor.close_outcome_for_decision(decision)
     if outcome:
         blockers.extend(readiness.check(session, "guard-stop-close", outcome=outcome))
     return blockers
-
-
-def _close_outcome_for_decision(decision: str) -> str:
-    return {
-        "close-positive": "positive",
-        "close-negative": "negative",
-        "close-inconclusive": "inconclusive",
-    }.get(decision, "")
 
 
 def _run_locked_session(

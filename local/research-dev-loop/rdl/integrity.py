@@ -127,16 +127,7 @@ def validate(session: Any, errors: list[Blocker], blockers: list[Blocker]) -> No
 
 
 def protocol_files(session: Any) -> tuple[str, ...]:
-    paths = [
-        "state.json",
-        session.state.mission_file,
-        "factors.md",
-        "artifact-manifest.json",
-        "decision-ledger.md",
-        "progress.md",
-    ]
-    if (session.root / "final-report.md").is_file():
-        paths.append("final-report.md")
+    paths = list(_session_protocol_files(session))
 
     paths.extend(_state_required_round_files(session))
     paths.extend(_existing_round_files(session))
@@ -149,6 +140,19 @@ def existing_protocol_files(session: Any) -> tuple[str, ...]:
 
 def expected_policies(session: Any) -> dict[str, str]:
     return {relative: descriptor.policy_for_path(relative) for relative in protocol_files(session)}
+
+
+def _session_protocol_files(session: Any) -> list[str]:
+    paths: list[str] = []
+    for relative in descriptor.required_session_files():
+        if relative == "mission.md":
+            paths.append(session.state.mission_file)
+        else:
+            paths.append(relative)
+    for relative in descriptor.optional_session_files():
+        if (session.root / relative).is_file():
+            paths.append(relative)
+    return paths
 
 
 def managed_block(text: str) -> str | None:

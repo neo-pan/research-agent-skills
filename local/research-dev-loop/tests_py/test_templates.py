@@ -67,6 +67,22 @@ class TemplateTests(unittest.TestCase):
             self.assertTrue(destination.is_file())
             self.assertIn("Reviewer:", destination.read_text(encoding="utf-8"))
 
+    def test_initialize_session_files_uses_protocol_template_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mission = root / "source-mission.md"
+            session_dir = root / "session"
+            mission.write_text("# Mission\n\nFixture.\n", encoding="utf-8")
+
+            templates.initialize_session_files(session_dir, mission)
+
+            self.assertEqual((session_dir / "mission.md").read_text(encoding="utf-8"), mission.read_text(encoding="utf-8"))
+            for name in descriptor.initialized_session_templates():
+                with self.subTest(template=name):
+                    self.assertTrue((session_dir / name).is_file())
+            self.assertFalse((session_dir / "state.json").exists())
+            self.assertFalse((session_dir / "final-report.md").exists())
+
     def test_write_prompt_writes_rendered_prompt_atomically(self):
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / "rounds" / "002" / "prompt.md"

@@ -59,26 +59,29 @@ class CliGuardStopTests(unittest.TestCase):
             self.assertEqual(store.read_json(session_dir / "state.json")["status"], "active")
             self.assertFalse((session_dir / "rounds" / "002").exists())
 
-    def test_guard_stop_json_closes_close_decision_and_records_guard_metadata(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            session_dir = close_ready_session(root, "guard_close")
+    def test_guard_stop_json_closes_close_decisions_and_records_guard_metadata(self):
+        for outcome in ("positive", "negative", "inconclusive"):
+            with self.subTest(outcome=outcome):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    session_id = f"guard_close_{outcome}"
+                    session_dir = close_ready_session(root, session_id, outcome)
 
-            code, result = run_guard_stop(root, ["guard-stop", "--guard-session-id", "guard_close", "--guard-command-id", "cmd-1", "--json"])
+                    code, result = run_guard_stop(root, ["guard-stop", "--guard-session-id", session_id, "--guard-command-id", "cmd-1", "--json"])
 
-            self.assertEqual(code, 0)
-            self.assertEqual(result["status"], "ok")
-            self.assertEqual(result["action"], "guard-stop")
-            self.assertEqual(result["phase"], "complete")
-            self.assertEqual(result["round"], 1)
-            self.assertEqual(result["next_action"], "closed-positive")
-            state = store.read_json(session_dir / "state.json")
-            self.assertEqual(state["status"], "closed-positive")
-            self.assertEqual(state["phase"], "complete")
-            self.assertEqual(state["guard_session_id"], "guard_close")
-            self.assertEqual(state["last_guard_command_id"], "cmd-1")
-            self.assertFalse((session_dir / "rounds" / "002").exists())
-            self.assertIn("## Session Closed", (session_dir / "decision-ledger.md").read_text(encoding="utf-8"))
+                    self.assertEqual(code, 0)
+                    self.assertEqual(result["status"], "ok")
+                    self.assertEqual(result["action"], "guard-stop")
+                    self.assertEqual(result["phase"], "complete")
+                    self.assertEqual(result["round"], 1)
+                    self.assertEqual(result["next_action"], f"closed-{outcome}")
+                    state = store.read_json(session_dir / "state.json")
+                    self.assertEqual(state["status"], f"closed-{outcome}")
+                    self.assertEqual(state["phase"], "complete")
+                    self.assertEqual(state["guard_session_id"], session_id)
+                    self.assertEqual(state["last_guard_command_id"], "cmd-1")
+                    self.assertFalse((session_dir / "rounds" / "002").exists())
+                    self.assertIn("## Session Closed", (session_dir / "decision-ledger.md").read_text(encoding="utf-8"))
 
     def test_guard_stop_json_advances_non_close_decision_and_records_guard_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -150,10 +153,10 @@ def run_guard_stop(root: Path, argv: list[str]) -> tuple[int, dict]:
     return code, json.loads(stdout.getvalue())
 
 
-def close_ready_session(root: Path, session_id: str) -> Path:
+def close_ready_session(root: Path, session_id: str, outcome: str = "positive") -> Path:
     session_dir = create_session(root, session_id)
-    complete_research_round(session_dir, "close-positive")
-    (session_dir / "final-report.md").write_text(complete_final_report("positive"), encoding="utf-8")
+    complete_research_round(session_dir, f"close-{outcome}")
+    (session_dir / "final-report.md").write_text(complete_final_report(outcome), encoding="utf-8")
     integrity.refresh(SessionStore(root).active_session())
     return session_dir
 
