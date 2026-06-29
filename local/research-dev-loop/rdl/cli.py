@@ -20,13 +20,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    for command in ("start", "status", "review", "decide", "abandon", "guard-stop", "repair"):
+    for command in ("start", "status", "review", "decide", "guard-stop", "repair"):
         subparser = subparsers.add_parser(
             command,
             help="reserved; use the Bash RDL CLI for full behavior",
         )
         subparser.add_argument("--json", action="store_true")
         subparser.set_defaults(command=command)
+
+    abandon = subparsers.add_parser("abandon", help="abandon the active RDL session")
+    abandon.add_argument("reason", nargs="*")
+    abandon.add_argument("--json", action="store_true")
+    abandon.set_defaults(command="abandon")
 
     next_command = subparsers.add_parser("next", help="advance the active RDL session")
     next_command.add_argument("--json", action="store_true")
@@ -76,6 +81,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "close":
         result = _close(args.outcome)
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
+    if args.command == "abandon":
+        result = _abandon(args.reason)
         _emit(result, json_output=args.json)
         if result.status == "error":
             return 1
@@ -249,6 +263,46 @@ def _close(outcome: str | None) -> CommandResult:
     return CommandResult(
         status="ok",
         action="close",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=result.phase,
+        round=result.round,
+        next_action=result.next_action,
+    )
+
+
+def _abandon(reason_parts: Sequence[str]) -> CommandResult:
+    reason = " ".join(reason_parts).strip()
+    if not reason:
+        blocker = Blocker(
+            "missing_abandon_reason",
+            "",
+            "abandon requires a non-empty reason.",
+            "rdl abandon <reason>",
+        )
+        return CommandResult(
+            status="error",
+            action="abandon",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="rdl abandon <reason>",
+        )
+
+    loaded = _active_session_result("abandon")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
+    state = session.state
+
+    result = transition.abandon(session, reason)
+    try:
+        integrity.refresh(SessionStore.cwd()._load_session(session.root))
+    except Exception as exc:
+        return _integrity_refresh_error("abandon", state, result.phase, result.round, exc)
+
+    return CommandResult(
+        status="ok",
+        action="abandon",
         session_id=state.session_id,
         mode=str(state.mode),
         phase=result.phase,
