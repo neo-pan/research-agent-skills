@@ -27,7 +27,7 @@ class ModelCliTests(unittest.TestCase):
     def test_python_cli_does_not_claim_full_command_behavior(self):
         with redirect_stderr(StringIO()):
             with self.assertRaises(SystemExit) as raised:
-                main(["review"])
+                main(["status"])
         self.assertEqual(raised.exception.code, 2)
 
 

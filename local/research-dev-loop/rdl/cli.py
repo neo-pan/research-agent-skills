@@ -7,7 +7,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import asdict
 
-from . import documents, integrity, readiness, transition
+from . import documents, integrity, readiness, templates, transition
 from .model import Blocker, CommandResult
 from .protocol import descriptor
 from .session import SessionStore
@@ -20,13 +20,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    for command in ("start", "status", "review", "decide", "repair"):
+    for command in ("start", "status", "repair"):
         subparser = subparsers.add_parser(
             command,
             help="reserved; use the Bash RDL CLI for full behavior",
         )
         subparser.add_argument("--json", action="store_true")
         subparser.set_defaults(command=command)
+
+    review = subparsers.add_parser("review", help="prepare or validate the current RDL review")
+    review.add_argument("--json", action="store_true")
+    review.set_defaults(command="review")
+
+    decide = subparsers.add_parser("decide", help="prepare or validate the current RDL decision")
+    decide.add_argument("decision_type", nargs="?")
+    decide.add_argument("--json", action="store_true")
+    decide.set_defaults(command="decide")
 
     guard_stop = subparsers.add_parser("guard-stop", help="run RDL guard stop transition")
     guard_stop.add_argument("--guard-session-id")
@@ -105,6 +114,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "guard-stop":
         result = _guard_stop(args.guard_session_id, args.guard_command_id)
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
+    if args.command == "review":
+        result = _review()
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
+    if args.command == "decide":
+        result = _decide(args.decision_type)
         _emit(result, json_output=args.json)
         if result.status == "error":
             return 1
@@ -203,6 +230,149 @@ def _next() -> CommandResult:
         phase=result.phase,
         round=result.round,
         next_action=result.next_action,
+    )
+
+
+def _review() -> CommandResult:
+    loaded = _active_session_result("review")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
+    state = session.state
+    review_file = session.round_dir() / "review.md"
+
+    if not review_file.is_file():
+        try:
+            templates.copy_template("review.md", review_file)
+        except Exception as exc:
+            return _template_write_error("review", state, str(state.phase), state.round, exc)
+        try:
+            integrity.refresh(SessionStore.cwd().load_session(session.root))
+        except Exception as exc:
+            return _integrity_refresh_error("review", state, str(state.phase), state.round, exc)
+        return CommandResult(
+            status="ok",
+            action="review",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            next_action=str(review_file),
+        )
+
+    blockers = tuple(documents.validate("review", review_file))
+    if blockers:
+        return CommandResult(
+            status="blocked",
+            action="review",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(blockers),
+            blockers=blockers,
+            next_action="complete review.md",
+        )
+
+    return CommandResult(
+        status="ok",
+        action="review",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=str(state.phase),
+        round=state.round,
+        next_action="rdl decide <decision-type>",
+    )
+
+
+def _decide(decision_type: str | None) -> CommandResult:
+    if not decision_type:
+        blocker = Blocker(
+            "missing_decision_type",
+            "",
+            "decide requires a decision type.",
+            "rdl decide continue",
+        )
+        return CommandResult(
+            status="error",
+            action="decide",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="rdl decide continue",
+        )
+    if not descriptor.value_allowed("decision-type", decision_type):
+        blocker = Blocker(
+            "invalid_decision_type",
+            "",
+            f"unsupported decision type: {decision_type}",
+            "Use a planned RDL decision type.",
+        )
+        return CommandResult(
+            status="error",
+            action="decide",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="Use a planned RDL decision type.",
+        )
+
+    loaded = _active_session_result("decide")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
+    state = session.state
+    decision_file = session.round_dir() / "decision.md"
+    expected_closes = descriptor.expected_closes(state.mode)
+
+    if not decision_file.is_file():
+        try:
+            templates.write_decision(decision_file, decision_type, expected_closes)
+        except Exception as exc:
+            return _template_write_error("decide", state, str(state.phase), state.round, exc)
+        try:
+            integrity.refresh(SessionStore.cwd().load_session(session.root))
+        except Exception as exc:
+            return _integrity_refresh_error("decide", state, str(state.phase), state.round, exc)
+        return CommandResult(
+            status="ok",
+            action="decide",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            next_action=str(decision_file),
+        )
+
+    blockers = list(documents.validate("decision", decision_file, {"expected_closes": expected_closes}))
+    if documents.field(decision_file, "Decision") != decision_type:
+        blockers.append(
+            Blocker(
+                "decision_type_mismatch",
+                f"{decision_file}#Decision",
+                "Decision does not match the requested decision type.",
+                "Run rdl decide with the recorded decision type or update decision.md.",
+            )
+        )
+    if blockers:
+        return CommandResult(
+            status="blocked",
+            action="decide",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(blockers),
+            blockers=tuple(blockers),
+            next_action="complete decision.md",
+        )
+
+    return CommandResult(
+        status="ok",
+        action="decide",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=str(state.phase),
+        round=state.round,
+        next_action="rdl next",
     )
 
 
@@ -540,6 +710,26 @@ def _integrity_refresh_error(action: str, state, phase: str, round_number: int, 
         missing=_missing_from_blockers((blocker,)),
         blockers=(blocker,),
         next_action="repair RDL session metadata",
+    )
+
+
+def _template_write_error(action: str, state, phase: str, round_number: int, exc: Exception) -> CommandResult:
+    blocker = Blocker(
+        "template_write_failed",
+        "templates",
+        f"Template write failed: {exc}",
+        "Inspect RDL templates and retry the command.",
+    )
+    return CommandResult(
+        status="error",
+        action=action,
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=phase,
+        round=round_number,
+        missing=_missing_from_blockers((blocker,)),
+        blockers=(blocker,),
+        next_action="repair RDL templates",
     )
 
 

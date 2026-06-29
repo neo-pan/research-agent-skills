@@ -106,7 +106,7 @@ class CliDoctorTests(unittest.TestCase):
     def test_non_doctor_commands_remain_unsupported(self):
         with redirect_stderr(StringIO()):
             with self.assertRaises(SystemExit) as raised:
-                main(["review"])
+                main(["status"])
         self.assertEqual(raised.exception.code, 2)
 
 

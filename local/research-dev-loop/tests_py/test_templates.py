@@ -61,6 +61,17 @@ class TemplateTests(unittest.TestCase):
             self.assertIn("# Round 2 Prompt", text)
             self.assertIn("Objective: Continue research", text)
 
+    def test_write_decision_populates_decision_type_and_closes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "rounds" / "001" / "decision.md"
+
+            templates.write_decision(destination, "continue", "claim")
+
+            text = destination.read_text(encoding="utf-8")
+            self.assertIn("Decision: continue", text)
+            self.assertIn("Closes: claim", text)
+            self.assertIn("Recommended next loop: research | build | none", text)
+
 
 if __name__ == "__main__":
     unittest.main()

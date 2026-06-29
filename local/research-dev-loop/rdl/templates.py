@@ -23,6 +23,21 @@ def copy_template(name: str, destination: str | Path) -> None:
     store.copy_file(template_path(name), destination)
 
 
+def render_decision(decision_type: str, closes: str) -> str:
+    text = store.read_text(template_path("decision.md"))
+    replacements = {
+        "Decision:": f"Decision: {decision_type}",
+        "Closes: claim | capability": f"Closes: {closes}",
+    }
+    for marker, value in replacements.items():
+        text = text.replace(marker, value, 1)
+    return text
+
+
+def write_decision(destination: str | Path, decision_type: str, closes: str) -> None:
+    store.write_text_atomic(destination, render_decision(decision_type, closes))
+
+
 def render_prompt(mode: SessionMode | str, round_number: int, objective: str, previous_decision: str) -> str:
     mode_value = mode.value if isinstance(mode, SessionMode) else str(mode)
     required_files = descriptor.completed_round_files(mode_value)
