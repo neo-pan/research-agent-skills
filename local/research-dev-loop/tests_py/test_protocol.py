@@ -81,6 +81,11 @@ class ProtocolDescriptorTests(unittest.TestCase):
         self.assertEqual(descriptor.expected_closes(SessionMode.BUILD), "capability")
         self.assertEqual(descriptor.expected_closes("unknown"), "")
 
+    def test_prompt_expected_exit_decision(self):
+        self.assertEqual(descriptor.prompt_expected_exit_decision("research"), "claim decision with evidence and uncertainty")
+        self.assertEqual(descriptor.prompt_expected_exit_decision(SessionMode.BUILD), "capability decision with verification evidence")
+        self.assertEqual(descriptor.prompt_expected_exit_decision("unknown"), "")
+
     def test_known_paths(self):
         self.assertTrue(descriptor.path_known("state.json"))
         self.assertTrue(descriptor.path_known("final-report.md"))

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import store
 from .model import SessionMode
+from .protocol import descriptor
 
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "templates"
@@ -24,13 +25,9 @@ def copy_template(name: str, destination: str | Path) -> None:
 
 def render_prompt(mode: SessionMode | str, round_number: int, objective: str, previous_decision: str) -> str:
     mode_value = mode.value if isinstance(mode, SessionMode) else str(mode)
-    if mode_value == SessionMode.RESEARCH.value:
-        required_files = "prompt.md, evidence.md, interpretation.md, review.md, decision.md"
-        expected_exit_decision = "claim decision with evidence and uncertainty"
-    elif mode_value == SessionMode.BUILD.value:
-        required_files = "prompt.md, intent.md, work.md, evidence.md, review.md, decision.md"
-        expected_exit_decision = "capability decision with verification evidence"
-    else:
+    required_files = descriptor.completed_round_files(mode_value)
+    expected_exit_decision = descriptor.prompt_expected_exit_decision(mode_value)
+    if not required_files or not expected_exit_decision:
         raise ValueError("mode must be research or build")
 
     replacements = {
@@ -38,7 +35,7 @@ def render_prompt(mode: SessionMode | str, round_number: int, objective: str, pr
         "{{ROUND}}": str(round_number),
         "{{OBJECTIVE}}": objective,
         "{{PREVIOUS_DECISION}}": previous_decision,
-        "{{REQUIRED_FILES}}": required_files,
+        "{{REQUIRED_FILES}}": ", ".join(required_files),
         "{{EXPECTED_EXIT_DECISION}}": expected_exit_decision,
     }
     text = store.read_text(template_path("prompt.md"))

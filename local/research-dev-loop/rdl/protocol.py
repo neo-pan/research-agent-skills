@@ -131,6 +131,14 @@ class ProtocolDescriptor:
             return "capability"
         return ""
 
+    def prompt_expected_exit_decision(self, mode: SessionMode | str) -> str:
+        mode_value = _mode_value(mode)
+        if mode_value == SessionMode.RESEARCH.value:
+            return "claim decision with evidence and uncertainty"
+        if mode_value == SessionMode.BUILD.value:
+            return "capability decision with verification evidence"
+        return ""
+
     def policy_for_path(self, path: str) -> IntegrityPolicy:
         if path == "state.json":
             return "cli_owned"

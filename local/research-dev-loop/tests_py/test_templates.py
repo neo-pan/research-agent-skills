@@ -4,6 +4,7 @@ from pathlib import Path
 
 from rdl import templates
 from rdl.model import SessionMode
+from rdl.protocol import descriptor
 
 
 class TemplateTests(unittest.TestCase):
@@ -20,8 +21,8 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("Mode: research", text)
         self.assertIn("Objective: Continue research session r1", text)
         self.assertIn("Previous Decision: continue; closes claim; recommended next loop build", text)
-        self.assertIn("Required Files: prompt.md, evidence.md, interpretation.md, review.md, decision.md", text)
-        self.assertIn("Expected Exit Decision: claim decision with evidence and uncertainty", text)
+        self.assertIn(f"Required Files: {', '.join(descriptor.completed_round_files(SessionMode.RESEARCH))}", text)
+        self.assertIn(f"Expected Exit Decision: {descriptor.prompt_expected_exit_decision(SessionMode.RESEARCH)}", text)
         self.assertTrue(text.endswith("\n"))
 
     def test_render_build_prompt_uses_build_required_files_and_exit_decision(self):
@@ -29,8 +30,12 @@ class TemplateTests(unittest.TestCase):
 
         self.assertIn("# Round 1 Prompt", text)
         self.assertIn("Mode: build", text)
-        self.assertIn("Required Files: prompt.md, intent.md, work.md, evidence.md, review.md, decision.md", text)
-        self.assertIn("Expected Exit Decision: capability decision with verification evidence", text)
+        self.assertIn(f"Required Files: {', '.join(descriptor.completed_round_files(SessionMode.BUILD))}", text)
+        self.assertIn(f"Expected Exit Decision: {descriptor.prompt_expected_exit_decision(SessionMode.BUILD)}", text)
+
+    def test_render_prompt_rejects_unknown_mode(self):
+        with self.assertRaises(ValueError):
+            templates.render_prompt("deploy", 1, "mission.md", "none")
 
     def test_template_path_rejects_unknown_template(self):
         with self.assertRaises(FileNotFoundError):
