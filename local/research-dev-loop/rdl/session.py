@@ -227,7 +227,8 @@ def _validate_state_values(path: Path, state: SessionState, errors: list[Blocker
         add("invalid_round", "round must be a positive number.")
     if raw_status not in {status.value for status in SessionStatus}:
         add("invalid_status", "status is unsupported.")
-    if not raw.get("mission_file", state.mission_file):
+    raw_mission_file = raw.get("mission_file", state.mission_file)
+    if not _non_empty_str(raw_mission_file):
         add("missing_mission_file_field", "mission_file is missing.")
 
 
@@ -468,14 +469,13 @@ def _expected_integrity_policies(session: Session) -> dict[str, str]:
     ]
     if (session.root / "final-report.md").is_file():
         paths.append("final-report.md")
-    for round_number in range(1, session.state.round + 1):
-        round_dir = session.round_dir(round_number)
-        if not round_dir.is_dir():
-            continue
-        for file_name in descriptor.round_file_names():
-            relative = f"rounds/{round_number:03d}/{file_name}"
-            if (session.root / relative).is_file():
-                paths.append(relative)
+    rounds_dir = session.root / "rounds"
+    if rounds_dir.is_dir():
+        for round_dir in sorted(path for path in rounds_dir.iterdir() if path.is_dir()):
+            for file_name in descriptor.round_file_names():
+                path = round_dir / file_name
+                if path.is_file():
+                    paths.append(str(path.relative_to(session.root)))
     return {relative: descriptor.policy_for_path(relative) for relative in paths if relative}
 
 

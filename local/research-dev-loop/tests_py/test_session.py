@@ -87,6 +87,19 @@ class StoreSessionTests(unittest.TestCase):
             audit = SessionStore(Path(tmp)).active_session().audit()
             self.assertIn("missing_integrity_entry", {blocker.code for blocker in audit.errors})
 
+    def test_integrity_expected_set_includes_round_files_above_state_round(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            extra_round = session_dir / "rounds" / "002"
+            extra_round.mkdir()
+            (extra_round / "prompt.md").write_text(
+                "<!-- rdl:managed policy=managed_prefix -->\n# Prompt\n\nRound: 2\n<!-- /rdl:managed -->\n",
+                encoding="utf-8",
+            )
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("missing_integrity_entry", {blocker.code for blocker in audit.errors})
+
     def test_no_active_session_is_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(SessionStore(Path(tmp)).active_session())
@@ -187,6 +200,16 @@ class StoreSessionTests(unittest.TestCase):
 
             audit = SessionStore(Path(tmp)).active_session().audit()
             self.assertIn("missing_session_id", {blocker.code for blocker in audit.errors})
+
+    def test_non_string_mission_file_is_reported_as_state_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            state = store.read_json(session_dir / "state.json")
+            state["mission_file"] = 123
+            write_json(session_dir / "state.json", state)
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("missing_mission_file_field", {blocker.code for blocker in audit.errors})
 
     def test_live_session_lock_blocks_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
