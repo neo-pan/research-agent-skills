@@ -112,7 +112,8 @@ def _validate_review_not_blocked(review_file: Path, decision: str) -> list[Block
                 "Resolve blocking review findings before advancing.",
             )
         ]
-    if decision != "close-inconclusive" and gaps and gaps.strip().lower() not in {"none", "no", "n/a", "-", "...", "tbd", "todo"}:
+    no_gap_values = {"none", "no", "no blocking gaps", "no blocking evidence gaps", "n/a", "not applicable", "-", "...", "tbd", "todo"}
+    if decision != "close-inconclusive" and gaps and gaps.strip().lower() not in no_gap_values:
         return [
             Blocker(
                 "blocked_review",
@@ -188,7 +189,7 @@ def _validate_build_verification_evidence(round_dir: Path) -> list[Blocker]:
             )
         ]
     text = store.read_text(evidence_file)
-    has_label = any(line.lower().startswith("verification evidence:") and any(ch.isalnum() for ch in line.split(":", 1)[1]) for line in text.splitlines())
+    has_label = any(line.lstrip().lower().startswith("verification evidence:") and any(ch.isalnum() for ch in line.split(":", 1)[1]) for line in text.splitlines())
     if has_label or documents.section_has_content(evidence_file, "Verification Evidence"):
         return []
     return [

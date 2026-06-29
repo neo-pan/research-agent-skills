@@ -50,6 +50,16 @@ class ReadinessTests(unittest.TestCase):
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
             self.assertIn("missing_verification_evidence", codes)
 
+    def test_build_round_accepts_indented_verification_evidence_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), session_id="b1", mode="build")
+            complete_build_round(session_dir, verification=False)
+            evidence_file = session_dir / "rounds" / "001" / "evidence.md"
+            evidence_file.write_text(evidence_file.read_text(encoding="utf-8") + "\n  Verification evidence: tests passed\n", encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+            self.assertNotIn("missing_verification_evidence", codes)
+
     def test_document_validators_are_used_for_review_and_decision(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp), mode="research")
@@ -159,6 +169,18 @@ class ReadinessTests(unittest.TestCase):
 
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
             self.assertIn("blocked_review", codes)
+
+    def test_advance_accepts_non_blocking_gap_phrases(self):
+        for phrase in ("no blocking evidence gaps", "not applicable"):
+            with self.subTest(phrase=phrase):
+                with tempfile.TemporaryDirectory() as tmp:
+                    session_dir = create_session(Path(tmp), mode="research")
+                    complete_research_round(session_dir, decision="continue")
+                    review_file = session_dir / "rounds" / "001" / "review.md"
+                    review_file.write_text(review_file.read_text(encoding="utf-8").replace("Blocking Evidence Gaps: none", f"Blocking Evidence Gaps: {phrase}"), encoding="utf-8")
+
+                    codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+                    self.assertNotIn("blocked_review", codes)
 
 
 def close_ready_session(root: Path, decision: str, outcome: str) -> Path:
