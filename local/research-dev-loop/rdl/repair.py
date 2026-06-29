@@ -173,7 +173,7 @@ def _validate_manifest_completeness(session: Session, manifest: dict[str, Any], 
     for entry in manifest["entries"]:
         relative = entry["path"]
         seen[relative] = seen.get(relative, 0) + 1
-        if not descriptor.path_known(relative):
+        if not integrity.session_path_known(session, relative):
             errors.append(
                 Blocker(
                     "unsafe_integrity_entry",
@@ -249,7 +249,7 @@ def _validate_existing_entries(session: Session, manifest: dict[str, Any], error
     active_prompt = f"rounds/{session.state.round:03d}/prompt.md"
     for entry in manifest["entries"]:
         relative = entry["path"]
-        if not descriptor.path_known(relative):
+        if not integrity.session_path_known(session, relative):
             continue
         path = session.root / relative
         if not path.is_file():

@@ -145,6 +145,23 @@ class CliRepairTests(unittest.TestCase):
             self.assertIn("missing_integrity_entry", {blocker["code"] for blocker in result["blockers"]})
             self.assertIn("mission.md", {blocker["file"] for blocker in result["blockers"]})
 
+    def test_repair_json_accepts_state_recorded_custom_mission_manifest_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "repair_custom_mission")
+            state = store.read_json(session_dir / "state.json")
+            state["mission_file"] = "custom-mission.md"
+            write_json(session_dir / "state.json", state)
+            (session_dir / "mission.md").unlink()
+            (session_dir / "custom-mission.md").write_text("# Mission\n\nCustom.\n", encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, result = run_cli(root, ["repair", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "ok")
+            self.assertNotIn("unsafe_integrity_entry", {blocker["code"] for blocker in result["blockers"]})
+
     def test_repair_json_applies_state_derived_history_lesson_for_missing_prior_round_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

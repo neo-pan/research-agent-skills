@@ -78,6 +78,34 @@ class IntegrityTests(unittest.TestCase):
                 self.assertIn(relative, files)
             self.assertIn("final-report.md", files)
 
+    def test_custom_mission_refresh_manifest_passes_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            state = store.read_json(session_dir / "state.json")
+            state["mission_file"] = "custom-mission.md"
+            store.write_json_atomic(session_dir / "state.json", state)
+            (session_dir / "mission.md").unlink()
+            (session_dir / "custom-mission.md").write_text("# Mission\n\nCustom.\n", encoding="utf-8")
+            session = SessionStore(root).active_session()
+
+            integrity.refresh(session)
+            audit = SessionStore(root).active_session().audit()
+
+            self.assertEqual(audit.errors, ())
+            manifest = store.read_json(session_dir / "integrity.json")
+            self.assertIn("custom-mission.md", {entry["path"] for entry in manifest["entries"]})
+
+    def test_state_recorded_mission_path_must_be_safe_relative_protocol_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            state = store.read_json(session_dir / "state.json")
+            state["mission_file"] = "../custom-mission.md"
+            store.write_json_atomic(session_dir / "state.json", state)
+
+            self.assertFalse(integrity.session_path_known(SessionStore(root).active_session(), "../custom-mission.md"))
+
     def test_audit_reports_missing_state_required_managed_prompt_entry_even_if_file_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

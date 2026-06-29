@@ -67,7 +67,7 @@ def validate(session: Any, errors: list[Blocker], blockers: list[Blocker]) -> No
     for entry in entries:
         relative = entry["path"]
         policy = entry["policy"]
-        if not descriptor.path_known(relative):
+        if not session_path_known(session, relative):
             if (session.root / relative).is_file():
                 errors.append(
                     Blocker(
@@ -140,6 +140,12 @@ def existing_protocol_files(session: Any) -> tuple[str, ...]:
 
 def expected_policies(session: Any) -> dict[str, str]:
     return {relative: descriptor.policy_for_path(relative) for relative in protocol_files(session)}
+
+
+def session_path_known(session: Any, relative: str) -> bool:
+    if relative == session.state.mission_file:
+        return descriptor.path_policy(relative) is not None or _safe_state_mission_path(relative)
+    return descriptor.path_known(relative)
 
 
 def _session_protocol_files(session: Any) -> list[str]:
@@ -258,6 +264,15 @@ def file_sha256(path: Path) -> str:
 
 def bytes_sha256(data: bytes) -> str:
     return _sha256(data)
+
+
+def _safe_state_mission_path(relative: str) -> bool:
+    if relative in {"", ".", ".."}:
+        return False
+    if relative.startswith("/") or relative.startswith("./") or relative.startswith("../"):
+        return False
+    parts = relative.split("/")
+    return "." not in parts and ".." not in parts
 
 
 def _validate_integrity_entry_hash(path: Path, entry: dict[str, Any], errors: list[Blocker]) -> None:
