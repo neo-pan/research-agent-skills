@@ -216,7 +216,8 @@ def _validate_state_values(path: Path, state: SessionState, errors: list[Blocker
     raw_schema = raw.get("schema_version", state.schema_version)
     if not _strict_int(raw_schema) or raw_schema != 1:
         add("unsupported_schema", "schema_version must be 1.", "Use a supported RDL session or migrate explicitly.")
-    if not raw.get("session_id", state.session_id):
+    raw_session_id = raw.get("session_id", state.session_id)
+    if not _non_empty_str(raw_session_id):
         add("missing_session_id", "session_id is missing.")
     if raw_mode not in {mode.value for mode in SessionMode}:
         add("invalid_mode", "mode must be research or build.")
@@ -264,10 +265,10 @@ def _validate_artifact_manifest(path: Path, errors: list[Blocker], blockers: lis
         if not isinstance(artifact, dict):
             blockers.append(_invalid_artifact_entry())
             continue
-        has_path_or_url = bool(artifact.get("path") or artifact.get("url"))
-        if not all(artifact.get(field) for field in ("id", "kind", "description")):
+        has_path_or_url = _optional_non_empty_str(artifact.get("path")) or _optional_non_empty_str(artifact.get("url"))
+        if not all(_non_empty_str(artifact.get(field)) for field in ("id", "kind", "description")):
             blockers.append(_invalid_artifact_entry())
-        elif not isinstance(artifact.get("round"), int) or isinstance(artifact.get("round"), bool) or not has_path_or_url:
+        elif not _strict_int(artifact.get("round")) or artifact["round"] < 1 or not has_path_or_url:
             blockers.append(_invalid_artifact_entry())
 
 
@@ -552,3 +553,13 @@ def _sha256(data: bytes) -> str:
 
 def _strict_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _non_empty_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _optional_non_empty_str(value: Any) -> bool:
+    if value is None:
+        return False
+    return _non_empty_str(value)

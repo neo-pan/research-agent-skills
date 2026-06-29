@@ -177,6 +177,17 @@ class StoreSessionTests(unittest.TestCase):
             self.assertIn("invalid_phase", codes)
             self.assertIn("invalid_status", codes)
 
+    def test_non_string_session_id_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            state = store.read_json(session_dir / "state.json")
+            state["session_id"] = 123
+            write_json(session_dir / "state.json", state)
+            refresh_integrity(session_dir)
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("missing_session_id", {blocker.code for blocker in audit.errors})
+
     def test_live_session_lock_blocks_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp))
@@ -217,6 +228,24 @@ class StoreSessionTests(unittest.TestCase):
 
             audit = SessionStore(Path(tmp)).active_session().audit()
             self.assertIn("invalid_artifact_manifest", {blocker.code for blocker in audit.blockers})
+
+    def test_artifact_entries_require_string_fields_and_positive_round(self):
+        invalid_artifacts = [
+            {"id": 123, "kind": "log", "round": 1, "description": "evidence", "path": "artifact.txt"},
+            {"id": "A-1", "kind": 123, "round": 1, "description": "evidence", "path": "artifact.txt"},
+            {"id": "A-1", "kind": "log", "round": 1, "description": 123, "path": "artifact.txt"},
+            {"id": "A-1", "kind": "log", "round": 1, "description": "evidence", "path": 123},
+            {"id": "A-1", "kind": "log", "round": 0, "description": "evidence", "path": "artifact.txt"},
+        ]
+        for artifact in invalid_artifacts:
+            with self.subTest(artifact=artifact):
+                with tempfile.TemporaryDirectory() as tmp:
+                    session_dir = create_session(Path(tmp))
+                    write_json(session_dir / "artifact-manifest.json", {"artifacts": [artifact]})
+                    refresh_integrity(session_dir)
+
+                    audit = SessionStore(Path(tmp)).active_session().audit()
+                    self.assertIn("invalid_artifact_entry", {blocker.code for blocker in audit.blockers})
 
     def test_session_state_requires_object(self):
         with self.assertRaises(ValueError):
