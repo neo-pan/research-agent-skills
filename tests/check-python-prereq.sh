@@ -24,6 +24,9 @@ awk '
     skip = 0
     next
   }
+  /^echo "RDL Python tests ok"/ {
+    exit
+  }
   !skip { print }
 ' > "${short_check}"
 chmod +x "${short_check}"
