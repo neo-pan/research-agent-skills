@@ -7,8 +7,9 @@ import json
 from collections.abc import Sequence
 from dataclasses import asdict
 
-from . import integrity, readiness, transition
+from . import documents, integrity, readiness, transition
 from .model import Blocker, CommandResult
+from .protocol import descriptor
 from .session import SessionStore
 
 
@@ -19,13 +20,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    for command in ("start", "status", "review", "decide", "next", "close", "abandon", "guard-stop", "repair"):
+    for command in ("start", "status", "review", "decide", "abandon", "guard-stop", "repair"):
         subparser = subparsers.add_parser(
             command,
             help="reserved; use the Bash RDL CLI for full behavior",
         )
         subparser.add_argument("--json", action="store_true")
         subparser.set_defaults(command=command)
+
+    next_command = subparsers.add_parser("next", help="advance the active RDL session")
+    next_command.add_argument("--json", action="store_true")
+    next_command.set_defaults(command="next")
+
+    close = subparsers.add_parser("close", help="close the active RDL session")
+    close.add_argument("outcome", nargs="?")
+    close.add_argument("--json", action="store_true")
+    close.set_defaults(command="close")
 
     doctor = subparsers.add_parser("doctor", help="inspect the active RDL session")
     doctor.add_argument("--json", action="store_true")
@@ -57,6 +67,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "next":
         result = _next()
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
+    if args.command == "close":
+        result = _close(args.outcome)
         _emit(result, json_output=args.json)
         if result.status == "error":
             return 1
@@ -145,27 +164,91 @@ def _next() -> CommandResult:
             raise ValueError("active session disappeared after transition")
         integrity.refresh(refreshed)
     except Exception as exc:
-        blocker = Blocker(
-            "integrity_refresh_failed",
-            "integrity.json",
-            f"Integrity refresh failed: {exc}",
-            "Inspect the session and run rdl repair when available.",
-        )
-        return CommandResult(
-            status="error",
-            action="next",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=result.phase,
-            round=result.round,
-            missing=_missing_from_blockers((blocker,)),
-            blockers=(blocker,),
-            next_action="repair RDL session metadata",
-        )
+        return _integrity_refresh_error("next", state, result.phase, result.round, exc)
 
     return CommandResult(
         status="ok",
         action="next",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=result.phase,
+        round=result.round,
+        next_action=result.next_action,
+    )
+
+
+def _close(outcome: str | None) -> CommandResult:
+    if not outcome:
+        blocker = Blocker(
+            "missing_close_outcome",
+            "",
+            "close requires positive, negative, or inconclusive.",
+            "rdl close positive",
+        )
+        return CommandResult(
+            status="error",
+            action="close",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="rdl close positive",
+        )
+    if not descriptor.value_allowed("close-outcome", outcome):
+        blocker = Blocker(
+            "invalid_close_outcome",
+            "",
+            f"unsupported close outcome: {outcome}",
+            "Use rdl close positive, negative, or inconclusive.",
+        )
+        return CommandResult(
+            status="error",
+            action="close",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="Use rdl close positive, negative, or inconclusive.",
+        )
+
+    loaded = _active_session_result("close")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
+    state = session.state
+    blockers = list(readiness.check(session, "advance"))
+    blockers.extend(readiness.check(session, "close", outcome=outcome))
+
+    decision_file = session.round_dir() / "decision.md"
+    expected_decision = f"close-{outcome}"
+    if decision_file.is_file() and documents.field(decision_file, "Decision") != expected_decision:
+        blockers.append(
+            Blocker(
+                "invalid_close_decision",
+                f"{decision_file}#Decision",
+                f"Close outcome requires Decision: {expected_decision}.",
+                f"Run rdl decide {expected_decision} or update decision.md.",
+            )
+        )
+
+    if blockers:
+        return CommandResult(
+            status="blocked",
+            action="close",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(blockers),
+            blockers=tuple(blockers),
+            next_action="complete close records",
+        )
+
+    result = transition.close(session, outcome)
+    try:
+        integrity.refresh(SessionStore.cwd()._load_session(session.root))
+    except Exception as exc:
+        return _integrity_refresh_error("close", state, result.phase, result.round, exc)
+
+    return CommandResult(
+        status="ok",
+        action="close",
         session_id=state.session_id,
         mode=str(state.mode),
         phase=result.phase,
@@ -235,6 +318,26 @@ def _active_session_result(action: str):
         )
 
     return session
+
+
+def _integrity_refresh_error(action: str, state, phase: str, round_number: int, exc: Exception) -> CommandResult:
+    blocker = Blocker(
+        "integrity_refresh_failed",
+        "integrity.json",
+        f"Integrity refresh failed: {exc}",
+        "Inspect the session and run rdl repair when available.",
+    )
+    return CommandResult(
+        status="error",
+        action=action,
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=phase,
+        round=round_number,
+        missing=_missing_from_blockers((blocker,)),
+        blockers=(blocker,),
+        next_action="repair RDL session metadata",
+    )
 
 
 def _emit(result: CommandResult, json_output: bool) -> None:
