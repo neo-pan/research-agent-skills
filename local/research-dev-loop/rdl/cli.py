@@ -5,14 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
 
 from . import documents, integrity, readiness, repair, templates, transition
 from .model import Blocker, CommandResult, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
-from .session import SessionStore, valid_session_id
+from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
 
 
 class RdlArgumentParser(argparse.ArgumentParser):
@@ -83,12 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    argv = list(argv) if argv is not None else None
+    argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
     except RdlParserError as exc:
-        if argv is not None and "--json" in argv:
+        if "--json" in argv:
             result = _parser_error_result(argv, str(exc))
             _emit(result, json_output=True)
             return 1
@@ -504,6 +504,11 @@ def _repair() -> CommandResult:
             next_action="restore unsafe files before repair",
         )
     if result.blockers:
+        next_action = (
+            "retry after lock clears"
+            if any(blocker.code in {"session_locked", "stale_lock"} for blocker in result.blockers)
+            else "restore unsafe files before repair"
+        )
         return CommandResult(
             status="blocked",
             action="repair",
@@ -513,7 +518,7 @@ def _repair() -> CommandResult:
             round=state.round,
             missing=_missing_from_blockers(result.blockers),
             blockers=result.blockers,
-            next_action="restore unsafe files before repair",
+            next_action=next_action,
         )
 
     repaired_session = SessionStore.cwd().load_session(session.root)
@@ -555,10 +560,10 @@ def _repair() -> CommandResult:
 
 
 def _next() -> CommandResult:
-    loaded = _active_session_result("next")
-    if isinstance(loaded, CommandResult):
-        return loaded
-    session = loaded
+    return _run_locked_session("next", _next_locked)
+
+
+def _next_locked(session: Session) -> CommandResult:
     state = session.state
 
     blockers = tuple(readiness.check(session, "advance"))
@@ -610,10 +615,10 @@ def _next() -> CommandResult:
 
 
 def _review() -> CommandResult:
-    loaded = _active_session_result("review")
-    if isinstance(loaded, CommandResult):
-        return loaded
-    session = loaded
+    return _run_locked_session("review", _review_locked)
+
+
+def _review_locked(session: Session) -> CommandResult:
     state = session.state
     review_file = session.round_dir() / "review.md"
 
@@ -691,10 +696,10 @@ def _decide(decision_type: str | None) -> CommandResult:
             next_action="Use a planned RDL decision type.",
         )
 
-    loaded = _active_session_result("decide")
-    if isinstance(loaded, CommandResult):
-        return loaded
-    session = loaded
+    return _run_locked_session("decide", lambda session: _decide_locked(session, decision_type))
+
+
+def _decide_locked(session: Session, decision_type: str) -> CommandResult:
     state = session.state
     decision_file = session.round_dir() / "decision.md"
     expected_closes = descriptor.expected_closes(state.mode)
@@ -782,10 +787,10 @@ def _close(outcome: str | None) -> CommandResult:
             next_action="Use rdl close positive, negative, or inconclusive.",
         )
 
-    loaded = _active_session_result("close")
-    if isinstance(loaded, CommandResult):
-        return loaded
-    session = loaded
+    return _run_locked_session("close", lambda session: _close_locked(session, outcome))
+
+
+def _close_locked(session: Session, outcome: str) -> CommandResult:
     state = session.state
     blockers = list(readiness.check(session, "advance"))
     blockers.extend(readiness.check(session, "close", outcome=outcome))
@@ -849,10 +854,10 @@ def _abandon(reason_parts: Sequence[str]) -> CommandResult:
             next_action="rdl abandon <reason>",
         )
 
-    loaded = _active_session_result("abandon")
-    if isinstance(loaded, CommandResult):
-        return loaded
-    session = loaded
+    return _run_locked_session("abandon", lambda session: _abandon_locked(session, reason))
+
+
+def _abandon_locked(session: Session, reason: str) -> CommandResult:
     state = session.state
 
     result = transition.abandon(session, reason)
@@ -914,6 +919,17 @@ def _guard_stop(guard_session_id: str | None, guard_command_id: str | None) -> C
             round=state.round,
             next_action="allow",
         )
+
+    return _run_locked_session(
+        "guard-stop",
+        lambda locked_session: _guard_stop_locked(locked_session, guard_session_id, guard_command_id),
+        session=session,
+        audit=False,
+    )
+
+
+def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_command_id: str | None) -> CommandResult:
+    state = session.state
 
     audit = session.audit()
     if audit.errors:
@@ -1004,6 +1020,62 @@ def _close_outcome_for_decision(decision: str) -> str:
         "close-negative": "negative",
         "close-inconclusive": "inconclusive",
     }.get(decision, "")
+
+
+def _run_locked_session(
+    action: str,
+    body: Callable[[Session], CommandResult],
+    *,
+    session: Session | None = None,
+    audit: bool = True,
+) -> CommandResult:
+    loaded = session if session is not None else _active_session_result(action, audit=False)
+    if isinstance(loaded, CommandResult):
+        return loaded
+    state = loaded.state
+    try:
+        with acquire_session_lock(loaded, action):
+            locked_session = SessionStore.cwd().load_session(loaded.root)
+            if audit:
+                audit_result = locked_session.audit()
+                state = locked_session.state
+                if audit_result.errors:
+                    return CommandResult(
+                        status="error",
+                        action=action,
+                        session_id=state.session_id,
+                        mode=str(state.mode),
+                        phase=str(state.phase),
+                        round=state.round if state.round > 0 else 0,
+                        missing=_missing_from_blockers(audit_result.errors),
+                        blockers=audit_result.errors,
+                        next_action="repair RDL session metadata",
+                    )
+                if audit_result.blockers:
+                    return CommandResult(
+                        status="blocked",
+                        action=action,
+                        session_id=state.session_id,
+                        mode=str(state.mode),
+                        phase=str(state.phase),
+                        round=state.round,
+                        missing=_missing_from_blockers(audit_result.blockers),
+                        blockers=audit_result.blockers,
+                        next_action="complete missing RDL records",
+                    )
+            return body(locked_session)
+    except SessionLockError as exc:
+        return CommandResult(
+            status="blocked",
+            action=action,
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round if state.round > 0 else 0,
+            missing=_missing_from_blockers((exc.blocker,)),
+            blockers=(exc.blocker,),
+            next_action="retry after lock clears",
+        )
 
 
 def _active_session_result(action: str, audit: bool = True):

@@ -10,7 +10,7 @@ from typing import Any
 from . import integrity, store, templates
 from .model import Blocker
 from .protocol import descriptor
-from .session import Session
+from .session import Session, SessionLockError, acquire_session_lock
 
 
 @dataclass(frozen=True)
@@ -32,16 +32,20 @@ def repair(session: Session) -> RepairResult:
     if blockers:
         return RepairResult(tuple(repaired), (), tuple(blockers))
 
-    errors, blockers = validate_scope(session)
-    if errors or blockers:
-        return RepairResult(tuple(repaired), tuple(errors), tuple(blockers))
+    try:
+        with acquire_session_lock(session, "repair"):
+            errors, blockers = validate_scope(session)
+            if errors or blockers:
+                return RepairResult(tuple(repaired), tuple(errors), tuple(blockers))
 
-    prompt_blockers = _repair_initial_prompt(session, repaired)
-    if prompt_blockers:
-        return RepairResult(tuple(repaired), (), tuple(prompt_blockers))
+            prompt_blockers = _repair_initial_prompt(session, repaired)
+            if prompt_blockers:
+                return RepairResult(tuple(repaired), (), tuple(prompt_blockers))
 
-    integrity.refresh(session)
-    repaired.append("integrity.json")
+            integrity.refresh(session)
+            repaired.append("integrity.json")
+    except SessionLockError as exc:
+        return RepairResult(tuple(repaired), (), (exc.blocker,))
     return RepairResult(tuple(repaired), (), ())
 
 

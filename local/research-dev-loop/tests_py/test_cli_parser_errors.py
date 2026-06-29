@@ -1,7 +1,9 @@
 import json
+import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+from unittest.mock import patch
 
 from rdl.cli import main
 
@@ -36,6 +38,18 @@ class CliParserErrorTests(unittest.TestCase):
 
     def test_unknown_command_with_json_returns_structured_error(self):
         code, result = run_cli(["unknown-command", "--json"])
+
+        self.assertEqual(code, 1)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["action"], "unknown-command")
+        self.assertEqual(result["blockers"][0]["code"], "unknown_command")
+
+    def test_main_none_uses_real_argv_for_json_parser_errors(self):
+        stdout = StringIO()
+        with patch.object(sys, "argv", ["rdl", "unknown-command", "--json"]):
+            with redirect_stdout(stdout), redirect_stderr(StringIO()):
+                code = main(None)
+        result = json.loads(stdout.getvalue())
 
         self.assertEqual(code, 1)
         self.assertEqual(result["status"], "error")

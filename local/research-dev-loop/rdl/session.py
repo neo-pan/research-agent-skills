@@ -107,6 +107,49 @@ class Session:
         return AuditResult(tuple(errors), tuple(blockers))
 
 
+@dataclass(frozen=True)
+class SessionLockError(Exception):
+    blocker: Blocker
+
+
+@dataclass
+class SessionLock:
+    session: Session
+    action: str
+    acquired: bool = False
+
+    @property
+    def path(self) -> Path:
+        return self.session.root / ".lock"
+
+    def __enter__(self) -> "SessionLock":
+        self.session.root.mkdir(parents=True, exist_ok=True)
+        content = f"pid={os.getpid()}\naction={self.action}\ncreated_at_utc={transition.now_utc()}\n"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        try:
+            fd = os.open(self.path, flags, 0o644)
+        except FileExistsError as exc:
+            blockers: list[Blocker] = []
+            _validate_session_lock(self.path, blockers)
+            blocker = blockers[0] if blockers else _session_locked_blocker()
+            raise SessionLockError(blocker) from exc
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        self.acquired = True
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if not self.acquired or not self.path.is_file():
+            return
+        if _lock_owner_pid(self.path) == os.getpid():
+            self.path.unlink()
+        self.acquired = False
+
+
+def acquire_session_lock(session: Session, action: str) -> SessionLock:
+    return SessionLock(session, action)
+
+
 class SessionStore:
     def __init__(self, repo_root: str | Path):
         self.repo_root = Path(repo_root)
@@ -344,14 +387,7 @@ def _validate_session_lock(path: Path, blockers: list[Blocker]) -> None:
     if pid == os.getpid():
         return
     if pid is not None and _process_alive(pid):
-        blockers.append(
-            Blocker(
-                "session_locked",
-                ".lock",
-                "RDL session is locked by another process.",
-                "Wait for the command to finish, then retry.",
-            )
-        )
+        blockers.append(_session_locked_blocker())
     else:
         blockers.append(
             Blocker(
@@ -361,6 +397,15 @@ def _validate_session_lock(path: Path, blockers: list[Blocker]) -> None:
                 "Inspect the interrupted command, then run rdl repair or remove .lock manually.",
             )
         )
+
+
+def _session_locked_blocker() -> Blocker:
+    return Blocker(
+        "session_locked",
+        ".lock",
+        "RDL session is locked by another process.",
+        "Wait for the command to finish, then retry.",
+    )
 
 
 def _lock_owner_pid(path: Path) -> int | None:
