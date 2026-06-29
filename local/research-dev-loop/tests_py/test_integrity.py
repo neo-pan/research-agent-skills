@@ -96,6 +96,21 @@ class IntegrityTests(unittest.TestCase):
                 with self.subTest(path=entry["path"]):
                     self.assertEqual(entry["policy"], descriptor.policy_for_path(entry["path"]))
 
+    def test_refresh_ignores_files_under_invalid_round_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            invalid_round = session_dir / "rounds" / "abc"
+            invalid_round.mkdir()
+            (invalid_round / "prompt.md").write_text("# Not a protocol prompt\n", encoding="utf-8")
+            session = SessionStore(root).active_session()
+
+            integrity.refresh(session)
+
+            manifest = store.read_json(session.root / "integrity.json")
+            self.assertNotIn("rounds/abc/prompt.md", {entry["path"] for entry in manifest["entries"]})
+            self.assertEqual(SessionStore(root).active_session().audit().errors, ())
+
 
 if __name__ == "__main__":
     unittest.main()

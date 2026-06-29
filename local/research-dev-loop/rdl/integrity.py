@@ -207,8 +207,9 @@ def _existing_round_files(session: Any) -> list[str]:
     for round_dir in sorted(path for path in rounds_dir.iterdir() if path.is_dir()):
         for file_name in descriptor.round_file_names():
             path = round_dir / file_name
-            if path.is_file():
-                paths.append(str(path.relative_to(session.root)))
+            relative = str(path.relative_to(session.root))
+            if path.is_file() and descriptor.path_known(relative):
+                paths.append(relative)
     return paths
 
 
