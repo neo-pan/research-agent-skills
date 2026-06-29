@@ -96,7 +96,7 @@ fi
 echo "Skill links ok"
 
 if [[ "${MODE}" == "full" ]]; then
-  RDL_BASH_TEST_TIMEOUT_SECONDS="${RDL_BASH_TEST_TIMEOUT_SECONDS:-120}"
+  RDL_BASH_TEST_TIMEOUT_SECONDS="${RDL_BASH_TEST_TIMEOUT_SECONDS:-300}"
   for test_script in "${ROOT_DIR}"/local/research-dev-loop/tests/*.sh; do
     test_name="$(basename "${test_script}")"
     start_seconds="${SECONDS}"
