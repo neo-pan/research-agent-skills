@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,8 @@ class Session:
         _validate_state_values(self.root / "state.json", self.state, errors, self.raw_state)
         if errors:
             return AuditResult(tuple(errors), tuple(blockers))
+
+        _validate_session_lock(self.root / ".lock", blockers)
 
         mission_file = self.state.mission_file
         if not (self.root / mission_file).is_file():
@@ -203,9 +206,9 @@ def _validate_state_values(path: Path, state: SessionState, errors: list[Blocker
         errors.append(Blocker(code, str(path), message, next_action))
 
     raw = raw_state if isinstance(raw_state, dict) else {}
-    raw_mode = raw.get("mode", state.mode.value if isinstance(state.mode, SessionMode) else "")
-    raw_phase = raw.get("phase", state.phase.value if isinstance(state.phase, SessionPhase) else "")
-    raw_status = raw.get("status", state.status.value if isinstance(state.status, SessionStatus) else "")
+    raw_mode = raw.get("mode") if raw_state is not None else state.mode.value
+    raw_phase = raw.get("phase") if raw_state is not None else state.phase.value
+    raw_status = raw.get("status") if raw_state is not None else state.status.value
     raw_round = raw.get("round", state.round)
 
     raw_schema = raw.get("schema_version", state.schema_version)
@@ -267,6 +270,51 @@ def _invalid_artifact_entry() -> Blocker:
         "artifact entries need id, kind, round, description, and path or url.",
         "Fix artifact entries or remove invalid artifacts.",
     )
+
+
+def _validate_session_lock(path: Path, blockers: list[Blocker]) -> None:
+    if not path.is_file():
+        return
+    pid = _lock_owner_pid(path)
+    if pid == os.getpid():
+        return
+    if pid is not None and _process_alive(pid):
+        blockers.append(
+            Blocker(
+                "session_locked",
+                ".lock",
+                "RDL session is locked by another process.",
+                "Wait for the command to finish, then retry.",
+            )
+        )
+    else:
+        blockers.append(
+            Blocker(
+                "stale_lock",
+                ".lock",
+                "RDL session lock exists but the owning process is gone.",
+                "Inspect the interrupted command, then run rdl repair or remove .lock manually.",
+            )
+        )
+
+
+def _lock_owner_pid(path: Path) -> int | None:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("pid="):
+            continue
+        value = line.removeprefix("pid=").strip()
+        if value.isdigit():
+            return int(value)
+        return None
+    return None
+
+
+def _process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 def _validate_integrity_manifest(session: Session, path: Path, errors: list[Blocker], blockers: list[Blocker]) -> None:

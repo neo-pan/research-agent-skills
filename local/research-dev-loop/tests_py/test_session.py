@@ -1,12 +1,14 @@
 import tempfile
 import unittest
+import os
+import subprocess
 from pathlib import Path
 
 from rdl import store
 from rdl.model import SessionMode, SessionPhase, SessionStatus
 from rdl.session import SessionState, SessionStore
 
-from rdl_test_support import create_session, write_json
+from rdl_test_support import create_session, refresh_integrity, write_json
 
 
 class StoreSessionTests(unittest.TestCase):
@@ -120,6 +122,43 @@ class StoreSessionTests(unittest.TestCase):
             self.assertIn("invalid_round", codes)
             self.assertIn("invalid_status", codes)
             self.assertIn("missing_mission_file_field", codes)
+
+    def test_missing_state_mode_phase_status_are_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            state = store.read_json(session_dir / "state.json")
+            del state["mode"]
+            del state["phase"]
+            del state["status"]
+            write_json(session_dir / "state.json", state)
+            refresh_integrity(session_dir)
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            codes = {blocker.code for blocker in audit.errors}
+            self.assertIn("invalid_mode", codes)
+            self.assertIn("invalid_phase", codes)
+            self.assertIn("invalid_status", codes)
+
+    def test_live_session_lock_blocks_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            process = subprocess.Popen(["sleep", "30"])
+            try:
+                (session_dir / ".lock").write_text(f"pid={process.pid}\naction=test\ncreated_at_utc=2026-06-29T00:00:00Z\n", encoding="utf-8")
+
+                audit = SessionStore(Path(tmp)).active_session().audit()
+                self.assertIn("session_locked", {blocker.code for blocker in audit.blockers})
+            finally:
+                process.terminate()
+                process.wait()
+
+    def test_stale_session_lock_blocks_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            (session_dir / ".lock").write_text("pid=99999999\naction=test\ncreated_at_utc=2026-06-29T00:00:00Z\n", encoding="utf-8")
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("stale_lock", {blocker.code for blocker in audit.blockers})
 
     def test_missing_required_files_and_round_prompt_are_blocked(self):
         with tempfile.TemporaryDirectory() as tmp:
