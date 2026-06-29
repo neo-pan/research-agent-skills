@@ -103,10 +103,10 @@ class CliDoctorTests(unittest.TestCase):
             codes = {blocker["code"] for blocker in result["blockers"]}
             self.assertIn("unresolved_blocking_open_questions", codes)
 
-    def test_remaining_reserved_commands_remain_unsupported(self):
+    def test_unknown_command_remains_unsupported(self):
         with redirect_stderr(StringIO()):
             with self.assertRaises(SystemExit) as raised:
-                main(["repair"])
+                main(["unknown-command"])
         self.assertEqual(raised.exception.code, 2)
 
 

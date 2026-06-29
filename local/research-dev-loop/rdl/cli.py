@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
-from . import documents, integrity, readiness, templates, transition
+from . import documents, integrity, readiness, repair, templates, transition
 from .model import Blocker, CommandResult, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import SessionStore, valid_session_id
@@ -21,12 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    repair = subparsers.add_parser(
-        "repair",
-        help="reserved; use the Bash RDL CLI for full behavior",
-    )
-    repair.add_argument("--json", action="store_true")
-    repair.set_defaults(command="repair")
+    repair_command = subparsers.add_parser("repair", help="repair safe RDL session metadata")
+    repair_command.add_argument("--json", action="store_true")
+    repair_command.set_defaults(command="repair")
 
     start = subparsers.add_parser("start", help="start a new RDL session")
     start.add_argument("mode", nargs="?")
@@ -107,6 +104,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "status":
         result = _status()
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
+    if args.command == "repair":
+        result = _repair()
         _emit(result, json_output=args.json)
         if result.status == "error":
             return 1
@@ -411,6 +417,77 @@ def _doctor() -> CommandResult:
         phase=str(state.phase),
         round=state.round,
         next_action="rdl review",
+    )
+
+
+def _repair() -> CommandResult:
+    loaded = _active_session_result("repair", audit=False)
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
+    state = session.state
+
+    result = repair.repair(session)
+    if result.errors:
+        return CommandResult(
+            status="error",
+            action="repair",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(result.errors),
+            blockers=result.errors,
+            next_action="restore unsafe files before repair",
+        )
+    if result.blockers:
+        return CommandResult(
+            status="blocked",
+            action="repair",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(result.blockers),
+            blockers=result.blockers,
+            next_action="restore unsafe files before repair",
+        )
+
+    repaired_session = SessionStore.cwd().load_session(session.root)
+    audit = repaired_session.audit()
+    if audit.errors:
+        return CommandResult(
+            status="error",
+            action="repair",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(audit.errors),
+            blockers=audit.errors,
+            next_action="inspect repaired session",
+        )
+    if audit.blockers:
+        return CommandResult(
+            status="blocked",
+            action="repair",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(audit.blockers),
+            blockers=audit.blockers,
+            next_action="inspect repaired session",
+        )
+
+    return CommandResult(
+        status="ok",
+        action="repair",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=str(state.phase),
+        round=state.round,
+        next_action=",".join(result.repaired),
     )
 
 
@@ -866,7 +943,7 @@ def _close_outcome_for_decision(decision: str) -> str:
     }.get(decision, "")
 
 
-def _active_session_result(action: str):
+def _active_session_result(action: str, audit: bool = True):
     try:
         session = SessionStore.cwd().active_session()
     except ValueError:
@@ -898,6 +975,9 @@ def _active_session_result(action: str):
             ),
             next_action="rdl start research <mission.md>",
         )
+
+    if not audit:
+        return session
 
     audit = session.audit()
     state = session.state

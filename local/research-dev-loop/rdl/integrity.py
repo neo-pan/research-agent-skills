@@ -244,6 +244,18 @@ def _integrity_shape_valid(data: Any) -> bool:
     return True
 
 
+def manifest_shape_valid(data: Any) -> bool:
+    return _integrity_shape_valid(data)
+
+
+def file_sha256(path: Path) -> str:
+    return _sha256(path.read_bytes())
+
+
+def bytes_sha256(data: bytes) -> str:
+    return _sha256(data)
+
+
 def _validate_integrity_entry_hash(path: Path, entry: dict[str, Any], errors: list[Blocker]) -> None:
     policy = entry["policy"]
     relative = entry["path"]
