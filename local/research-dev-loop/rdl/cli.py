@@ -20,13 +20,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    for command in ("start", "status", "review", "decide", "guard-stop", "repair"):
+    for command in ("start", "status", "review", "decide", "repair"):
         subparser = subparsers.add_parser(
             command,
             help="reserved; use the Bash RDL CLI for full behavior",
         )
         subparser.add_argument("--json", action="store_true")
         subparser.set_defaults(command=command)
+
+    guard_stop = subparsers.add_parser("guard-stop", help="run RDL guard stop transition")
+    guard_stop.add_argument("--guard-session-id")
+    guard_stop.add_argument("--guard-command-id")
+    guard_stop.add_argument("--json", action="store_true")
+    guard_stop.set_defaults(command="guard-stop")
 
     abandon = subparsers.add_parser("abandon", help="abandon the active RDL session")
     abandon.add_argument("reason", nargs="*")
@@ -90,6 +96,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "abandon":
         result = _abandon(args.reason)
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
+    if args.command == "guard-stop":
+        result = _guard_stop(args.guard_session_id, args.guard_command_id)
         _emit(result, json_output=args.json)
         if result.status == "error":
             return 1
@@ -256,7 +271,7 @@ def _close(outcome: str | None) -> CommandResult:
 
     result = transition.close(session, outcome)
     try:
-        integrity.refresh(SessionStore.cwd()._load_session(session.root))
+        integrity.refresh(SessionStore.cwd().load_session(session.root))
     except Exception as exc:
         return _integrity_refresh_error("close", state, result.phase, result.round, exc)
 
@@ -296,7 +311,7 @@ def _abandon(reason_parts: Sequence[str]) -> CommandResult:
 
     result = transition.abandon(session, reason)
     try:
-        integrity.refresh(SessionStore.cwd()._load_session(session.root))
+        integrity.refresh(SessionStore.cwd().load_session(session.root))
     except Exception as exc:
         return _integrity_refresh_error("abandon", state, result.phase, result.round, exc)
 
@@ -309,6 +324,140 @@ def _abandon(reason_parts: Sequence[str]) -> CommandResult:
         round=result.round,
         next_action=result.next_action,
     )
+
+
+def _guard_stop(guard_session_id: str | None, guard_command_id: str | None) -> CommandResult:
+    try:
+        session = SessionStore.cwd().active_session()
+    except ValueError:
+        return CommandResult(
+            status="error",
+            action="guard-stop",
+            blockers=(
+                Blocker(
+                    "multiple_active_sessions",
+                    ".rdl/sessions",
+                    "Multiple active RDL sessions exist.",
+                    "Close or abandon all but one active session.",
+                ),
+            ),
+            next_action="repair RDL session metadata",
+        )
+
+    if session is None:
+        return CommandResult(status="ok", action="guard-stop", next_action="allow")
+
+    state = session.state
+    if guard_session_id and guard_session_id != state.session_id:
+        return CommandResult(
+            status="ok",
+            action="guard-stop",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            next_action="allow",
+        )
+    if guard_command_id and guard_command_id == state.last_guard_command_id:
+        return CommandResult(
+            status="ok",
+            action="guard-stop",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            next_action="allow",
+        )
+
+    audit = session.audit()
+    if audit.errors:
+        return CommandResult(
+            status="error",
+            action="guard-stop",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round if state.round > 0 else 0,
+            missing=_missing_from_blockers(audit.errors),
+            blockers=audit.errors,
+            next_action="block",
+        )
+    if audit.blockers:
+        return CommandResult(
+            status="blocked",
+            action="guard-stop",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(audit.blockers),
+            blockers=audit.blockers,
+            next_action="block",
+        )
+
+    blockers = _guard_stop_readiness(session)
+    if blockers:
+        return CommandResult(
+            status="blocked",
+            action="guard-stop",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers(blockers),
+            blockers=tuple(blockers),
+            next_action="block",
+        )
+
+    try:
+        result = transition.from_decision(session)
+    except transition.TransitionBlocked as exc:
+        return CommandResult(
+            status="blocked",
+            action="guard-stop",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers((exc.blocker,)),
+            blockers=(exc.blocker,),
+            next_action="block",
+        )
+
+    if (guard_session_id and guard_session_id != state.guard_session_id) or (guard_command_id and guard_command_id != state.last_guard_command_id):
+        transition.mark_guard_seen(SessionStore.cwd().load_session(session.root), guard_session_id, guard_command_id)
+
+    try:
+        integrity.refresh(SessionStore.cwd().load_session(session.root))
+    except Exception as exc:
+        return _integrity_refresh_error("guard-stop", state, result.phase, result.round, exc)
+
+    return CommandResult(
+        status="ok",
+        action="guard-stop",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=result.phase,
+        round=result.round,
+        next_action=result.next_action,
+    )
+
+
+def _guard_stop_readiness(session) -> list[Blocker]:
+    blockers = list(readiness.check(session, "guard-stop-advance"))
+    decision = documents.field(session.round_dir() / "decision.md", "Decision")
+    outcome = _close_outcome_for_decision(decision)
+    if outcome:
+        blockers.extend(readiness.check(session, "guard-stop-close", outcome=outcome))
+    return blockers
+
+
+def _close_outcome_for_decision(decision: str) -> str:
+    return {
+        "close-positive": "positive",
+        "close-negative": "negative",
+        "close-inconclusive": "inconclusive",
+    }.get(decision, "")
 
 
 def _active_session_result(action: str):

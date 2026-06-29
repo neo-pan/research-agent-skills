@@ -131,6 +131,9 @@ class SessionStore:
             return active[0]
         return fallback_error
 
+    def load_session(self, session_dir: str | Path) -> Session:
+        return self._load_session(Path(session_dir))
+
     def _sessions(self) -> list[Path]:
         if not self.sessions_root.is_dir():
             return []
