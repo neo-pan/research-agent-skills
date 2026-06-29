@@ -16,7 +16,15 @@ assert_file() {
 assert_contains() {
   local file="$1"
   local pattern="$2"
-  grep -q "${pattern}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+  local relaxed
+  local compact_colon
+  relaxed="$(json_pattern "${pattern}")"
+  compact_colon="${pattern//\": /\":}"
+  grep -q "${pattern}" "${file}" || grep -q "${relaxed}" "${file}" || grep -q "${compact_colon}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+}
+
+json_pattern() {
+  printf '%s' "$1" | sed -e 's#": "#": *"#g'
 }
 
 for template in \
@@ -64,9 +72,9 @@ assert_contains ".rdl/sessions/r1/state.json" '"mode": "research"'
 assert_contains ".rdl/sessions/r1/state.json" '"guard_session_id": null'
 assert_contains ".rdl/sessions/r1/state.json" '"last_guard_command_id": null'
 assert_contains ".rdl/sessions/r1/integrity.json" '"entries": \['
-assert_contains ".rdl/sessions/r1/integrity.json" '"path":"state.json"'
-assert_contains ".rdl/sessions/r1/integrity.json" '"policy":"cli_owned"'
-assert_contains ".rdl/sessions/r1/integrity.json" '"sha256":"[0-9a-f]\{64\}"'
+assert_contains ".rdl/sessions/r1/integrity.json" '"path": "state.json"'
+assert_contains ".rdl/sessions/r1/integrity.json" '"policy": "cli_owned"'
+assert_contains ".rdl/sessions/r1/integrity.json" '"sha256": "[0-9a-f]\{64\}"'
 
 if "${RDL}" start research mission.md --session-id r2 > second-start.json; then
   fail "second active session unexpectedly succeeded"

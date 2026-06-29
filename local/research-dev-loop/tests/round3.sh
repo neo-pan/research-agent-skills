@@ -13,7 +13,15 @@ fail() {
 assert_file_contains() {
   local file="$1"
   local pattern="$2"
-  grep -q "${pattern}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+  local relaxed
+  local compact_colon
+  relaxed="$(json_pattern "${pattern}")"
+  compact_colon="${pattern//\": /\":}"
+  grep -q "${pattern}" "${file}" || grep -q "${relaxed}" "${file}" || grep -q "${compact_colon}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+}
+
+json_pattern() {
+  printf '%s' "$1" | sed -e 's#": "#": *"#g'
 }
 
 assert_fails() {
@@ -26,7 +34,8 @@ assert_fails() {
 
 complete_review() {
   local file="$1"
-  rdl_write_complete_review "${file}" close PASS "close decision"
+  local decision="${2:-close-positive}"
+  rdl_write_complete_review "${file}" "${decision}" PASS "close decision"
 }
 
 complete_decision() {
@@ -154,14 +163,14 @@ MISSION
   cd "${repo}"
   "${RDL}" start research mission.md --session-id "${session_id}" > /dev/null
   "${RDL}" review > /dev/null
-  complete_review ".rdl/sessions/${session_id}/rounds/001/review.md"
+  complete_review ".rdl/sessions/${session_id}/rounds/001/review.md" continue
   "${RDL}" decide continue > /dev/null
   complete_decision ".rdl/sessions/${session_id}/rounds/001/decision.md" continue claim
   complete_research_records ".rdl/sessions/${session_id}/rounds/001"
   complete_manifest ".rdl/sessions/${session_id}/artifact-manifest.json"
   "${RDL}" next > /dev/null
   "${RDL}" review > /dev/null
-  complete_review ".rdl/sessions/${session_id}/rounds/002/review.md"
+  complete_review ".rdl/sessions/${session_id}/rounds/002/review.md" "close-${outcome}"
   "${RDL}" decide "close-${outcome}" > /dev/null
   complete_decision ".rdl/sessions/${session_id}/rounds/002/decision.md" "close-${outcome}" claim
   complete_research_records ".rdl/sessions/${session_id}/rounds/002"
@@ -184,7 +193,7 @@ MISSION
   cd "${repo}"
   "${RDL}" start research mission.md --session-id "close_${outcome}" > /dev/null
   "${RDL}" review > /dev/null
-  complete_review ".rdl/sessions/close_${outcome}/rounds/001/review.md"
+  complete_review ".rdl/sessions/close_${outcome}/rounds/001/review.md" "close-${outcome}"
   "${RDL}" decide "close-${outcome}" > /dev/null
   complete_decision ".rdl/sessions/close_${outcome}/rounds/001/decision.md" "close-${outcome}" claim
   complete_research_records ".rdl/sessions/close_${outcome}/rounds/001"
@@ -257,6 +266,7 @@ complete_decision .rdl/sessions/close_open_question/rounds/001/decision.md close
 assert_fails close-open-question-outcome-mismatch.json "${RDL}" close inconclusive
 assert_file_contains close-open-question-outcome-mismatch.json '"status": "blocked"'
 assert_file_contains close-open-question-outcome-mismatch.json '"code":"close_outcome_mismatch"'
+complete_review .rdl/sessions/close_open_question/rounds/001/review.md close-inconclusive
 complete_final_report .rdl/sessions/close_open_question/final-report.md inconclusive "fixture claim"
 "${RDL}" close inconclusive > close-open-question-inconclusive.json
 assert_file_contains close-open-question-inconclusive.json '"status": "ok"'

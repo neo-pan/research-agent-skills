@@ -45,6 +45,37 @@ class ProtocolDescriptorTests(unittest.TestCase):
         self.assertIn("Recommended Decision", descriptor.required_fields("review"))
         self.assertIn("Next smallest step", descriptor.required_fields("decision"))
         self.assertEqual(
+            descriptor.required_fields("review"),
+            (
+                "Reviewer",
+                "Review Mode",
+                "Review Scope",
+                "Artifacts Reviewed",
+                "Verdict",
+                "Decision Reviewed",
+                "Evidence Reviewed",
+                "Blocking Evidence Gaps",
+                "Implementation Findings",
+                "Evaluation Integrity Findings",
+                "Overclaim Risks",
+                "Readiness Level",
+                "Recommended Decision",
+            ),
+        )
+        self.assertEqual(
+            descriptor.required_fields("decision"),
+            (
+                "Decision",
+                "Closes",
+                "Evidence",
+                "Uncertainty",
+                "What this rules out",
+                "What remains unknown",
+                "Recommended next loop",
+                "Next smallest step",
+            ),
+        )
+        self.assertEqual(
             descriptor.required_sections("progress"),
             ("Active", "Completed", "Blocked", "Deferred", "Open Questions"),
         )

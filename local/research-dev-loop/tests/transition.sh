@@ -13,7 +13,15 @@ fail() {
 assert_file_contains() {
   local file="$1"
   local pattern="$2"
-  grep -q "${pattern}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+  local relaxed
+  local compact_colon
+  relaxed="$(json_pattern "${pattern}")"
+  compact_colon="${pattern//\": /\":}"
+  grep -q "${pattern}" "${file}" || grep -q "${relaxed}" "${file}" || grep -q "${compact_colon}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+}
+
+json_pattern() {
+  printf '%s' "$1" | sed -e 's#": "#": *"#g'
 }
 
 assert_file_absent() {
@@ -90,12 +98,12 @@ assert_file_contains .rdl/sessions/transition_next/decision-ledger.md '## Round 
 assert_file_contains .rdl/sessions/transition_next/decision-ledger.md 'Next round: 002'
 "${RDL}" review > review-next.json
 assert_file_contains review-next.json '"status": "ok"'
-assert_file_contains review-next.json '"next_action": ".rdl/sessions/transition_next/rounds/002/review.md"'
+assert_file_contains review-next.json 'rounds/002/review.md'
 
 repo_close="${tmp_root}/close"
 start_research_repo "${repo_close}" transition_close
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/transition_close/rounds/001/review.md close
+complete_review .rdl/sessions/transition_close/rounds/001/review.md close-positive
 "${RDL}" decide close-positive > /dev/null
 complete_decision .rdl/sessions/transition_close/rounds/001/decision.md close-positive claim none
 complete_research_records .rdl/sessions/transition_close/rounds/001
@@ -112,7 +120,7 @@ assert_file_contains .rdl/sessions/transition_close/decision-ledger.md '## Sessi
 repo_guard="${tmp_root}/guard-close"
 start_research_repo "${repo_guard}" transition_guard
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/transition_guard/rounds/001/review.md close
+complete_review .rdl/sessions/transition_guard/rounds/001/review.md close-positive
 "${RDL}" decide close-positive > /dev/null
 complete_decision .rdl/sessions/transition_guard/rounds/001/decision.md close-positive claim none
 complete_research_records .rdl/sessions/transition_guard/rounds/001

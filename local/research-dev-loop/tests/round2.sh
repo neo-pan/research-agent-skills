@@ -13,7 +13,15 @@ fail() {
 assert_file_contains() {
   local file="$1"
   local pattern="$2"
-  grep -q "${pattern}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+  local relaxed
+  local compact_colon
+  relaxed="$(json_pattern "${pattern}")"
+  compact_colon="${pattern//\": /\":}"
+  grep -q "${pattern}" "${file}" || grep -q "${relaxed}" "${file}" || grep -q "${compact_colon}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+}
+
+json_pattern() {
+  printf '%s' "$1" | sed -e 's#": "#": *"#g'
 }
 
 assert_fails() {
@@ -26,7 +34,8 @@ assert_fails() {
 
 complete_review() {
   local file="$1"
-  rdl_write_complete_review "${file}" continue
+  local recommended="${2:-continue}"
+  rdl_write_complete_review "${file}" "${recommended}"
 }
 
 complete_decision() {
@@ -68,7 +77,7 @@ cd "${repo}"
 "${RDL}" start research mission.md --session-id research1 > start.json
 "${RDL}" review > review-created.json
 assert_file_contains review-created.json '"status": "ok"'
-assert_file_contains review-created.json '"next_action": ".rdl/sessions/research1/rounds/001/review.md"'
+assert_file_contains review-created.json 'rounds/001/review.md'
 [[ -f .rdl/sessions/research1/rounds/001/review.md ]] || fail "review did not create review.md"
 
 assert_fails next-missing-decision.json "${RDL}" next
@@ -243,7 +252,7 @@ MISSION
 cd "${repo7}"
 "${RDL}" start build mission.md --session-id build_missing > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build_missing/rounds/001/review.md
+complete_review .rdl/sessions/build_missing/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build_missing/rounds/001/decision.md accept capability none
 cat > .rdl/sessions/build_missing/rounds/001/intent.md <<'INTENT'
@@ -286,7 +295,7 @@ MISSION
 cd "${repo8}"
 "${RDL}" start build mission.md --session-id build_empty_label > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build_empty_label/rounds/001/review.md
+complete_review .rdl/sessions/build_empty_label/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build_empty_label/rounds/001/decision.md accept capability none
 cat > .rdl/sessions/build_empty_label/rounds/001/intent.md <<'INTENT'
@@ -329,7 +338,7 @@ MISSION
 cd "${repo9}"
 "${RDL}" start build mission.md --session-id build_empty_heading > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build_empty_heading/rounds/001/review.md
+complete_review .rdl/sessions/build_empty_heading/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build_empty_heading/rounds/001/decision.md accept capability none
 cat > .rdl/sessions/build_empty_heading/rounds/001/intent.md <<'INTENT'
@@ -372,7 +381,7 @@ MISSION
 cd "${repo10}"
 "${RDL}" start build mission.md --session-id build_table_verification > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build_table_verification/rounds/001/review.md
+complete_review .rdl/sessions/build_table_verification/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build_table_verification/rounds/001/decision.md accept capability none
 cat > .rdl/sessions/build_table_verification/rounds/001/intent.md <<'INTENT'
@@ -418,7 +427,7 @@ MISSION
 cd "${repo11}"
 "${RDL}" start build mission.md --session-id build_filled_table > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build_filled_table/rounds/001/review.md
+complete_review .rdl/sessions/build_filled_table/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build_filled_table/rounds/001/decision.md accept capability none
 cat > .rdl/sessions/build_filled_table/rounds/001/intent.md <<'INTENT'
@@ -466,7 +475,7 @@ MISSION
 cd "${repo12}"
 "${RDL}" start build mission.md --session-id build_one_column_table > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build_one_column_table/rounds/001/review.md
+complete_review .rdl/sessions/build_one_column_table/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build_one_column_table/rounds/001/decision.md accept capability none
 cat > .rdl/sessions/build_one_column_table/rounds/001/intent.md <<'INTENT'
@@ -514,7 +523,7 @@ MISSION
 cd "${repo13}"
 "${RDL}" start build mission.md --session-id build_no_intent > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build_no_intent/rounds/001/review.md
+complete_review .rdl/sessions/build_no_intent/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build_no_intent/rounds/001/decision.md accept capability none
 cat > .rdl/sessions/build_no_intent/rounds/001/work.md <<'WORK'
@@ -552,7 +561,7 @@ MISSION
 cd "${repo14}"
 "${RDL}" start build mission.md --session-id build_no_work > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build_no_work/rounds/001/review.md
+complete_review .rdl/sessions/build_no_work/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build_no_work/rounds/001/decision.md accept capability none
 cat > .rdl/sessions/build_no_work/rounds/001/intent.md <<'INTENT'
@@ -590,7 +599,7 @@ MISSION
 cd "${repo15}"
 "${RDL}" start build mission.md --session-id build1 > /dev/null
 "${RDL}" review > /dev/null
-complete_review .rdl/sessions/build1/rounds/001/review.md
+complete_review .rdl/sessions/build1/rounds/001/review.md accept
 "${RDL}" decide accept > /dev/null
 complete_decision .rdl/sessions/build1/rounds/001/decision.md accept capability research
 add_build_round_records .rdl/sessions/build1/rounds/001

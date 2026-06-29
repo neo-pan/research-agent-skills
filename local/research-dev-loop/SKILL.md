@@ -15,7 +15,7 @@ state, experiment queues, benchmark runners, or deployment state.
 
 ## CLI
 
-Run the local script from a project repository:
+Run the local wrapper from a project repository:
 
 ```bash
 local/research-dev-loop/scripts/rdl.sh start research mission.md
@@ -25,10 +25,9 @@ local/research-dev-loop/scripts/rdl.sh status
 
 ## Requirements
 
-The CLI requires Bash, standard POSIX-style shell tools, a SHA-256 command
-(`sha256sum` or `shasum`), and a real JSON parser (`jq` or `python3`). RDL
-returns `missing_json_tool` instead of validating JSON with text matching when
-neither `jq` nor `python3` is available.
+The wrapper requires Bash and `python3`. It dispatches to the Python RDL
+implementation under `local/research-dev-loop/rdl/`; set `RDL_PYTHON_BIN` to
+use a different Python executable.
 
 The manual profile should remain usable without hooks. Guarded operation, when
 implemented, should call `rdl guard-stop` as thin transport and keep all RDL
@@ -43,9 +42,9 @@ skipping the legacy Bash CLI compatibility suite under
 `local/research-dev-loop/tests/*.sh`.
 
 Use `./scripts/check.sh` or `./scripts/check.sh --full` before committing,
-before removing Bash behavior, or when checking parity against the existing
-`scripts/rdl.sh` implementation. Full mode retains the Bash compatibility suite
-with per-test timeouts.
+before removing legacy Bash implementation files, or when checking public CLI
+compatibility through `scripts/rdl.sh`. Full mode retains the shell compatibility
+suite with per-test timeouts.
 
 ## Principles
 

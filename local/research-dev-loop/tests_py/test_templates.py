@@ -41,6 +41,23 @@ class TemplateTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             templates.template_path("missing-template.md")
 
+    def test_markdown_templates_expose_required_protocol_shape(self):
+        checks = (
+            ("review.md", "review", "fields"),
+            ("decision.md", "decision", "fields"),
+            ("final-report.md", "final-report", "sections"),
+            ("progress.md", "progress", "sections"),
+        )
+        for template_name, kind, shape in checks:
+            with self.subTest(template=template_name):
+                text = templates.template_path(template_name).read_text(encoding="utf-8")
+                if shape == "fields":
+                    for field in descriptor.required_fields(kind):
+                        self.assertIn(f"{field}:", text)
+                else:
+                    for section in descriptor.required_sections(kind):
+                        self.assertIn(f"## {section}\n", text)
+
     def test_copy_template_writes_destination_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / "rounds" / "001" / "review.md"

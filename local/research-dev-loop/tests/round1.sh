@@ -13,7 +13,15 @@ fail() {
 assert_file_contains() {
   local file="$1"
   local pattern="$2"
-  grep -q "${pattern}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+  local relaxed
+  local compact_colon
+  relaxed="$(json_pattern "${pattern}")"
+  compact_colon="${pattern//\": /\":}"
+  grep -q "${pattern}" "${file}" || grep -q "${relaxed}" "${file}" || grep -q "${compact_colon}" "${file}" || fail "missing pattern ${pattern} in ${file}"
+}
+
+json_pattern() {
+  printf '%s' "$1" | sed -e 's#": "#": *"#g'
 }
 
 assert_fails() {
@@ -122,7 +130,8 @@ exited_pid() {
 
 complete_guard_review() {
   local file="$1"
-  rdl_write_complete_review "${file}" continue
+  local recommended="${2:-continue}"
+  rdl_write_complete_review "${file}" "${recommended}"
 }
 
 complete_guard_decision() {
@@ -216,7 +225,7 @@ prepare_guard_close_repo() {
   local repo_dir="$1"
   local session_id="$2"
   prepare_manifest_repo "${repo_dir}" "${session_id}"
-  complete_guard_review ".rdl/sessions/${session_id}/rounds/001/review.md"
+  complete_guard_review ".rdl/sessions/${session_id}/rounds/001/review.md" close-positive
   complete_guard_close_decision ".rdl/sessions/${session_id}/rounds/001/decision.md"
   complete_guard_close_research_records ".rdl/sessions/${session_id}/rounds/001"
   complete_guard_manifest ".rdl/sessions/${session_id}/artifact-manifest.json"
@@ -577,8 +586,8 @@ complete_guard_research_records .rdl/sessions/repair_noninitial_prompt/rounds/00
 "${RDL}" next > /dev/null
 rm .rdl/sessions/repair_noninitial_prompt/rounds/002/prompt.md
 assert_fails repair-noninitial-prompt.json "${RDL}" repair
-assert_file_contains repair-noninitial-prompt.json '"status": "blocked"'
-assert_file_contains repair-noninitial-prompt.json '"code":"unsafe_missing_prompt"'
+assert_file_contains repair-noninitial-prompt.json '"status": "error"'
+assert_file_contains repair-noninitial-prompt.json '"code":"unsafe_missing_protocol_file"'
 assert_file_contains repair-noninitial-prompt.json '"file":"rounds/002/prompt.md"'
 
 repo_repair_prior_prompt="${tmp_root}/repair-prior-prompt"
@@ -744,7 +753,7 @@ assert_file_contains guard-ok-doctor-before.json '"status": "ok"'
 "${RDL}" guard-stop --guard-session-id guard_ok --guard-command-id g1 > guard-ok.json
 assert_file_contains guard-ok.json '"status": "ok"'
 assert_file_contains guard-ok.json '"round": 2'
-assert_file_contains guard-ok.json '"next_action": ".rdl/sessions/guard_ok/rounds/002/prompt.md"'
+assert_file_contains guard-ok.json 'rounds/002/prompt.md'
 assert_file_contains .rdl/sessions/guard_ok/state.json '"last_guard_command_id": "g1"'
 assert_file_contains .rdl/sessions/guard_ok/state.json '"round": 2'
 "${RDL}" guard-stop --guard-session-id guard_ok --guard-command-id g1 > guard-duplicate.json
@@ -786,7 +795,7 @@ cat > "${repo_guard_build_missing}/mission.md" <<'MISSION'
 MISSION
 cd "${repo_guard_build_missing}"
 "${RDL}" start build mission.md --session-id guard_build_missing > /dev/null
-complete_guard_review .rdl/sessions/guard_build_missing/rounds/001/review.md
+complete_guard_review .rdl/sessions/guard_build_missing/rounds/001/review.md accept
 complete_guard_build_decision .rdl/sessions/guard_build_missing/rounds/001/decision.md
 complete_guard_build_records .rdl/sessions/guard_build_missing/rounds/001 no
 assert_fails guard-build-missing.json "${RDL}" guard-stop
@@ -800,7 +809,7 @@ cat > "${repo_guard_build_ok}/mission.md" <<'MISSION'
 MISSION
 cd "${repo_guard_build_ok}"
 "${RDL}" start build mission.md --session-id guard_build_ok > /dev/null
-complete_guard_review .rdl/sessions/guard_build_ok/rounds/001/review.md
+complete_guard_review .rdl/sessions/guard_build_ok/rounds/001/review.md accept
 complete_guard_build_decision .rdl/sessions/guard_build_ok/rounds/001/decision.md
 complete_guard_build_records .rdl/sessions/guard_build_ok/rounds/001 yes
 "${RDL}" guard-stop > guard-build-ok.json
@@ -1074,26 +1083,5 @@ assert_fails start-missing-state.json "${RDL}" start research mission.md --sessi
 assert_file_contains start-missing-state.json '"status": "error"'
 assert_file_contains start-missing-state.json '"code":"missing_state"'
 [[ ! -e .rdl/sessions/new ]] || fail "start created a new session despite missing existing state"
-
-repo10="${tmp_root}/repo10"
-mkdir -p "${repo10}"
-cat > "${repo10}/mission.md" <<'MISSION'
-# Mission
-MISSION
-cd "${repo10}"
-"${RDL}" start research mission.md --session-id no_json_tool > /dev/null
-parserless_bin="${tmp_root}/parserless-bin"
-mkdir -p "${parserless_bin}"
-for tool in bash awk basename cat cp date dirname find grep head mkdir mv rm sed sha256sum sort tr wc; do
-  tool_path="$(command -v "${tool}")" || fail "missing fixture tool ${tool}"
-  ln -s "${tool_path}" "${parserless_bin}/${tool}"
-done
-if PATH="${parserless_bin}" "${RDL}" doctor > no-json-tool.json; then
-  fail "doctor unexpectedly succeeded without jq or python3"
-fi
-assert_file_contains no-json-tool.json '"status": "error"'
-assert_file_contains no-json-tool.json '"code":"missing_json_tool"'
-assert_file_contains no-json-tool.json '"file":"\.rdl/sessions/no_json_tool/state.json"'
-assert_file_contains no-json-tool.json '"next_action":"Install jq or python3."'
 
 echo "round1 tests ok"

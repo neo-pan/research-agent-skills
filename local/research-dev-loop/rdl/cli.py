@@ -1186,7 +1186,7 @@ def _template_write_error(action: str, state, phase: str, round_number: int, exc
 
 def _emit(result: CommandResult, json_output: bool) -> None:
     if json_output:
-        print(json.dumps(_result_dict(result), sort_keys=True))
+        print(json.dumps(_result_dict(result), sort_keys=True, separators=(",", ":")))
         return
     if result.status == "ok":
         print(f"ok: {result.action} {result.next_action}")
