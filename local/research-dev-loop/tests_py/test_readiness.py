@@ -91,6 +91,15 @@ class ReadinessTests(unittest.TestCase):
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
             self.assertNotIn("unresolved_blocking_open_questions", codes)
 
+    def test_advance_allows_review_blocking_evidence_gaps_for_close_inconclusive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = close_ready_session(Path(tmp), "close-inconclusive", "inconclusive")
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(review_file.read_text(encoding="utf-8").replace("Blocking Evidence Gaps: none", "Blocking Evidence Gaps: unresolved blockers"), encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+            self.assertNotIn("blocked_review", codes)
+
     def test_close_blocks_incomplete_deferred_item_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = close_ready_session(Path(tmp), "close-positive", "positive")

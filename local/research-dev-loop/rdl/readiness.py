@@ -103,7 +103,16 @@ def _validate_review_not_blocked(review_file: Path, decision: str) -> list[Block
                 "Close inconclusive or complete enough review evidence to proceed.",
             )
         ]
-    if verdict == "BLOCKED" or (gaps and gaps.strip().lower() not in {"none", "no", "n/a", "-", "...", "tbd", "todo"}):
+    if verdict == "BLOCKED":
+        return [
+            Blocker(
+                "blocked_review",
+                f"{review_file}#Verdict",
+                "Review is blocked or records blocking evidence gaps.",
+                "Resolve blocking review findings before advancing.",
+            )
+        ]
+    if decision != "close-inconclusive" and gaps and gaps.strip().lower() not in {"none", "no", "n/a", "-", "...", "tbd", "todo"}:
         return [
             Blocker(
                 "blocked_review",
