@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import integrity, store
+from . import integrity, store, templates, transition
 from .documents import validate as validate_document
 from .model import AuditResult, Blocker, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
@@ -134,6 +136,47 @@ class SessionStore:
     def load_session(self, session_dir: str | Path) -> Session:
         return self._load_session(Path(session_dir))
 
+    def create_session(self, mode: SessionMode | str, mission_file: str | Path, session_id: str) -> Session:
+        mode_value = mode.value if isinstance(mode, SessionMode) else str(mode)
+        session_dir = self.sessions_root / session_id
+        tmp_dir = session_dir.with_name(f"{session_dir.name}.tmp.{os.getpid()}")
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+
+        try:
+            (tmp_dir / "rounds" / "001").mkdir(parents=True)
+            templates.initialize_session_files(tmp_dir, mission_file)
+            prompt_objective = Path(mission_file).name
+            templates.write_prompt(tmp_dir / "rounds" / "001" / "prompt.md", mode_value, 1, prompt_objective, "none")
+            now = transition.now_utc()
+            store.write_json_atomic(
+                tmp_dir / "state.json",
+                {
+                    "schema_version": 1,
+                    "session_id": session_id,
+                    "mode": mode_value,
+                    "phase": SessionPhase.PLAN.value,
+                    "round": 1,
+                    "status": SessionStatus.ACTIVE.value,
+                    "mission_file": "mission.md",
+                    "guard_session_id": None,
+                    "last_guard_command_id": None,
+                    "prompt_objective": prompt_objective,
+                    "created_at_utc": now,
+                    "updated_at_utc": now,
+                },
+            )
+            session = self.load_session(tmp_dir)
+            integrity.refresh(session)
+            self.sessions_root.mkdir(parents=True, exist_ok=True)
+            os.replace(tmp_dir, session_dir)
+        except Exception:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+            raise
+
+        return self.load_session(session_dir)
+
     def _sessions(self) -> list[Path]:
         if not self.sessions_root.is_dir():
             return []
@@ -155,6 +198,10 @@ class SessionStore:
             state = _partial_state(raw, session_dir.name)
             return Session(session_dir, state, raw_state=raw)
         return Session(session_dir, state, raw_state=store.read_json(state_path))
+
+
+def valid_session_id(session_id: str) -> bool:
+    return re.fullmatch(r"[A-Za-z0-9._-]+", session_id) is not None
 
 
 def _placeholder_state(session_id: str) -> SessionState:

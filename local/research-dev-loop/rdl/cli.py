@@ -6,11 +6,12 @@ import argparse
 import json
 from collections.abc import Sequence
 from dataclasses import asdict
+from pathlib import Path
 
 from . import documents, integrity, readiness, templates, transition
-from .model import Blocker, CommandResult
+from .model import Blocker, CommandResult, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
-from .session import SessionStore
+from .session import SessionStore, valid_session_id
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,13 +21,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    for command in ("start", "status", "repair"):
-        subparser = subparsers.add_parser(
-            command,
-            help="reserved; use the Bash RDL CLI for full behavior",
-        )
-        subparser.add_argument("--json", action="store_true")
-        subparser.set_defaults(command=command)
+    repair = subparsers.add_parser(
+        "repair",
+        help="reserved; use the Bash RDL CLI for full behavior",
+    )
+    repair.add_argument("--json", action="store_true")
+    repair.set_defaults(command="repair")
+
+    start = subparsers.add_parser("start", help="start a new RDL session")
+    start.add_argument("mode", nargs="?")
+    start.add_argument("mission_file", nargs="?")
+    start.add_argument("--session-id")
+    start.add_argument("--json", action="store_true")
+    start.set_defaults(command="start")
+
+    status = subparsers.add_parser("status", help="inspect the active RDL session lifecycle status")
+    status.add_argument("--json", action="store_true")
+    status.set_defaults(command="status")
 
     review = subparsers.add_parser("review", help="prepare or validate the current RDL review")
     review.add_argument("--json", action="store_true")
@@ -78,6 +89,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "doctor":
         result = _doctor()
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
+    if args.command == "start":
+        result = _start(args.mode, args.mission_file, args.session_id)
+        _emit(result, json_output=args.json)
+        if result.status == "error":
+            return 1
+        if result.status == "blocked":
+            return 2
+        return 0
+
+    if args.command == "status":
+        result = _status()
         _emit(result, json_output=args.json)
         if result.status == "error":
             return 1
@@ -144,6 +173,213 @@ def main(argv: Sequence[str] | None = None) -> int:
         "use the existing Bash RDL CLI for full command behavior."
     )
     return 2
+
+
+def _start(mode: str | None, mission_file: str | None, session_id: str | None) -> CommandResult:
+    if not mode or not mission_file:
+        blocker = Blocker(
+            "missing_arguments",
+            "",
+            "start requires mode and mission file.",
+            "rdl start research <mission.md>",
+        )
+        return CommandResult(
+            status="error",
+            action="start",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="rdl start research <mission.md>",
+        )
+    if mode not in {SessionMode.RESEARCH.value, SessionMode.BUILD.value}:
+        blocker = Blocker(
+            "invalid_mode",
+            "",
+            "mode must be research or build.",
+            "Use rdl start research or rdl start build.",
+        )
+        return CommandResult(
+            status="error",
+            action="start",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="Use rdl start research or rdl start build.",
+        )
+
+    mission_path = Path(mission_file)
+    if not mission_path.is_file():
+        blocker = Blocker(
+            "missing_mission_file",
+            mission_file,
+            f"mission file not found: {mission_file}",
+            "Create the mission file or pass an existing file.",
+        )
+        return CommandResult(
+            status="error",
+            action="start",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="Create the mission file or pass an existing file.",
+        )
+
+    store = SessionStore.cwd()
+    new_session_id = session_id or transition.now_utc().replace("T", "-").replace(":", "").removesuffix("Z")
+    if not valid_session_id(new_session_id):
+        blocker = Blocker(
+            "invalid_session_id",
+            "",
+            "session id may contain only letters, numbers, dot, underscore, and dash.",
+            "Choose a simpler --session-id.",
+        )
+        return CommandResult(
+            status="error",
+            action="start",
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="Choose a simpler --session-id.",
+        )
+    session_dir = store.sessions_root / new_session_id
+    if session_dir.exists():
+        blocker = Blocker(
+            "session_already_exists",
+            str(session_dir),
+            "A session with this id already exists.",
+            "Choose a different --session-id.",
+        )
+        return CommandResult(
+            status="blocked",
+            action="start",
+            session_id=new_session_id,
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="choose a different --session-id",
+        )
+
+    try:
+        existing = store.active_session()
+    except ValueError:
+        return CommandResult(
+            status="error",
+            action="start",
+            blockers=(
+                Blocker(
+                    "multiple_active_sessions",
+                    ".rdl/sessions",
+                    "Multiple active RDL sessions exist.",
+                    "Close or abandon all but one active session.",
+                ),
+            ),
+            next_action="repair RDL session metadata",
+        )
+    if existing is not None:
+        audit = existing.audit()
+        if audit.errors:
+            state = existing.state
+            return CommandResult(
+                status="error",
+                action="start",
+                session_id=state.session_id,
+                mode=str(state.mode),
+                phase=str(state.phase),
+                round=state.round if state.round > 0 else 0,
+                missing=_missing_from_blockers(audit.errors),
+                blockers=audit.errors,
+                next_action="repair RDL session metadata",
+            )
+        state = existing.state
+        blocker = Blocker(
+            "active_session_exists",
+            str(existing.root / "state.json"),
+            "An active RDL session already exists.",
+            "Run rdl status, then close or abandon the active session before starting another.",
+        )
+        return CommandResult(
+            status="blocked",
+            action="start",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round,
+            missing=_missing_from_blockers((blocker,)),
+            blockers=(blocker,),
+            next_action="rdl status",
+        )
+
+    try:
+        session = store.create_session(mode, mission_path, new_session_id)
+    except FileNotFoundError as exc:
+        return _template_write_error("start", _synthetic_state(new_session_id, mode), "plan", 1, exc)
+    except Exception as exc:
+        state = _synthetic_state(new_session_id, mode)
+        return _integrity_refresh_error("start", state, "plan", 1, exc)
+
+    state = session.state
+    return CommandResult(
+        status="ok",
+        action="start",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=str(state.phase),
+        round=state.round,
+        next_action=str(session.round_dir(1) / "prompt.md"),
+    )
+
+
+def _status() -> CommandResult:
+    try:
+        session = SessionStore.cwd().active_session()
+    except ValueError:
+        return CommandResult(
+            status="error",
+            action="status",
+            blockers=(
+                Blocker(
+                    "multiple_active_sessions",
+                    ".rdl/sessions",
+                    "Multiple active RDL sessions exist.",
+                    "Close or abandon all but one active session.",
+                ),
+            ),
+            next_action="repair RDL session metadata",
+        )
+
+    if session is None:
+        return CommandResult(status="ok", action="status", next_action="rdl start research <mission.md>")
+
+    audit = session.audit()
+    state = session.state
+    if audit.errors:
+        return CommandResult(
+            status="error",
+            action="status",
+            session_id=state.session_id,
+            mode=str(state.mode),
+            phase=str(state.phase),
+            round=state.round if state.round > 0 else 0,
+            missing=_missing_from_blockers(audit.errors),
+            blockers=audit.errors,
+            next_action="repair RDL session metadata",
+        )
+    return CommandResult(
+        status="ok",
+        action="status",
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=str(state.phase),
+        round=state.round,
+        next_action=str(state.status),
+    )
+
+
+def _synthetic_state(session_id: str, mode: str) -> SessionState:
+    return SessionState(
+        schema_version=1,
+        session_id=session_id,
+        mode=SessionMode(mode),
+        phase=SessionPhase.PLAN,
+        round=1,
+        status=SessionStatus.ACTIVE,
+        mission_file="mission.md",
+    )
 
 
 def _doctor() -> CommandResult:

@@ -23,6 +23,17 @@ def copy_template(name: str, destination: str | Path) -> None:
     store.copy_file(template_path(name), destination)
 
 
+def copy_mission(source: str | Path, destination: str | Path) -> None:
+    store.copy_file(source, destination)
+
+
+def initialize_session_files(session_dir: str | Path, mission_source: str | Path) -> None:
+    root = Path(session_dir)
+    copy_mission(mission_source, root / "mission.md")
+    for name in ("factors.md", "artifact-manifest.json", "decision-ledger.md", "progress.md"):
+        copy_template(name, root / name)
+
+
 def render_decision(decision_type: str, closes: str) -> str:
     text = store.read_text(template_path("decision.md"))
     replacements = {
