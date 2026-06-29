@@ -74,6 +74,9 @@ def _validate_review_decision_alignment(round_dir: Path) -> list[Blocker]:
     decision_file = round_dir / "decision.md"
     if not review_file.is_file() or not decision_file.is_file():
         return []
+    review_blockers = _validate_review_not_blocked(review_file)
+    if review_blockers:
+        return review_blockers
     recommended = documents.field(review_file, "Recommended Decision")
     decision = documents.field(decision_file, "Decision")
     if recommended and decision and recommended != decision:
@@ -83,6 +86,21 @@ def _validate_review_decision_alignment(round_dir: Path) -> list[Blocker]:
                 f"{review_file}#Recommended Decision",
                 "Review recommended decision does not match decision.md.",
                 "Align review.md and decision.md before advancing.",
+            )
+        ]
+    return []
+
+
+def _validate_review_not_blocked(review_file: Path) -> list[Blocker]:
+    verdict = documents.field(review_file, "Verdict")
+    gaps = documents.field(review_file, "Blocking Evidence Gaps")
+    if verdict == "BLOCKED" or (gaps and gaps.strip().lower() not in {"none", "no", "n/a", "-", "...", "tbd", "todo"}):
+        return [
+            Blocker(
+                "blocked_review",
+                f"{review_file}#Verdict",
+                "Review is blocked or records blocking evidence gaps.",
+                "Resolve blocking review findings before advancing.",
             )
         ]
     return []
@@ -210,7 +228,7 @@ def _validate_progress_close_readiness(session_dir: Path, outcome: str | None) -
     if outcome != "inconclusive":
         for row in _table_rows(documents.section(progress_file, "Open Questions").content):
             question = row.get("question", "")
-            blocking = row.get("blocking", "")
+            blocking = row.get("blocking", row.get("blocking?", ""))
             resolution = row.get("resolution", "")
             if _meaningful(question) and blocking.strip().lower() in {"yes", "y", "true", "blocking"} and not _meaningful(resolution):
                 blockers.append(

@@ -75,6 +75,14 @@ class ReadinessTests(unittest.TestCase):
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
             self.assertIn("unresolved_blocking_open_questions", codes)
 
+    def test_close_positive_reads_generated_blocking_question_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = close_ready_session(Path(tmp), "close-positive", "positive")
+            (session_dir / "progress.md").write_text(PROGRESS_WITH_BLOCKING_QUESTION_MARK_HEADER, encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+            self.assertIn("unresolved_blocking_open_questions", codes)
+
     def test_close_inconclusive_allows_unresolved_blocking_open_questions(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = close_ready_session(Path(tmp), "close-inconclusive", "inconclusive")
@@ -112,6 +120,26 @@ class ReadinessTests(unittest.TestCase):
 
                     codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
                     self.assertNotIn("unacknowledged_repeated_negative_evidence", codes)
+
+    def test_advance_blocks_blocked_review_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research")
+            complete_research_round(session_dir, decision="continue")
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(review_file.read_text(encoding="utf-8").replace("Verdict: PASS", "Verdict: BLOCKED"), encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+            self.assertIn("blocked_review", codes)
+
+    def test_advance_blocks_nonempty_blocking_evidence_gaps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research")
+            complete_research_round(session_dir, decision="continue")
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(review_file.read_text(encoding="utf-8").replace("Blocking Evidence Gaps: none", "Blocking Evidence Gaps: missing baseline"), encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+            self.assertIn("blocked_review", codes)
 
 
 def close_ready_session(root: Path, decision: str, outcome: str) -> Path:
@@ -158,6 +186,33 @@ none
 ## Open Questions
 
 | Question | Owner | Blocking | Resolution |
+|---|---|---|---|
+| unresolved risk | team | yes | - |
+"""
+
+
+PROGRESS_WITH_BLOCKING_QUESTION_MARK_HEADER = """# Progress
+
+## Active
+
+none
+
+## Completed
+
+none
+
+## Blocked
+
+none
+
+## Deferred
+
+| Item | Reason | Revisit Trigger |
+|---|---|---|
+
+## Open Questions
+
+| Question | Owner | Blocking? | Resolution |
 |---|---|---|---|
 | unresolved risk | team | yes | - |
 """

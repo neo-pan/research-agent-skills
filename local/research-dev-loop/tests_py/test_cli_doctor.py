@@ -54,6 +54,21 @@ class CliDoctorTests(unittest.TestCase):
             self.assertEqual(result["status"], "error")
             self.assertEqual(result["blockers"][0]["code"], "invalid_state_json")
 
+    def test_doctor_json_errors_for_integrity_violation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            complete_research_round(session_dir)
+            (session_dir / "state.json").write_text((session_dir / "state.json").read_text(encoding="utf-8").replace('"phase": "plan"', '"phase": "work"'), encoding="utf-8")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--json"]), 1)
+
+            result = json.loads(stdout.getvalue())
+            codes = {blocker["code"] for blocker in result["blockers"]}
+            self.assertIn("integrity_violation_cli_owned", codes)
+
     def test_doctor_json_blocks_for_missing_readiness_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -6,7 +6,7 @@ from rdl import store
 from rdl.model import SessionMode, SessionPhase, SessionStatus
 from rdl.session import SessionState, SessionStore
 
-from rdl_test_support import create_session
+from rdl_test_support import create_session, write_json
 
 
 class StoreSessionTests(unittest.TestCase):
@@ -40,6 +40,32 @@ class StoreSessionTests(unittest.TestCase):
             self.assertEqual(audit.blockers, ())
             self.assertEqual(session_dir, session.root)
 
+    def test_integrity_json_malformed_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            (session_dir / "integrity.json").write_text("{ broken\n", encoding="utf-8")
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("invalid_integrity_json", {blocker.code for blocker in audit.errors})
+
+    def test_integrity_hash_mismatch_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            (session_dir / "state.json").write_text((session_dir / "state.json").read_text(encoding="utf-8").replace('"phase": "plan"', '"phase": "work"'), encoding="utf-8")
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("integrity_violation_cli_owned", {blocker.code for blocker in audit.errors})
+
+    def test_integrity_missing_protected_entry_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            manifest = store.read_json(session_dir / "integrity.json")
+            manifest["entries"] = [entry for entry in manifest["entries"] if entry["path"] != "state.json"]
+            write_json(session_dir / "integrity.json", manifest)
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+            self.assertIn("missing_integrity_entry", {blocker.code for blocker in audit.errors})
+
     def test_no_active_session_is_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(SessionStore(Path(tmp)).active_session())
@@ -52,6 +78,18 @@ class StoreSessionTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 SessionStore(root).active_session()
+
+    def test_malformed_session_is_not_hidden_by_active_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "active")
+            bad_dir = root / ".rdl" / "sessions" / "bad"
+            bad_dir.mkdir(parents=True)
+            (bad_dir / "state.json").write_text("{ broken\n", encoding="utf-8")
+
+            session = SessionStore(root).active_session()
+            self.assertEqual(session.root.name, "bad")
+            self.assertEqual([blocker.code for blocker in session.audit().errors], ["invalid_state_json"])
 
     def test_bad_state_json_loads_error_session_for_doctor_reporting(self):
         with tempfile.TemporaryDirectory() as tmp:
