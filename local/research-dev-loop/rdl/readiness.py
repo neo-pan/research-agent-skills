@@ -11,6 +11,9 @@ from .protocol import descriptor
 from .session import Session
 
 
+NO_REVIEW_GAP_VALUES = {"none", "no", "no blocking gaps", "no blocking evidence gaps", "n/a", "not applicable", "-", "...", "tbd", "todo"}
+
+
 def check(session: Session, plan: str, outcome: str | None = None) -> list[Blocker]:
     rules = descriptor.readiness_plan(plan)
     if not rules:
@@ -104,25 +107,23 @@ def _validate_review_not_blocked(review_file: Path, decision: str) -> list[Block
             )
         ]
     if verdict == "BLOCKED":
-        return [
-            Blocker(
-                "blocked_review",
-                f"{review_file}#Verdict",
-                "Review is blocked or records blocking evidence gaps.",
-                "Resolve blocking review findings before advancing.",
-            )
-        ]
-    no_gap_values = {"none", "no", "no blocking gaps", "no blocking evidence gaps", "n/a", "not applicable", "-", "...", "tbd", "todo"}
-    if decision != "close-inconclusive" and gaps and gaps.strip().lower() not in no_gap_values:
-        return [
-            Blocker(
-                "blocked_review",
-                f"{review_file}#Verdict",
-                "Review is blocked or records blocking evidence gaps.",
-                "Resolve blocking review findings before advancing.",
-            )
-        ]
+        return [_blocked_review_blocker(review_file)]
+    if decision != "close-inconclusive" and _blocking_review_gaps(gaps):
+        return [_blocked_review_blocker(review_file)]
     return []
+
+
+def _blocked_review_blocker(review_file: Path) -> Blocker:
+    return Blocker(
+        "blocked_review",
+        f"{review_file}#Verdict",
+        "Review is blocked or records blocking evidence gaps.",
+        "Resolve blocking review findings before advancing.",
+    )
+
+
+def _blocking_review_gaps(gaps: str) -> bool:
+    return bool(gaps and gaps.strip().lower() not in NO_REVIEW_GAP_VALUES)
 
 
 def _validate_mode_round_minimums(mode: SessionMode, round_dir: Path) -> list[Blocker]:
@@ -189,7 +190,7 @@ def _validate_build_verification_evidence(round_dir: Path) -> list[Blocker]:
             )
         ]
     text = store.read_text(evidence_file)
-    has_label = any(line.lstrip().lower().startswith("verification evidence:") and any(ch.isalnum() for ch in line.split(":", 1)[1]) for line in text.splitlines())
+    has_label = any(_verification_evidence_label_has_content(line) for line in text.splitlines())
     if has_label or documents.section_has_content(evidence_file, "Verification Evidence"):
         return []
     return [
@@ -200,6 +201,13 @@ def _validate_build_verification_evidence(round_dir: Path) -> list[Blocker]:
             "Record verification evidence in evidence.md.",
         )
     ]
+
+
+def _verification_evidence_label_has_content(line: str) -> bool:
+    stripped = line.lstrip()
+    if not stripped.lower().startswith("verification evidence:"):
+        return False
+    return any(ch.isalnum() for ch in stripped.split(":", 1)[1])
 
 
 def _validate_round_evidence_discipline(round_dir: Path) -> list[Blocker]:
