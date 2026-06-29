@@ -139,9 +139,7 @@ class SessionLock:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        if not self.acquired or not self.path.is_file():
-            return
-        if _lock_owner_pid(self.path) == os.getpid():
+        if self.acquired and self.path.is_file() and _lock_owner_pid(self.path) == os.getpid():
             self.path.unlink()
         self.acquired = False
 
