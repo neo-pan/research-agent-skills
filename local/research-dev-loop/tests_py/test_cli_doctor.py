@@ -7,7 +7,7 @@ from pathlib import Path
 
 from rdl.cli import main
 
-from rdl_test_support import complete_research_round, create_session
+from rdl_test_support import complete_final_report, complete_research_round, create_session
 
 
 class CliDoctorTests(unittest.TestCase):
@@ -68,6 +68,22 @@ class CliDoctorTests(unittest.TestCase):
             self.assertIn("missing_review", codes)
             self.assertIn("missing_decision", codes)
 
+    def test_doctor_json_blocks_for_close_readiness_progress_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            complete_research_round(session_dir, decision="close-positive")
+            (session_dir / "final-report.md").write_text(complete_final_report("positive"), encoding="utf-8")
+            (session_dir / "progress.md").write_text(PROGRESS_WITH_BLOCKING_OPEN_QUESTION, encoding="utf-8")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            codes = {blocker["code"] for blocker in result["blockers"]}
+            self.assertIn("unresolved_blocking_open_questions", codes)
+
     def test_non_doctor_commands_remain_unsupported(self):
         with redirect_stderr(StringIO()):
             with self.assertRaises(SystemExit) as raised:
@@ -94,3 +110,30 @@ class change_dir:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PROGRESS_WITH_BLOCKING_OPEN_QUESTION = """# Progress
+
+## Active
+
+none
+
+## Completed
+
+none
+
+## Blocked
+
+none
+
+## Deferred
+
+| Item | Reason | Revisit Trigger |
+|---|---|---|
+
+## Open Questions
+
+| Question | Owner | Blocking | Resolution |
+|---|---|---|---|
+| unresolved risk | team | yes | - |
+"""

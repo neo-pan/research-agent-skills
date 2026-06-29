@@ -41,6 +41,17 @@ def complete_research_round(session_dir: Path, decision: str = "continue") -> No
     (round_dir / "decision.md").write_text(complete_decision(decision, "claim"), encoding="utf-8")
 
 
+def set_current_round(session_dir: Path, round_number: int) -> Path:
+    state_path = session_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["round"] = round_number
+    write_json(state_path, state)
+    round_dir = session_dir / "rounds" / f"{round_number:03d}"
+    round_dir.mkdir(parents=True, exist_ok=True)
+    (round_dir / "prompt.md").write_text(f"# Prompt\n\nRound {round_number}.\n", encoding="utf-8")
+    return round_dir
+
+
 def complete_build_round(session_dir: Path, verification: bool = True) -> None:
     round_dir = session_dir / "rounds" / "001"
     (round_dir / "intent.md").write_text(COMPLETE_INTENT, encoding="utf-8")
@@ -89,6 +100,47 @@ Next smallest step: continue same mode
 """
 
 
+def complete_final_report(outcome: str = "positive") -> str:
+    return f"""# Final Report
+
+## Outcome
+
+{outcome}
+
+## Claim or Capability Closed
+
+fixture claim
+
+## Evidence Cited
+
+fixture evidence
+
+## Missing Evidence and Confounders
+
+none
+
+## Negative, Null, or Inconclusive Results
+
+none
+
+## Open Questions
+
+none
+
+## Deferred Items
+
+none
+
+## Reusable Lessons
+
+none
+
+## Close Checklist
+
+- [x] Evidence artifacts are cited.
+"""
+
+
 COMPLETE_PROGRESS = """# Progress
 
 ## Active
@@ -128,6 +180,28 @@ No blocking missing evidence for this fixture.
 ## Evidence Budget
 
 One local fixture check.
+"""
+
+
+REPEATED_NEGATIVE_EVIDENCE = """# Evidence
+
+Research evidence: current round still failed.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+No blocking missing evidence for this fixture.
+
+## Evidence Budget
+
+One local fixture check.
+
+## Repeated Negative Evidence
+
+The same fixture failure repeated after a prior continue decision.
 """
 
 

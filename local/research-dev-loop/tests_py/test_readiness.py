@@ -5,7 +5,16 @@ from pathlib import Path
 from rdl import readiness
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_build_round, complete_research_round, create_session
+from rdl_test_support import (
+    REPEATED_NEGATIVE_EVIDENCE,
+    complete_build_round,
+    complete_decision,
+    complete_final_report,
+    complete_research_round,
+    complete_review,
+    create_session,
+    set_current_round,
+)
 
 
 class ReadinessTests(unittest.TestCase):
@@ -57,6 +66,128 @@ class ReadinessTests(unittest.TestCase):
 
             blockers = readiness.check(SessionStore(Path(tmp)).active_session(), "unknown-plan")
             self.assertEqual([blocker.code for blocker in blockers], ["invalid_readiness_plan"])
+
+    def test_close_positive_blocks_unresolved_blocking_open_questions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = close_ready_session(Path(tmp), "close-positive", "positive")
+            (session_dir / "progress.md").write_text(PROGRESS_WITH_BLOCKING_OPEN_QUESTION, encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+            self.assertIn("unresolved_blocking_open_questions", codes)
+
+    def test_close_inconclusive_allows_unresolved_blocking_open_questions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = close_ready_session(Path(tmp), "close-inconclusive", "inconclusive")
+            (session_dir / "progress.md").write_text(PROGRESS_WITH_BLOCKING_OPEN_QUESTION, encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+            self.assertNotIn("unresolved_blocking_open_questions", codes)
+
+    def test_close_blocks_incomplete_deferred_item_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = close_ready_session(Path(tmp), "close-positive", "positive")
+            (session_dir / "progress.md").write_text(PROGRESS_WITH_INCOMPLETE_DEFERRED_ITEM, encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+            self.assertIn("incomplete_deferred_items", codes)
+
+    def test_repeated_negative_evidence_after_prior_continue_requires_acknowledgement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = repeated_negative_session(Path(tmp), acknowledged=False)
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+            self.assertIn("unacknowledged_repeated_negative_evidence", codes)
+
+    def test_repeated_negative_evidence_acknowledgement_in_decision_or_progress_allows_close(self):
+        for acknowledged_in in ("decision", "progress"):
+            with self.subTest(acknowledged_in=acknowledged_in):
+                with tempfile.TemporaryDirectory() as tmp:
+                    session_dir = repeated_negative_session(Path(tmp), acknowledged=False)
+                    if acknowledged_in == "decision":
+                        decision_file = session_dir / "rounds" / "002" / "decision.md"
+                        decision_file.write_text(decision_file.read_text(encoding="utf-8") + "\nRepeated negative evidence acknowledged.\n", encoding="utf-8")
+                    else:
+                        progress_file = session_dir / "progress.md"
+                        progress_file.write_text(progress_file.read_text(encoding="utf-8") + "\ncontinue justified after repeated failure.\n", encoding="utf-8")
+
+                    codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+                    self.assertNotIn("unacknowledged_repeated_negative_evidence", codes)
+
+
+def close_ready_session(root: Path, decision: str, outcome: str) -> Path:
+    session_dir = create_session(root, mode="research")
+    complete_research_round(session_dir, decision=decision)
+    (session_dir / "final-report.md").write_text(complete_final_report(outcome), encoding="utf-8")
+    return session_dir
+
+
+def repeated_negative_session(root: Path, acknowledged: bool) -> Path:
+    session_dir = create_session(root, mode="research")
+    complete_research_round(session_dir, decision="continue")
+    round_dir = set_current_round(session_dir, 2)
+    (round_dir / "evidence.md").write_text(REPEATED_NEGATIVE_EVIDENCE, encoding="utf-8")
+    (round_dir / "interpretation.md").write_text("# Interpretation\n\nRepeated failure still matters.\n", encoding="utf-8")
+    (round_dir / "review.md").write_text(complete_review("close-negative"), encoding="utf-8")
+    decision_text = complete_decision("close-negative", "claim")
+    if acknowledged:
+        decision_text += "\nRepeated negative evidence acknowledged.\n"
+    (round_dir / "decision.md").write_text(decision_text, encoding="utf-8")
+    (session_dir / "final-report.md").write_text(complete_final_report("negative"), encoding="utf-8")
+    return session_dir
+
+
+PROGRESS_WITH_BLOCKING_OPEN_QUESTION = """# Progress
+
+## Active
+
+none
+
+## Completed
+
+none
+
+## Blocked
+
+none
+
+## Deferred
+
+| Item | Reason | Revisit Trigger |
+|---|---|---|
+
+## Open Questions
+
+| Question | Owner | Blocking | Resolution |
+|---|---|---|---|
+| unresolved risk | team | yes | - |
+"""
+
+
+PROGRESS_WITH_INCOMPLETE_DEFERRED_ITEM = """# Progress
+
+## Active
+
+none
+
+## Completed
+
+none
+
+## Blocked
+
+none
+
+## Deferred
+
+| Item | Reason | Revisit Trigger |
+|---|---|---|
+| follow-up | - | |
+
+## Open Questions
+
+| Question | Owner | Blocking | Resolution |
+|---|---|---|---|
+"""
 
 
 if __name__ == "__main__":

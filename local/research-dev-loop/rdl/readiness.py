@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from . import documents, store
@@ -49,9 +50,9 @@ def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocke
     if rule == "close-evidence-discipline":
         return _validate_close_evidence_discipline(round_dir)
     if rule == "progress-close-readiness":
-        return []
+        return _validate_progress_close_readiness(session.root, outcome)
     if rule == "repeated-negative-evidence":
-        return []
+        return _validate_repeated_negative_evidence(session, round_dir)
     if rule == "close-if-decision":
         decision = documents.field(round_dir / "decision.md", "Decision")
         close_outcome = _close_outcome_for_decision(decision)
@@ -200,6 +201,65 @@ def _validate_close_evidence_discipline(round_dir: Path) -> list[Blocker]:
     return _validate_round_evidence_discipline(round_dir)
 
 
+def _validate_progress_close_readiness(session_dir: Path, outcome: str | None) -> list[Blocker]:
+    progress_file = session_dir / "progress.md"
+    if not progress_file.is_file():
+        return []
+
+    blockers: list[Blocker] = []
+    if outcome != "inconclusive":
+        for row in _table_rows(documents.section(progress_file, "Open Questions").content):
+            question = row.get("question", "")
+            blocking = row.get("blocking", "")
+            resolution = row.get("resolution", "")
+            if _meaningful(question) and blocking.strip().lower() in {"yes", "y", "true", "blocking"} and not _meaningful(resolution):
+                blockers.append(
+                    Blocker(
+                        "unresolved_blocking_open_questions",
+                        "progress.md#Open Questions",
+                        "Blocking open questions must be resolved before closing positive or negative.",
+                        "Resolve blocking open questions or close inconclusive.",
+                    )
+                )
+                break
+
+    for row in _table_rows(documents.section(progress_file, "Deferred").content):
+        item = row.get("item", "")
+        reason = row.get("reason", "")
+        trigger = row.get("revisit trigger", "")
+        if _meaningful(item) and (not _meaningful(reason) or not _meaningful(trigger)):
+            blockers.append(
+                Blocker(
+                    "incomplete_deferred_items",
+                    "progress.md#Deferred",
+                    "Deferred items must include a reason and revisit trigger before closing.",
+                    "Complete deferred item reason and revisit trigger.",
+                )
+            )
+            break
+
+    return blockers
+
+
+def _validate_repeated_negative_evidence(session: Session, round_dir: Path) -> list[Blocker]:
+    evidence_file = round_dir / "evidence.md"
+    repeated_section = documents.section(evidence_file, "Repeated Negative Evidence")
+    if not _meaningful(repeated_section.content):
+        return []
+    if not _prior_continue_decision_exists(session):
+        return []
+    if _repeated_negative_acknowledged(round_dir / "decision.md", session.root / "progress.md"):
+        return []
+    return [
+        Blocker(
+            "unacknowledged_repeated_negative_evidence",
+            f"rounds/{session.state.round:03d}/evidence.md#Repeated Negative Evidence",
+            "Repeated negative evidence must be acknowledged after a prior continue decision.",
+            "Acknowledge repeated negative evidence in decision.md or progress.md.",
+        )
+    ]
+
+
 def _validate_artifact_citations(session_dir: Path, round_dir: Path) -> list[Blocker]:
     manifest_file = session_dir / "artifact-manifest.json"
     if not manifest_file.is_file():
@@ -246,3 +306,46 @@ def _close_outcome_for_decision(decision: str) -> str:
         "close-negative": "negative",
         "close-inconclusive": "inconclusive",
     }.get(decision, "")
+
+
+def _table_rows(markdown: str) -> list[dict[str, str]]:
+    rows = [line.strip() for line in markdown.splitlines() if line.strip().startswith("|") and line.strip().endswith("|")]
+    if not rows:
+        return []
+    header = _table_cells(rows[0])
+    result: list[dict[str, str]] = []
+    for row in rows[1:]:
+        if _table_separator(row):
+            continue
+        cells = _table_cells(row)
+        result.append({header[index].strip().lower(): cells[index].strip() if index < len(cells) else "" for index in range(len(header))})
+    return result
+
+
+def _table_cells(row: str) -> list[str]:
+    return [cell.strip() for cell in row.strip().strip("|").split("|")]
+
+
+def _table_separator(row: str) -> bool:
+    return bool(re.fullmatch(r"\|[ \t:|-]+\|[ \t|:-]*", row.strip()))
+
+
+def _meaningful(value: str) -> bool:
+    stripped = value.strip()
+    return bool(stripped and stripped.lower() not in {"-", "...", "tbd", "todo", "n/a"} and re.search(r"[A-Za-z0-9]", stripped))
+
+
+def _prior_continue_decision_exists(session: Session) -> bool:
+    for round_number in range(1, session.state.round):
+        decision_file = session.round_dir(round_number) / "decision.md"
+        if decision_file.is_file() and documents.field(decision_file, "Decision") == "continue":
+            return True
+    return False
+
+
+def _repeated_negative_acknowledged(decision_file: Path, progress_file: Path) -> bool:
+    pattern = re.compile(r"repeated negative|repeated failure|continue justified", re.IGNORECASE)
+    for path in (decision_file, progress_file):
+        if path.is_file() and pattern.search(store.read_text(path)):
+            return True
+    return False
