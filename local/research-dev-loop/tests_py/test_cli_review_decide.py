@@ -65,7 +65,7 @@ class CliReviewDecideTests(unittest.TestCase):
             root = Path(tmp)
             session_dir = create_session(root, "review_refresh")
 
-            with patch("rdl.cli.integrity.refresh", side_effect=ValueError("refresh failed")):
+            with patch("rdl.commands.integrity.refresh", side_effect=ValueError("refresh failed")):
                 code, result = run_cli(root, ["review", "--json"])
 
             self.assertEqual(code, 1)
@@ -79,7 +79,7 @@ class CliReviewDecideTests(unittest.TestCase):
             root = Path(tmp)
             create_session(root, "review_template")
 
-            with patch("rdl.cli.templates.copy_template", side_effect=FileNotFoundError("missing review template")):
+            with patch("rdl.commands.templates.copy_template", side_effect=FileNotFoundError("missing review template")):
                 code, result = run_cli(root, ["review", "--json"])
 
             self.assertEqual(code, 1)
@@ -176,7 +176,7 @@ class CliReviewDecideTests(unittest.TestCase):
             root = Path(tmp)
             session_dir = create_session(root, "decide_refresh")
 
-            with patch("rdl.cli.integrity.refresh", side_effect=ValueError("refresh failed")):
+            with patch("rdl.commands.integrity.refresh", side_effect=ValueError("refresh failed")):
                 code, result = run_cli(root, ["decide", "continue", "--json"])
 
             self.assertEqual(code, 1)
@@ -190,7 +190,7 @@ class CliReviewDecideTests(unittest.TestCase):
             root = Path(tmp)
             create_session(root, "decide_template")
 
-            with patch("rdl.cli.templates.write_decision", side_effect=FileNotFoundError("missing decision template")):
+            with patch("rdl.commands.templates.write_decision", side_effect=FileNotFoundError("missing decision template")):
                 code, result = run_cli(root, ["decide", "continue", "--json"])
 
             self.assertEqual(code, 1)

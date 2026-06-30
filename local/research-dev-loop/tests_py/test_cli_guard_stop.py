@@ -136,7 +136,7 @@ class CliGuardStopTests(unittest.TestCase):
             root = Path(tmp)
             session_dir = continue_ready_session(root, "guard_refresh")
 
-            with patch("rdl.cli.integrity.refresh", side_effect=ValueError("refresh failed")):
+            with patch("rdl.commands.integrity.refresh", side_effect=ValueError("refresh failed")):
                 code, result = run_guard_stop(root, ["guard-stop", "--guard-session-id", "guard_refresh", "--guard-command-id", "cmd-1", "--json"])
 
             self.assertEqual(code, 1)

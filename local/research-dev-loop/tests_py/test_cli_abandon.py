@@ -96,7 +96,7 @@ class CliAbandonTests(unittest.TestCase):
 
             stdout = StringIO()
             with change_dir(root), redirect_stdout(stdout):
-                with patch("rdl.cli.integrity.refresh", side_effect=ValueError("refresh failed")):
+                with patch("rdl.commands.integrity.refresh", side_effect=ValueError("refresh failed")):
                     self.assertEqual(main(["abandon", "operator", "stopped", "--json"]), 1)
 
             result = json.loads(stdout.getvalue())
