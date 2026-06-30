@@ -764,9 +764,9 @@ def _run_locked_session(
     try:
         with acquire_session_lock(loaded, action):
             locked_session = SessionStore.cwd().load_session(loaded.root)
+            state = locked_session.state
             if audit:
                 audit_result = locked_session.audit()
-                state = locked_session.state
                 if audit_result.errors:
                     return _state_result(
                         "error",
@@ -784,7 +784,7 @@ def _run_locked_session(
                         blockers=audit_result.blockers,
                         next_action="complete missing RDL records",
                     )
-            return body(_LockedContext(action, locked_session, locked_session.state))
+            return body(_LockedContext(action, locked_session, state))
     except SessionLockError as exc:
         return _state_result(
             "blocked",
