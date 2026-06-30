@@ -1,11 +1,12 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from rdl import safety
+from rdl import safety, store
 from rdl.session import SessionStore
 
-from rdl_test_support import create_session
+from rdl_test_support import complete_research_round, create_session, set_current_round, write_json
 
 
 class SafetyTests(unittest.TestCase):
@@ -56,6 +57,110 @@ class SafetyTests(unittest.TestCase):
             errors = safety.state_errors(session)
 
             self.assertIn("invalid_round", {blocker.code for blocker in errors})
+
+    def test_repair_scope_assessment_accepts_valid_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = SessionStore(root).load_session(create_session(root, "safe_repair_valid"))
+
+            assessment = safety.assess_repair_scope(session)
+
+            self.assertTrue(assessment.ok)
+
+    def test_repair_scope_assessment_rejects_unusable_integrity_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "safe_repair_unusable")
+            (session_dir / "integrity.json").write_text("{ broken\n", encoding="utf-8")
+            session = SessionStore(root).load_session(session_dir)
+
+            assessment = safety.assess_repair_scope(session)
+
+            self.assertIn("unsafe_integrity_manifest", {blocker.code for blocker in assessment.errors})
+
+    def test_repair_scope_assessment_rejects_cli_owned_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "safe_repair_state")
+            state = store.read_json(session_dir / "state.json")
+            state["phase"] = "work"
+            write_json(session_dir / "state.json", state)
+            session = SessionStore(root).load_session(session_dir)
+
+            assessment = safety.assess_repair_scope(session)
+
+            self.assertIn("unsafe_cli_owned_change", {blocker.code for blocker in assessment.errors})
+
+    def test_repair_scope_assessment_rejects_append_only_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "safe_repair_ledger")
+            (session_dir / "decision-ledger.md").write_text("# Rewritten Ledger\n", encoding="utf-8")
+            session = SessionStore(root).load_session(session_dir)
+
+            assessment = safety.assess_repair_scope(session)
+
+            self.assertIn("unsafe_append_only_change", {blocker.code for blocker in assessment.errors})
+
+    def test_repair_scope_assessment_rejects_managed_prompt_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "safe_repair_prompt")
+            prompt = session_dir / "rounds" / "001" / "prompt.md"
+            prompt.write_text(prompt.read_text(encoding="utf-8").replace("Mode: research", "Mode: build"), encoding="utf-8")
+            session = SessionStore(root).load_session(session_dir)
+
+            assessment = safety.assess_repair_scope(session)
+
+            self.assertIn("unsafe_managed_prefix_change", {blocker.code for blocker in assessment.errors})
+
+    def test_repair_scope_assessment_rejects_human_owned_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "safe_repair_human")
+            (session_dir / "mission.md").write_text("# Mission\n\nChanged.\n", encoding="utf-8")
+            session = SessionStore(root).load_session(session_dir)
+
+            assessment = safety.assess_repair_scope(session)
+
+            self.assertIn("unsafe_human_owned_change", {blocker.code for blocker in assessment.errors})
+
+    def test_repair_scope_assessment_derives_missing_prior_round_files_from_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "safe_repair_history")
+            complete_research_round(session_dir)
+            set_current_round(session_dir, 2)
+            (session_dir / "rounds" / "001" / "evidence.md").unlink()
+            manifest = store.read_json(session_dir / "integrity.json")
+            manifest["entries"] = [entry for entry in manifest["entries"] if entry["path"] != "rounds/001/evidence.md"]
+            write_json(session_dir / "integrity.json", manifest)
+            session = SessionStore(root).load_session(session_dir)
+
+            assessment = safety.assess_repair_scope(session)
+
+            self.assertIn("unsafe_missing_protocol_file", {blocker.code for blocker in assessment.errors})
+            self.assertIn("rounds/001/evidence.md", {blocker.file for blocker in assessment.errors})
+
+    def test_lock_blocker_reports_live_and_stale_locks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock = root / ".lock"
+            process = subprocess.Popen(["sleep", "10"])
+            try:
+                lock.write_text(f"pid={process.pid}\naction=test\ncreated_at_utc=2026-06-29T00:00:00Z\n", encoding="utf-8")
+                live = safety.lock_blocker(lock)
+            finally:
+                process.terminate()
+                process.wait(timeout=5)
+
+            lock.write_text("pid=99999999\naction=test\ncreated_at_utc=2026-06-29T00:00:00Z\n", encoding="utf-8")
+            stale = safety.lock_blocker(lock)
+
+            self.assertIsNotNone(live)
+            self.assertEqual(live.code, "session_locked")
+            self.assertIsNotNone(stale)
+            self.assertEqual(stale.code, "stale_lock")
 
 
 if __name__ == "__main__":
