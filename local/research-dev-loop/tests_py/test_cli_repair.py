@@ -113,7 +113,7 @@ class CliRepairTests(unittest.TestCase):
             root = Path(tmp)
             session_dir = create_session(root, "repair_managed")
             prompt = session_dir / "rounds" / "001" / "prompt.md"
-            prompt.write_text(prompt.read_text(encoding="utf-8").replace("Mode: fixture", "Mode: build"), encoding="utf-8")
+            prompt.write_text(prompt.read_text(encoding="utf-8").replace("Mode: research", "Mode: build"), encoding="utf-8")
 
             code, result = run_cli(root, ["repair", "--json"])
 
