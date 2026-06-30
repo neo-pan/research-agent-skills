@@ -7,7 +7,7 @@ from rdl import integrity, store
 from rdl.protocol import descriptor
 from rdl.session import SessionStore
 
-from rdl_test_support import create_session, refresh_integrity, set_current_round, write_json
+from rdl_test_support import complete_build_round, complete_research_round, create_session, refresh_integrity, set_current_round, write_json
 
 
 class IntegrityTests(unittest.TestCase):
@@ -43,6 +43,35 @@ class IntegrityTests(unittest.TestCase):
 
             self.assertEqual(SessionStore(root).active_session().audit().errors, ())
             self.assertTrue((session_dir / "integrity.json").is_file())
+
+    def test_complete_research_round_refreshes_round_file_manifest_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, mode="research")
+
+            complete_research_round(session_dir)
+
+            manifest = store.read_json(session_dir / "integrity.json")
+            paths = {entry["path"] for entry in manifest["entries"]}
+            self.assertIn("rounds/001/evidence.md", paths)
+            self.assertIn("rounds/001/interpretation.md", paths)
+            self.assertIn("rounds/001/review.md", paths)
+            self.assertIn("rounds/001/decision.md", paths)
+
+    def test_complete_build_round_refreshes_round_file_manifest_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, session_id="build", mode="build")
+
+            complete_build_round(session_dir)
+
+            manifest = store.read_json(session_dir / "integrity.json")
+            paths = {entry["path"] for entry in manifest["entries"]}
+            self.assertIn("rounds/001/intent.md", paths)
+            self.assertIn("rounds/001/work.md", paths)
+            self.assertIn("rounds/001/evidence.md", paths)
+            self.assertIn("rounds/001/review.md", paths)
+            self.assertIn("rounds/001/decision.md", paths)
 
     def test_expected_policies_include_state_required_managed_prompt_when_missing_from_disk(self):
         with tempfile.TemporaryDirectory() as tmp:

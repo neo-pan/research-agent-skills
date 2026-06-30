@@ -18,6 +18,7 @@ def complete_research_round(session_dir: Path, decision: str = "continue") -> No
     (round_dir / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
     (round_dir / "review.md").write_text(complete_review(decision), encoding="utf-8")
     (round_dir / "decision.md").write_text(complete_decision(decision, "claim"), encoding="utf-8")
+    refresh_integrity(session_dir)
 
 
 def set_current_round(session_dir: Path, round_number: int) -> Path:
@@ -52,6 +53,7 @@ def complete_build_round(session_dir: Path, verification: bool = True) -> None:
     (round_dir / "evidence.md").write_text(evidence, encoding="utf-8")
     (round_dir / "review.md").write_text(complete_review("accept"), encoding="utf-8")
     (round_dir / "decision.md").write_text(complete_decision("accept", "capability"), encoding="utf-8")
+    refresh_integrity(session_dir)
 
 
 def write_json(path: Path, data) -> None:
