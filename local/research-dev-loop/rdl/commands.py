@@ -990,4 +990,3 @@ def _missing_from_blockers(blockers: Sequence[Blocker]) -> tuple[str, ...]:
             seen.add(path)
             missing.append(path)
     return tuple(missing)
-
