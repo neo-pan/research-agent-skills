@@ -58,10 +58,20 @@ class DocumentTests(unittest.TestCase):
         blockers = documents.validate("review", Path("/tmp/rdl-missing-review.md"))
         self.assertEqual([blocker.code for blocker in blockers], ["missing_review"])
 
-        with markdown(COMPLETE_REVIEW.replace("Review Mode: manual", "Review Mode: unsupported").replace("Verdict: PASS", "Verdict: MAYBE")) as path:
+        content = (
+            COMPLETE_REVIEW.replace("Review Mode: manual", "Review Mode: unsupported")
+            .replace("Verdict: PASS", "Verdict: MAYBE")
+            .replace("Fresh Evidence: yes", "Fresh Evidence: stale")
+            .replace("Staleness Signal: none", "Staleness Signal: stuck")
+            .replace("Direction Reuse Risk: low", "Direction Reuse Risk: extreme")
+        )
+        with markdown(content) as path:
             codes = {blocker.code for blocker in documents.validate("review", path)}
             self.assertIn("invalid_review_mode", codes)
             self.assertIn("invalid_review_verdict", codes)
+            self.assertIn("invalid_fresh_evidence", codes)
+            self.assertIn("invalid_staleness_signal", codes)
+            self.assertIn("invalid_direction_reuse_risk", codes)
 
     def test_review_validation_blocks_placeholder_fields(self):
         with markdown(COMPLETE_REVIEW.replace("Recommended Decision: continue", "Recommended Decision:")) as path:
@@ -76,12 +86,14 @@ class DocumentTests(unittest.TestCase):
         content = (
             COMPLETE_DECISION.replace("Decision: continue", "Decision: close-unknown")
             .replace("Closes: claim", "Closes: capability")
+            .replace("Direction changed: no", "Direction changed: maybe")
             .replace("Recommended next loop: none", "Recommended next loop: deploy")
         )
         with markdown(content) as path:
             codes = {blocker.code for blocker in documents.validate("decision", path, {"expected_closes": "claim"})}
             self.assertIn("invalid_decision_type", codes)
             self.assertIn("invalid_closes", codes)
+            self.assertIn("invalid_direction_changed", codes)
             self.assertIn("invalid_recommended_next_loop", codes)
 
     def test_decision_validation_blocks_missing_file_and_placeholders(self):
