@@ -25,6 +25,16 @@ class CommandIntent:
     outcome: str | None = None
 
 
+@dataclass(frozen=True)
+class _LockedContext:
+    action: str
+    session: Session
+    state: SessionState
+
+    def refresh_after_mutation(self, phase: str, round_number: int) -> CommandResult | None:
+        return _refresh_after_mutation(self.action, self.session, self.state, phase, round_number)
+
+
 def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "doctor":
         return _doctor()
@@ -350,8 +360,9 @@ def _next() -> CommandResult:
     return _run_locked_session("next", _next_locked)
 
 
-def _next_locked(session: Session) -> CommandResult:
-    state = session.state
+def _next_locked(context: _LockedContext) -> CommandResult:
+    session = context.session
+    state = context.state
 
     blockers = tuple(readiness.check(session, "advance"))
     if blockers:
@@ -374,13 +385,9 @@ def _next_locked(session: Session) -> CommandResult:
             next_action="inspect existing next round",
         )
 
-    try:
-        refreshed = SessionStore.cwd().active_session()
-        if refreshed is None:
-            raise ValueError("active session disappeared after transition")
-        integrity.refresh(refreshed)
-    except Exception as exc:
-        return _integrity_refresh_error("next", state, result.phase, result.round, exc)
+    refresh_error = context.refresh_after_mutation(result.phase, result.round)
+    if refresh_error is not None:
+        return refresh_error
 
     return _state_result(
         "ok",
@@ -396,8 +403,9 @@ def _review() -> CommandResult:
     return _run_locked_session("review", _review_locked)
 
 
-def _review_locked(session: Session) -> CommandResult:
-    state = session.state
+def _review_locked(context: _LockedContext) -> CommandResult:
+    session = context.session
+    state = context.state
     review_file = session.round_dir() / "review.md"
 
     if not review_file.is_file():
@@ -405,10 +413,9 @@ def _review_locked(session: Session) -> CommandResult:
             templates.copy_template("review.md", review_file)
         except Exception as exc:
             return _template_write_error("review", state, str(state.phase), state.round, exc)
-        try:
-            integrity.refresh(SessionStore.cwd().load_session(session.root))
-        except Exception as exc:
-            return _integrity_refresh_error("review", state, str(state.phase), state.round, exc)
+        refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+        if refresh_error is not None:
+            return refresh_error
         return _state_result(
             "ok",
             "review",
@@ -464,11 +471,12 @@ def _decide(decision_type: str | None) -> CommandResult:
             next_action="Use a planned RDL decision type.",
         )
 
-    return _run_locked_session("decide", lambda session: _decide_locked(session, decision_type))
+    return _run_locked_session("decide", lambda context: _decide_locked(context, decision_type))
 
 
-def _decide_locked(session: Session, decision_type: str) -> CommandResult:
-    state = session.state
+def _decide_locked(context: _LockedContext, decision_type: str) -> CommandResult:
+    session = context.session
+    state = context.state
     decision_file = session.round_dir() / "decision.md"
     expected_closes = descriptor.expected_closes(state.mode)
 
@@ -477,10 +485,9 @@ def _decide_locked(session: Session, decision_type: str) -> CommandResult:
             templates.write_decision(decision_file, decision_type, expected_closes)
         except Exception as exc:
             return _template_write_error("decide", state, str(state.phase), state.round, exc)
-        try:
-            integrity.refresh(SessionStore.cwd().load_session(session.root))
-        except Exception as exc:
-            return _integrity_refresh_error("decide", state, str(state.phase), state.round, exc)
+        refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+        if refresh_error is not None:
+            return refresh_error
         return _state_result(
             "ok",
             "decide",
@@ -545,11 +552,12 @@ def _close(outcome: str | None) -> CommandResult:
             next_action="Use rdl close positive, negative, or inconclusive.",
         )
 
-    return _run_locked_session("close", lambda session: _close_locked(session, outcome))
+    return _run_locked_session("close", lambda context: _close_locked(context, outcome))
 
 
-def _close_locked(session: Session, outcome: str) -> CommandResult:
-    state = session.state
+def _close_locked(context: _LockedContext, outcome: str) -> CommandResult:
+    session = context.session
+    state = context.state
     blockers = list(readiness.check(session, "advance"))
     blockers.extend(readiness.check(session, "close", outcome=outcome))
 
@@ -575,10 +583,9 @@ def _close_locked(session: Session, outcome: str) -> CommandResult:
         )
 
     result = transition.close(session, outcome)
-    try:
-        integrity.refresh(SessionStore.cwd().load_session(session.root))
-    except Exception as exc:
-        return _integrity_refresh_error("close", state, result.phase, result.round, exc)
+    refresh_error = context.refresh_after_mutation(result.phase, result.round)
+    if refresh_error is not None:
+        return refresh_error
 
     return _state_result(
         "ok",
@@ -607,17 +614,17 @@ def _abandon(reason_parts: Sequence[str]) -> CommandResult:
             next_action="rdl abandon <reason>",
         )
 
-    return _run_locked_session("abandon", lambda session: _abandon_locked(session, reason))
+    return _run_locked_session("abandon", lambda context: _abandon_locked(context, reason))
 
 
-def _abandon_locked(session: Session, reason: str) -> CommandResult:
-    state = session.state
+def _abandon_locked(context: _LockedContext, reason: str) -> CommandResult:
+    session = context.session
+    state = context.state
 
     result = transition.abandon(session, reason)
-    try:
-        integrity.refresh(SessionStore.cwd().load_session(session.root))
-    except Exception as exc:
-        return _integrity_refresh_error("abandon", state, result.phase, result.round, exc)
+    refresh_error = context.refresh_after_mutation(result.phase, result.round)
+    if refresh_error is not None:
+        return refresh_error
 
     return _state_result(
         "ok",
@@ -668,7 +675,7 @@ def _guard_stop(guard_session_id: str | None, guard_command_id: str | None) -> C
 
     return _run_locked_session(
         "guard-stop",
-        lambda locked_session: _guard_stop_locked(locked_session, guard_session_id, guard_command_id),
+        lambda context: _guard_stop_locked(context.session, guard_session_id, guard_command_id),
         session=session,
         audit=False,
     )
@@ -720,10 +727,9 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
     if (guard_session_id and guard_session_id != state.guard_session_id) or (guard_command_id and guard_command_id != state.last_guard_command_id):
         transition.mark_guard_seen(SessionStore.cwd().load_session(session.root), guard_session_id, guard_command_id)
 
-    try:
-        integrity.refresh(SessionStore.cwd().load_session(session.root))
-    except Exception as exc:
-        return _integrity_refresh_error("guard-stop", state, result.phase, result.round, exc)
+    refresh_error = _refresh_after_mutation("guard-stop", session, state, result.phase, result.round)
+    if refresh_error is not None:
+        return refresh_error
 
     return _state_result(
         "ok",
@@ -746,7 +752,7 @@ def _guard_stop_readiness(session: Session) -> list[Blocker]:
 
 def _run_locked_session(
     action: str,
-    body: Callable[[Session], CommandResult],
+    body: Callable[[_LockedContext], CommandResult],
     *,
     session: Session | None = None,
     audit: bool = True,
@@ -778,7 +784,7 @@ def _run_locked_session(
                         blockers=audit_result.blockers,
                         next_action="complete missing RDL records",
                     )
-            return body(locked_session)
+            return body(_LockedContext(action, locked_session, locked_session.state))
     except SessionLockError as exc:
         return _state_result(
             "blocked",
@@ -871,6 +877,20 @@ def _integrity_refresh_error(
         blockers=(blocker,),
         next_action="repair RDL session metadata",
     )
+
+
+def _refresh_after_mutation(
+    action: str,
+    session: Session,
+    state: SessionState,
+    phase: str,
+    round_number: int,
+) -> CommandResult | None:
+    try:
+        integrity.refresh(SessionStore.cwd().load_session(session.root))
+    except Exception as exc:
+        return _integrity_refresh_error(action, state, phase, round_number, exc)
+    return None
 
 
 def _template_write_error(
