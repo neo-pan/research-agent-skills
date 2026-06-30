@@ -148,16 +148,13 @@ def _start(mode: str | None, mission_file: str | None, session_id: str | None) -
         audit = existing.audit()
         if audit.errors:
             state = existing.state
-            return CommandResult(
-                status="error",
-                action="start",
-                session_id=state.session_id,
-                mode=str(state.mode),
-                phase=str(state.phase),
-                round=state.round if state.round > 0 else 0,
-                missing=_missing_from_blockers(audit.errors),
+            return _state_result(
+                "error",
+                "start",
+                state,
                 blockers=audit.errors,
                 next_action="repair RDL session metadata",
+                round_number=state.round if state.round > 0 else 0,
             )
         state = existing.state
         blocker = Blocker(
@@ -166,14 +163,10 @@ def _start(mode: str | None, mission_file: str | None, session_id: str | None) -
             "An active RDL session already exists.",
             "Run rdl status, then close or abandon the active session before starting another.",
         )
-        return CommandResult(
-            status="blocked",
-            action="start",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers((blocker,)),
+        return _state_result(
+            "blocked",
+            "start",
+            state,
             blockers=(blocker,),
             next_action="rdl status",
         )
@@ -187,13 +180,10 @@ def _start(mode: str | None, mission_file: str | None, session_id: str | None) -
         return _integrity_refresh_error("start", state, "plan", 1, exc)
 
     state = session.state
-    return CommandResult(
-        status="ok",
-        action="start",
-        session_id=state.session_id,
-        mode=str(state.mode),
-        phase=str(state.phase),
-        round=state.round,
+    return _state_result(
+        "ok",
+        "start",
+        state,
         next_action=str(session.round_dir(1) / "prompt.md"),
     )
 
@@ -222,24 +212,18 @@ def _status() -> CommandResult:
     state = session.state
     state_errors = session.state_errors()
     if state_errors:
-        return CommandResult(
-            status="error",
-            action="status",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round if state.round > 0 else 0,
-            missing=_missing_from_blockers(state_errors),
+        return _state_result(
+            "error",
+            "status",
+            state,
             blockers=state_errors,
             next_action="repair RDL session metadata",
+            round_number=state.round if state.round > 0 else 0,
         )
-    return CommandResult(
-        status="ok",
-        action="status",
-        session_id=state.session_id,
-        mode=str(state.mode),
-        phase=str(state.phase),
-        round=state.round,
+    return _state_result(
+        "ok",
+        "status",
+        state,
         next_action=str(state.status),
     )
 
@@ -256,6 +240,30 @@ def _synthetic_state(session_id: str, mode: str) -> SessionState:
     )
 
 
+def _state_result(
+    status: str,
+    action: str,
+    state: SessionState,
+    *,
+    blockers: Sequence[Blocker] = (),
+    next_action: str = "",
+    phase: str | None = None,
+    round_number: int | None = None,
+) -> CommandResult:
+    blocker_tuple = tuple(blockers)
+    return CommandResult(
+        status=status,
+        action=action,
+        session_id=state.session_id,
+        mode=str(state.mode),
+        phase=str(state.phase) if phase is None else str(phase),
+        round=state.round if round_number is None else round_number,
+        missing=_missing_from_blockers(blocker_tuple),
+        blockers=blocker_tuple,
+        next_action=next_action,
+    )
+
+
 def _doctor() -> CommandResult:
     loaded = _active_session_result("doctor")
     if isinstance(loaded, CommandResult):
@@ -265,25 +273,18 @@ def _doctor() -> CommandResult:
     blockers = tuple(readiness.check(session, "doctor-current"))
     state = session.state
     if blockers:
-        return CommandResult(
-            status="blocked",
-            action="doctor",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(blockers),
+        return _state_result(
+            "blocked",
+            "doctor",
+            state,
             blockers=blockers,
             next_action="complete missing RDL records",
         )
 
-    return CommandResult(
-        status="ok",
-        action="doctor",
-        session_id=state.session_id,
-        mode=str(state.mode),
-        phase=str(state.phase),
-        round=state.round,
+    return _state_result(
+        "ok",
+        "doctor",
+        state,
         next_action="rdl review",
     )
 
@@ -297,14 +298,10 @@ def _repair() -> CommandResult:
 
     result = repair.repair(session)
     if result.errors:
-        return CommandResult(
-            status="error",
-            action="repair",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(result.errors),
+        return _state_result(
+            "error",
+            "repair",
+            state,
             blockers=result.errors,
             next_action="restore unsafe files before repair",
         )
@@ -314,14 +311,10 @@ def _repair() -> CommandResult:
             if any(blocker.code in {"session_locked", "stale_lock"} for blocker in result.blockers)
             else "restore unsafe files before repair"
         )
-        return CommandResult(
-            status="blocked",
-            action="repair",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(result.blockers),
+        return _state_result(
+            "blocked",
+            "repair",
+            state,
             blockers=result.blockers,
             next_action=next_action,
         )
@@ -329,37 +322,26 @@ def _repair() -> CommandResult:
     repaired_session = SessionStore.cwd().load_session(session.root)
     audit = repaired_session.audit()
     if audit.errors:
-        return CommandResult(
-            status="error",
-            action="repair",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(audit.errors),
+        return _state_result(
+            "error",
+            "repair",
+            state,
             blockers=audit.errors,
             next_action="inspect repaired session",
         )
     if audit.blockers:
-        return CommandResult(
-            status="blocked",
-            action="repair",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(audit.blockers),
+        return _state_result(
+            "blocked",
+            "repair",
+            state,
             blockers=audit.blockers,
             next_action="inspect repaired session",
         )
 
-    return CommandResult(
-        status="ok",
-        action="repair",
-        session_id=state.session_id,
-        mode=str(state.mode),
-        phase=str(state.phase),
-        round=state.round,
+    return _state_result(
+        "ok",
+        "repair",
+        state,
         next_action=",".join(result.repaired),
     )
 
@@ -373,14 +355,10 @@ def _next_locked(session: Session) -> CommandResult:
 
     blockers = tuple(readiness.check(session, "advance"))
     if blockers:
-        return CommandResult(
-            status="blocked",
-            action="next",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(blockers),
+        return _state_result(
+            "blocked",
+            "next",
+            state,
             blockers=blockers,
             next_action="complete current round review and decision",
         )
@@ -388,14 +366,10 @@ def _next_locked(session: Session) -> CommandResult:
     try:
         result = transition.advance(session)
     except transition.TransitionBlocked as exc:
-        return CommandResult(
-            status="blocked",
-            action="next",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers((exc.blocker,)),
+        return _state_result(
+            "blocked",
+            "next",
+            state,
             blockers=(exc.blocker,),
             next_action="inspect existing next round",
         )
@@ -408,13 +382,12 @@ def _next_locked(session: Session) -> CommandResult:
     except Exception as exc:
         return _integrity_refresh_error("next", state, result.phase, result.round, exc)
 
-    return CommandResult(
-        status="ok",
-        action="next",
-        session_id=state.session_id,
-        mode=str(state.mode),
+    return _state_result(
+        "ok",
+        "next",
+        state,
         phase=result.phase,
-        round=result.round,
+        round_number=result.round,
         next_action=result.next_action,
     )
 
@@ -436,37 +409,27 @@ def _review_locked(session: Session) -> CommandResult:
             integrity.refresh(SessionStore.cwd().load_session(session.root))
         except Exception as exc:
             return _integrity_refresh_error("review", state, str(state.phase), state.round, exc)
-        return CommandResult(
-            status="ok",
-            action="review",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
+        return _state_result(
+            "ok",
+            "review",
+            state,
             next_action=str(review_file),
         )
 
     blockers = tuple(documents.validate("review", review_file))
     if blockers:
-        return CommandResult(
-            status="blocked",
-            action="review",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(blockers),
+        return _state_result(
+            "blocked",
+            "review",
+            state,
             blockers=blockers,
             next_action="complete review.md",
         )
 
-    return CommandResult(
-        status="ok",
-        action="review",
-        session_id=state.session_id,
-        mode=str(state.mode),
-        phase=str(state.phase),
-        round=state.round,
+    return _state_result(
+        "ok",
+        "review",
+        state,
         next_action="rdl decide <decision-type>",
     )
 
@@ -518,13 +481,10 @@ def _decide_locked(session: Session, decision_type: str) -> CommandResult:
             integrity.refresh(SessionStore.cwd().load_session(session.root))
         except Exception as exc:
             return _integrity_refresh_error("decide", state, str(state.phase), state.round, exc)
-        return CommandResult(
-            status="ok",
-            action="decide",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
+        return _state_result(
+            "ok",
+            "decide",
+            state,
             next_action=str(decision_file),
         )
 
@@ -539,25 +499,18 @@ def _decide_locked(session: Session, decision_type: str) -> CommandResult:
             )
         )
     if blockers:
-        return CommandResult(
-            status="blocked",
-            action="decide",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(blockers),
+        return _state_result(
+            "blocked",
+            "decide",
+            state,
             blockers=tuple(blockers),
             next_action="complete decision.md",
         )
 
-    return CommandResult(
-        status="ok",
-        action="decide",
-        session_id=state.session_id,
-        mode=str(state.mode),
-        phase=str(state.phase),
-        round=state.round,
+    return _state_result(
+        "ok",
+        "decide",
+        state,
         next_action="rdl next",
     )
 
@@ -613,14 +566,10 @@ def _close_locked(session: Session, outcome: str) -> CommandResult:
         )
 
     if blockers:
-        return CommandResult(
-            status="blocked",
-            action="close",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(blockers),
+        return _state_result(
+            "blocked",
+            "close",
+            state,
             blockers=tuple(blockers),
             next_action="complete close records",
         )
@@ -631,13 +580,12 @@ def _close_locked(session: Session, outcome: str) -> CommandResult:
     except Exception as exc:
         return _integrity_refresh_error("close", state, result.phase, result.round, exc)
 
-    return CommandResult(
-        status="ok",
-        action="close",
-        session_id=state.session_id,
-        mode=str(state.mode),
+    return _state_result(
+        "ok",
+        "close",
+        state,
         phase=result.phase,
-        round=result.round,
+        round_number=result.round,
         next_action=result.next_action,
     )
 
@@ -671,13 +619,12 @@ def _abandon_locked(session: Session, reason: str) -> CommandResult:
     except Exception as exc:
         return _integrity_refresh_error("abandon", state, result.phase, result.round, exc)
 
-    return CommandResult(
-        status="ok",
-        action="abandon",
-        session_id=state.session_id,
-        mode=str(state.mode),
+    return _state_result(
+        "ok",
+        "abandon",
+        state,
         phase=result.phase,
-        round=result.round,
+        round_number=result.round,
         next_action=result.next_action,
     )
 
@@ -705,23 +652,17 @@ def _guard_stop(guard_session_id: str | None, guard_command_id: str | None) -> C
 
     state = session.state
     if guard_session_id and guard_session_id != state.session_id:
-        return CommandResult(
-            status="ok",
-            action="guard-stop",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
+        return _state_result(
+            "ok",
+            "guard-stop",
+            state,
             next_action="allow",
         )
     if guard_command_id and guard_command_id == state.last_guard_command_id:
-        return CommandResult(
-            status="ok",
-            action="guard-stop",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
+        return _state_result(
+            "ok",
+            "guard-stop",
+            state,
             next_action="allow",
         )
 
@@ -738,40 +679,29 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
 
     audit = session.audit()
     if audit.errors:
-        return CommandResult(
-            status="error",
-            action="guard-stop",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round if state.round > 0 else 0,
-            missing=_missing_from_blockers(audit.errors),
+        return _state_result(
+            "error",
+            "guard-stop",
+            state,
             blockers=audit.errors,
             next_action="block",
+            round_number=state.round if state.round > 0 else 0,
         )
     if audit.blockers:
-        return CommandResult(
-            status="blocked",
-            action="guard-stop",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(audit.blockers),
+        return _state_result(
+            "blocked",
+            "guard-stop",
+            state,
             blockers=audit.blockers,
             next_action="block",
         )
 
     blockers = _guard_stop_readiness(session)
     if blockers:
-        return CommandResult(
-            status="blocked",
-            action="guard-stop",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(blockers),
+        return _state_result(
+            "blocked",
+            "guard-stop",
+            state,
             blockers=tuple(blockers),
             next_action="block",
         )
@@ -779,14 +709,10 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
     try:
         result = transition.from_decision(session)
     except transition.TransitionBlocked as exc:
-        return CommandResult(
-            status="blocked",
-            action="guard-stop",
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers((exc.blocker,)),
+        return _state_result(
+            "blocked",
+            "guard-stop",
+            state,
             blockers=(exc.blocker,),
             next_action="block",
         )
@@ -799,13 +725,12 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
     except Exception as exc:
         return _integrity_refresh_error("guard-stop", state, result.phase, result.round, exc)
 
-    return CommandResult(
-        status="ok",
-        action="guard-stop",
-        session_id=state.session_id,
-        mode=str(state.mode),
+    return _state_result(
+        "ok",
+        "guard-stop",
+        state,
         phase=result.phase,
-        round=result.round,
+        round_number=result.round,
         next_action=result.next_action,
     )
 
@@ -837,41 +762,31 @@ def _run_locked_session(
                 audit_result = locked_session.audit()
                 state = locked_session.state
                 if audit_result.errors:
-                    return CommandResult(
-                        status="error",
-                        action=action,
-                        session_id=state.session_id,
-                        mode=str(state.mode),
-                        phase=str(state.phase),
-                        round=state.round if state.round > 0 else 0,
-                        missing=_missing_from_blockers(audit_result.errors),
+                    return _state_result(
+                        "error",
+                        action,
+                        state,
                         blockers=audit_result.errors,
                         next_action="repair RDL session metadata",
+                        round_number=state.round if state.round > 0 else 0,
                     )
                 if audit_result.blockers:
-                    return CommandResult(
-                        status="blocked",
-                        action=action,
-                        session_id=state.session_id,
-                        mode=str(state.mode),
-                        phase=str(state.phase),
-                        round=state.round,
-                        missing=_missing_from_blockers(audit_result.blockers),
+                    return _state_result(
+                        "blocked",
+                        action,
+                        state,
                         blockers=audit_result.blockers,
                         next_action="complete missing RDL records",
                     )
             return body(locked_session)
     except SessionLockError as exc:
-        return CommandResult(
-            status="blocked",
-            action=action,
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round if state.round > 0 else 0,
-            missing=_missing_from_blockers((exc.blocker,)),
+        return _state_result(
+            "blocked",
+            action,
+            state,
             blockers=(exc.blocker,),
             next_action="retry after lock clears",
+            round_number=state.round if state.round > 0 else 0,
         )
 
 
@@ -914,26 +829,19 @@ def _active_session_result(action: str, audit: bool = True) -> Session | Command
     audit = session.audit()
     state = session.state
     if audit.errors:
-        return CommandResult(
-            status="error",
-            action=action,
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round if state.round > 0 else 0,
-            missing=_missing_from_blockers(audit.errors),
+        return _state_result(
+            "error",
+            action,
+            state,
             blockers=audit.errors,
             next_action="repair RDL session metadata",
+            round_number=state.round if state.round > 0 else 0,
         )
     if audit.blockers:
-        return CommandResult(
-            status="blocked",
-            action=action,
-            session_id=state.session_id,
-            mode=str(state.mode),
-            phase=str(state.phase),
-            round=state.round,
-            missing=_missing_from_blockers(audit.blockers),
+        return _state_result(
+            "blocked",
+            action,
+            state,
             blockers=audit.blockers,
             next_action="complete missing RDL records",
         )
@@ -954,14 +862,12 @@ def _integrity_refresh_error(
         f"Integrity refresh failed: {exc}",
         "Inspect the session and run rdl repair when available.",
     )
-    return CommandResult(
-        status="error",
-        action=action,
-        session_id=state.session_id,
-        mode=str(state.mode),
+    return _state_result(
+        "error",
+        action,
+        state,
         phase=phase,
-        round=round_number,
-        missing=_missing_from_blockers((blocker,)),
+        round_number=round_number,
         blockers=(blocker,),
         next_action="repair RDL session metadata",
     )
@@ -980,14 +886,12 @@ def _template_write_error(
         f"Template write failed: {exc}",
         "Inspect RDL templates and retry the command.",
     )
-    return CommandResult(
-        status="error",
-        action=action,
-        session_id=state.session_id,
-        mode=str(state.mode),
+    return _state_result(
+        "error",
+        action,
+        state,
         phase=phase,
-        round=round_number,
-        missing=_missing_from_blockers((blocker,)),
+        round_number=round_number,
         blockers=(blocker,),
         next_action="repair RDL templates",
     )
