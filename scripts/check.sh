@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANIFEST="${ROOT_DIR}/selected-skills.conf"
+
+source "${ROOT_DIR}/scripts/lib/selected_skills.sh"
 
 usage() {
   cat <<'EOF'
@@ -30,45 +31,10 @@ if [[ "$#" -gt 1 ]]; then
   exit 2
 fi
 
-UPSTREAM_PATH="$(git config --file "${MANIFEST}" --get upstream.mattpocock.path)"
-UPSTREAM_DIR="${ROOT_DIR}/${UPSTREAM_PATH}"
+selected_skills_load "${ROOT_DIR}"
+selected_skills_validate_manifest
 
-if [[ ! -d "${UPSTREAM_DIR}/.git" && ! -f "${UPSTREAM_DIR}/.git" ]]; then
-  echo "Missing upstream submodule: ${UPSTREAM_DIR}" >&2
-  exit 1
-fi
-
-mapfile -t selected_skills < <(git config --file "${MANIFEST}" --get-all upstream.mattpocock.skill || true)
-mapfile -t local_skills < <(git config --file "${MANIFEST}" --get-all local.skill || true)
-
-missing=0
-for skill_path in "${selected_skills[@]}"; do
-  skill_dir="${UPSTREAM_DIR}/${skill_path}"
-  if [[ ! -d "${skill_dir}" ]]; then
-    echo "upstream: missing directory ${skill_dir}" >&2
-    missing=1
-  elif [[ ! -f "${skill_dir}/SKILL.md" ]]; then
-    echo "upstream: missing SKILL.md ${skill_dir}/SKILL.md" >&2
-    missing=1
-  fi
-done
-
-for skill_path in "${local_skills[@]}"; do
-  skill_dir="${ROOT_DIR}/${skill_path}"
-  if [[ ! -d "${skill_dir}" ]]; then
-    echo "local: missing directory ${skill_dir}" >&2
-    missing=1
-  elif [[ ! -f "${skill_dir}/SKILL.md" ]]; then
-    echo "local: missing SKILL.md ${skill_dir}/SKILL.md" >&2
-    missing=1
-  fi
-done
-
-if [[ "${missing}" -ne 0 ]]; then
-  exit 1
-fi
-
-total_count=$((${#selected_skills[@]} + ${#local_skills[@]}))
+total_count="$(selected_skills_count)"
 echo "Manifest ok: ${total_count} skills"
 
 "${ROOT_DIR}/scripts/link_selected_skills.sh" >/dev/null
@@ -86,6 +52,10 @@ if [[ "${broken_links}" -ne 0 ]]; then
 fi
 
 echo "Skill links ok"
+
+bash "${ROOT_DIR}/tests/check-selected-skills-module.sh" >/dev/null
+
+echo "Selected skills module ok"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Missing python3: RDL Python tests require python3 for repository checks." >&2
