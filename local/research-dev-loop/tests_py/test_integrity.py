@@ -51,8 +51,7 @@ class IntegrityTests(unittest.TestCase):
 
             complete_research_round(session_dir)
 
-            manifest = store.read_json(session_dir / "integrity.json")
-            paths = {entry["path"] for entry in manifest["entries"]}
+            paths = _manifest_paths(session_dir)
             self.assertIn("rounds/001/evidence.md", paths)
             self.assertIn("rounds/001/interpretation.md", paths)
             self.assertIn("rounds/001/review.md", paths)
@@ -65,8 +64,7 @@ class IntegrityTests(unittest.TestCase):
 
             complete_build_round(session_dir)
 
-            manifest = store.read_json(session_dir / "integrity.json")
-            paths = {entry["path"] for entry in manifest["entries"]}
+            paths = _manifest_paths(session_dir)
             self.assertIn("rounds/001/intent.md", paths)
             self.assertIn("rounds/001/work.md", paths)
             self.assertIn("rounds/001/evidence.md", paths)
@@ -188,6 +186,11 @@ class IntegrityTests(unittest.TestCase):
             manifest = store.read_json(session.root / "integrity.json")
             self.assertNotIn("rounds/abc/prompt.md", {entry["path"] for entry in manifest["entries"]})
             self.assertEqual(SessionStore(root).active_session().audit().errors, ())
+
+
+def _manifest_paths(session_dir: Path) -> set[str]:
+    manifest = store.read_json(session_dir / "integrity.json")
+    return {entry["path"] for entry in manifest["entries"]}
 
 
 if __name__ == "__main__":
