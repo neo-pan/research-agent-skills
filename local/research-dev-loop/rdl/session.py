@@ -29,8 +29,6 @@ class Session:
         return self.root / "rounds" / f"{round_number:03d}"
 
     def state_errors(self) -> tuple[Blocker, ...]:
-        if self.state_error is not None:
-            return (self.state_error,)
         return safety.state_errors(self)
 
     def audit(self) -> AuditResult:
