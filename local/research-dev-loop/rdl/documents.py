@@ -128,6 +128,36 @@ def _validate_review(path: Path) -> list[Blocker]:
                 "Use PASS, PASS_WITH_NOTES, BLOCKED, or INCONCLUSIVE.",
             )
         )
+    fresh_evidence = field(path, "Fresh Evidence")
+    if spec is None or fresh_evidence not in spec.values_for_field("Fresh Evidence"):
+        blockers.append(
+            Blocker(
+                "invalid_fresh_evidence",
+                f"{path}#Fresh Evidence",
+                "Fresh Evidence is unsupported.",
+                "Use yes, mixed, or no.",
+            )
+        )
+    staleness_signal = field(path, "Staleness Signal")
+    if spec is None or staleness_signal not in spec.values_for_field("Staleness Signal"):
+        blockers.append(
+            Blocker(
+                "invalid_staleness_signal",
+                f"{path}#Staleness Signal",
+                "Staleness Signal is unsupported.",
+                "Use none, possible, or repeated.",
+            )
+        )
+    direction_reuse_risk = field(path, "Direction Reuse Risk")
+    if spec is None or direction_reuse_risk not in spec.values_for_field("Direction Reuse Risk"):
+        blockers.append(
+            Blocker(
+                "invalid_direction_reuse_risk",
+                f"{path}#Direction Reuse Risk",
+                "Direction Reuse Risk is unsupported.",
+                "Use low, medium, or high.",
+            )
+        )
     return blockers
 
 
@@ -187,6 +217,16 @@ def _validate_decision(path: Path, context: dict[str, Any]) -> list[Blocker]:
                 f"{path}#Recommended next loop",
                 "Recommended next loop is unsupported.",
                 "Use research, build, or none.",
+            )
+        )
+    direction_changed = field(path, "Direction changed")
+    if spec is None or direction_changed not in spec.values_for_field("Direction changed"):
+        blockers.append(
+            Blocker(
+                "invalid_direction_changed",
+                f"{path}#Direction changed",
+                "Direction changed is unsupported.",
+                "Use yes, no, or closing.",
             )
         )
     return blockers

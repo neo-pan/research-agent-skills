@@ -42,7 +42,16 @@ checks, RDL Python tests, and repository prerequisite checks.
 - Keep one active RDL session per repository.
 - Record evidence before advancing or closing decisions.
 - Separate research claim closure from research capability closure.
+- Treat `.rdl/sessions/<session-id>/` as the recoverable state; do not depend on
+  conversation memory for claims, evidence, open questions, or next steps.
+- In every review, record whether the round produced fresh evidence and whether
+  the current direction is becoming stale.
+- When staleness appears, continue only with an explicit stall response, or
+  change direction with prior directions checked.
 - Index artifacts in `artifact-manifest.json`; do not copy project artifacts.
 - Keep markdown templates as the protocol surface.
-- Avoid Humanize-style process captivity, broad shell validators, git gates,
-  mandatory external review, and project-specific recovery rules.
+- Keep guarded operation as thin transport only; RDL may record guard metadata
+  but must not become a watchdog, experiment runner, git gate, or runtime
+  supervisor.
+- Avoid Humanize-style process captivity, broad shell validators, mandatory
+  external review, and project-specific recovery rules.

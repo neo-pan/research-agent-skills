@@ -67,6 +67,9 @@ class ProtocolDescriptorTests(unittest.TestCase):
                 "Implementation Findings",
                 "Evaluation Integrity Findings",
                 "Overclaim Risks",
+                "Fresh Evidence",
+                "Staleness Signal",
+                "Direction Reuse Risk",
                 "Readiness Level",
                 "Recommended Decision",
             ),
@@ -80,13 +83,16 @@ class ProtocolDescriptorTests(unittest.TestCase):
                 "Uncertainty",
                 "What this rules out",
                 "What remains unknown",
+                "Direction changed",
+                "Prior directions checked",
+                "Stall response",
                 "Recommended next loop",
                 "Next smallest step",
             ),
         )
         self.assertEqual(
             descriptor.required_sections("progress"),
-            ("Active", "Completed", "Blocked", "Deferred", "Open Questions"),
+            ("Active", "Completed", "Blocked", "Deferred", "Open Questions", "Directions Tried", "Staleness Watch"),
         )
         self.assertEqual(
             descriptor.required_sections("final-report"),
@@ -98,6 +104,7 @@ class ProtocolDescriptorTests(unittest.TestCase):
                 "Negative, Null, or Inconclusive Results",
                 "Open Questions",
                 "Deferred Items",
+                "Directions Tried And Stall Responses",
                 "Reusable Lessons",
                 "Close Checklist",
             ),
@@ -161,6 +168,7 @@ class ProtocolDescriptorTests(unittest.TestCase):
                 "review",
                 "decision",
                 "review-decision-alignment",
+                "staleness-response",
                 "mode-minimums",
                 "round-evidence-discipline",
                 "artifact-citations",

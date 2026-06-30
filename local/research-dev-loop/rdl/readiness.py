@@ -42,6 +42,8 @@ def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocke
         return documents.validate("decision", round_dir / "decision.md", {"expected_closes": expected_closes})
     if rule == "review-decision-alignment":
         return _validate_review_decision_alignment(round_dir)
+    if rule == "staleness-response":
+        return _validate_staleness_response(round_dir)
     if rule == "mode-minimums":
         return _validate_mode_round_minimums(session.state.mode, round_dir)
     if rule == "round-evidence-discipline":
@@ -110,6 +112,43 @@ def _validate_review_not_blocked(review_file: Path, decision: str) -> list[Block
         return [_blocked_review_blocker(review_file)]
     if decision != "close-inconclusive" and _blocking_review_gaps(gaps):
         return [_blocked_review_blocker(review_file)]
+    return []
+
+
+def _validate_staleness_response(round_dir: Path) -> list[Blocker]:
+    review_file = round_dir / "review.md"
+    decision_file = round_dir / "decision.md"
+    if not review_file.is_file() or not decision_file.is_file():
+        return []
+    staleness = documents.field(review_file, "Staleness Signal")
+    reuse_risk = documents.field(review_file, "Direction Reuse Risk")
+    fresh_evidence = documents.field(review_file, "Fresh Evidence")
+    direction_changed = documents.field(decision_file, "Direction changed")
+    decision = documents.field(decision_file, "Decision")
+    stall_response = documents.field(decision_file, "Stall response")
+
+    stale = staleness in {"possible", "repeated"} or reuse_risk == "high" or fresh_evidence == "no"
+    closing_or_redirecting = direction_changed in {"yes", "closing"} or decision in {
+        "pivot",
+        "narrow",
+        "broaden",
+        "diagnose",
+        "build",
+        "profile",
+        "rerun",
+        "close-positive",
+        "close-negative",
+        "close-inconclusive",
+    }
+    if stale and not closing_or_redirecting and not _meaningful(stall_response):
+        return [
+            Blocker(
+                "missing_staleness_response",
+                f"{decision_file}#Stall response",
+                "Possible research staleness requires an explicit continue justification or direction change.",
+                "Record a stall response, change direction, or close the session.",
+            )
+        ]
     return []
 
 

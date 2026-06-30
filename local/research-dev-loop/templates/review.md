@@ -11,6 +11,8 @@ Blocking Evidence Gaps:
 Implementation Findings:
 Evaluation Integrity Findings:
 Overclaim Risks:
+Fresh Evidence: yes | mixed | no
+Staleness Signal: none | possible | repeated
+Direction Reuse Risk: low | medium | high
 Readiness Level:
 Recommended Decision:
-

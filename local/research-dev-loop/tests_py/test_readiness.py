@@ -201,6 +201,64 @@ class ReadinessTests(unittest.TestCase):
                     codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
                     self.assertNotIn("blocked_review", codes)
 
+    def test_advance_blocks_stale_continue_without_stall_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research")
+            complete_research_round(session_dir, decision="continue")
+            round_dir = session_dir / "rounds" / "001"
+            review_file = round_dir / "review.md"
+            decision_file = round_dir / "decision.md"
+            review_file.write_text(
+                review_file.read_text(encoding="utf-8")
+                .replace("Fresh Evidence: yes", "Fresh Evidence: no")
+                .replace("Staleness Signal: none", "Staleness Signal: repeated")
+                .replace("Direction Reuse Risk: low", "Direction Reuse Risk: high"),
+                encoding="utf-8",
+            )
+            decision_file.write_text(
+                decision_file.read_text(encoding="utf-8").replace("Stall response: no staleness signal", "Stall response:"),
+                encoding="utf-8",
+            )
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+            self.assertIn("missing_staleness_response", codes)
+
+    def test_doctor_current_blocks_stale_continue_without_stall_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research")
+            complete_research_round(session_dir, decision="continue")
+            round_dir = session_dir / "rounds" / "001"
+            review_file = round_dir / "review.md"
+            decision_file = round_dir / "decision.md"
+            review_file.write_text(
+                review_file.read_text(encoding="utf-8")
+                .replace("Fresh Evidence: yes", "Fresh Evidence: no")
+                .replace("Staleness Signal: none", "Staleness Signal: repeated"),
+                encoding="utf-8",
+            )
+            decision_file.write_text(
+                decision_file.read_text(encoding="utf-8").replace("Stall response: no staleness signal", "Stall response:"),
+                encoding="utf-8",
+            )
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+            self.assertIn("missing_staleness_response", codes)
+
+    def test_advance_allows_stale_continue_with_stall_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research")
+            complete_research_round(session_dir, decision="continue")
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(
+                review_file.read_text(encoding="utf-8")
+                .replace("Fresh Evidence: yes", "Fresh Evidence: mixed")
+                .replace("Staleness Signal: none", "Staleness Signal: possible"),
+                encoding="utf-8",
+            )
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+            self.assertNotIn("missing_staleness_response", codes)
+
 
 def close_ready_session(root: Path, decision: str, outcome: str) -> Path:
     session_dir = create_session(root, mode="research")
@@ -248,6 +306,14 @@ none
 | Question | Owner | Blocking | Resolution |
 |---|---|---|---|
 | unresolved risk | team | yes | - |
+
+## Directions Tried
+
+none
+
+## Staleness Watch
+
+none
 """
 
 
@@ -275,6 +341,14 @@ none
 | Question | Owner | Blocking? | Resolution |
 |---|---|---|---|
 | unresolved risk | team | yes | - |
+
+## Directions Tried
+
+none
+
+## Staleness Watch
+
+none
 """
 
 
@@ -302,6 +376,14 @@ none
 
 | Question | Owner | Blocking | Resolution |
 |---|---|---|---|
+
+## Directions Tried
+
+none
+
+## Staleness Watch
+
+none
 """
 
 

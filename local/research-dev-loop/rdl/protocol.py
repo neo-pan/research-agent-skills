@@ -69,6 +69,9 @@ MODE_SPECS = {
 VALUE_SETS = {
     "review-mode": ("manual", "checklist", "phase-review", "subagent", "project-adapter"),
     "review-verdict": ("PASS", "PASS_WITH_NOTES", "BLOCKED", "INCONCLUSIVE"),
+    "fresh-evidence": ("yes", "mixed", "no"),
+    "staleness-signal": ("none", "possible", "repeated"),
+    "direction-reuse-risk": ("low", "medium", "high"),
     "decision-type": (
         "continue",
         "pivot",
@@ -86,6 +89,7 @@ VALUE_SETS = {
     ),
     "close-outcome": ("positive", "negative", "inconclusive"),
     "recommended-next-loop": ("research", "build", "none"),
+    "direction-changed": ("yes", "no", "closing"),
 }
 
 DOCUMENT_SPECS = {
@@ -102,12 +106,18 @@ DOCUMENT_SPECS = {
             "Implementation Findings",
             "Evaluation Integrity Findings",
             "Overclaim Risks",
+            "Fresh Evidence",
+            "Staleness Signal",
+            "Direction Reuse Risk",
             "Readiness Level",
             "Recommended Decision",
         ),
         allowed_values={
             "Review Mode": VALUE_SETS["review-mode"],
             "Verdict": VALUE_SETS["review-verdict"],
+            "Fresh Evidence": VALUE_SETS["fresh-evidence"],
+            "Staleness Signal": VALUE_SETS["staleness-signal"],
+            "Direction Reuse Risk": VALUE_SETS["direction-reuse-risk"],
         },
     ),
     "decision": DocumentSpec(
@@ -118,12 +128,16 @@ DOCUMENT_SPECS = {
             "Uncertainty",
             "What this rules out",
             "What remains unknown",
+            "Direction changed",
+            "Prior directions checked",
+            "Stall response",
             "Recommended next loop",
             "Next smallest step",
         ),
         allowed_values={
             "Decision": VALUE_SETS["decision-type"],
             "Recommended next loop": VALUE_SETS["recommended-next-loop"],
+            "Direction changed": VALUE_SETS["direction-changed"],
         },
     ),
     "final-report": DocumentSpec(
@@ -135,12 +149,13 @@ DOCUMENT_SPECS = {
             "Negative, Null, or Inconclusive Results",
             "Open Questions",
             "Deferred Items",
+            "Directions Tried And Stall Responses",
             "Reusable Lessons",
             "Close Checklist",
         ),
     ),
     "progress": DocumentSpec(
-        required_sections=("Active", "Completed", "Blocked", "Deferred", "Open Questions"),
+        required_sections=("Active", "Completed", "Blocked", "Deferred", "Open Questions", "Directions Tried", "Staleness Watch"),
     ),
 }
 
@@ -148,6 +163,7 @@ READINESS_PLANS = {
     "doctor-current": (
         "review",
         "decision",
+        "staleness-response",
         "mode-minimums",
         "round-evidence-discipline",
         "artifact-citations",
@@ -157,6 +173,7 @@ READINESS_PLANS = {
         "review",
         "decision",
         "review-decision-alignment",
+        "staleness-response",
         "mode-minimums",
         "round-evidence-discipline",
         "artifact-citations",
@@ -165,6 +182,7 @@ READINESS_PLANS = {
         "review",
         "decision",
         "review-decision-alignment",
+        "staleness-response",
         "mode-minimums",
         "round-evidence-discipline",
         "artifact-citations",

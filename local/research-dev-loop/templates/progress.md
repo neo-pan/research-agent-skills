@@ -25,3 +25,12 @@
 | Question | Owner | Blocking? | Resolution |
 |---|---|---|---|
 
+## Directions Tried
+
+| Direction | Rounds | Outcome | Why Not Repeat |
+|---|---|---|---|
+
+## Staleness Watch
+
+| Signal | Evidence | Response |
+|---|---|---|

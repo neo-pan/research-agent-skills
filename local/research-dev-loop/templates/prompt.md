@@ -8,6 +8,8 @@ Previous Decision: {{PREVIOUS_DECISION}}
 Required Files: {{REQUIRED_FILES}}
 Open Questions:
 Known Evidence Gaps:
+Directions Tried:
+Staleness Watch:
 Expected Exit Decision: {{EXPECTED_EXIT_DECISION}}
 <!-- /rdl:managed -->
 

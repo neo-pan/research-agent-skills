@@ -176,6 +176,9 @@ Blocking Evidence Gaps: none
 Implementation Findings: none
 Evaluation Integrity Findings: acceptable
 Overclaim Risks: bounded
+Fresh Evidence: yes
+Staleness Signal: none
+Direction Reuse Risk: low
 Readiness Level: ready
 Recommended Decision: continue
 """
@@ -189,6 +192,9 @@ Evidence: E1 fixture evidence
 Uncertainty: bounded
 What this rules out: unsupported alternatives
 What remains unknown: later work
+Direction changed: no
+Prior directions checked: fixture prior directions checked
+Stall response: no staleness signal
 Recommended next loop: none
 Next smallest step: continue same mode
 """
@@ -223,6 +229,10 @@ No blocking open questions remain.
 ## Deferred Items
 
 Deferred fixture follow-up has a revisit trigger.
+
+## Directions Tried And Stall Responses
+
+No repeated directions.
 
 ## Reusable Lessons
 
@@ -260,6 +270,16 @@ COMPLETE_PROGRESS = """# Progress
 
 | Question | Owner | Blocking? | Resolution |
 |---|---|---|---|
+
+## Directions Tried
+
+| Direction | Rounds | Outcome | Why Not Repeat |
+|---|---|---|---|
+
+## Staleness Watch
+
+| Signal | Evidence | Response |
+|---|---|---|
 """
 
 

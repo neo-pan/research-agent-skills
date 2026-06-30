@@ -153,4 +153,12 @@ none
 | Question | Owner | Blocking | Resolution |
 |---|---|---|---|
 | unresolved risk | team | yes | - |
+
+## Directions Tried
+
+none
+
+## Staleness Watch
+
+none
 """

@@ -14,6 +14,8 @@
 
 ## Deferred Items
 
+## Directions Tried And Stall Responses
+
 ## Reusable Lessons
 
 ## Close Checklist
@@ -25,4 +27,4 @@
 - [ ] Negative, null, or inconclusive results are preserved.
 - [ ] Open questions are answered or carried forward explicitly.
 - [ ] Deferred items have revisit triggers.
-
+- [ ] Tried directions and stall responses are preserved.

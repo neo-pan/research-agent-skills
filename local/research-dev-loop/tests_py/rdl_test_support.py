@@ -75,6 +75,9 @@ Blocking Evidence Gaps: none
 Implementation Findings: none
 Evaluation Integrity Findings: acceptable
 Overclaim Risks: bounded
+Fresh Evidence: yes
+Staleness Signal: none
+Direction Reuse Risk: low
 Readiness Level: ready
 Recommended Decision: {decision}
 """
@@ -89,6 +92,9 @@ Evidence: fixture evidence
 Uncertainty: bounded
 What this rules out: unsupported alternatives
 What remains unknown: later work
+Direction changed: no
+Prior directions checked: fixture prior directions checked
+Stall response: no staleness signal
 Recommended next loop: none
 Next smallest step: continue same mode
 """
@@ -125,6 +131,10 @@ none
 
 none
 
+## Directions Tried And Stall Responses
+
+none
+
 ## Reusable Lessons
 
 none
@@ -156,6 +166,14 @@ No deferred items.
 ## Open Questions
 
 No open questions.
+
+## Directions Tried
+
+No repeated directions yet.
+
+## Staleness Watch
+
+No staleness signal.
 """
 
 
