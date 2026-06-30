@@ -2,6 +2,19 @@
 
 Personal skill pack for research engineering workflows across local projects.
 
+## Install Contract
+
+When installing this repository from a GitHub URL, treat the repository root as
+the only installation entry point.
+
+1. Clone the repository with submodules initialized.
+2. Run `./scripts/link_selected_skills.sh`.
+3. Install from `skills/` or run `./scripts/install_selected_skills.sh`.
+
+Do not install directly from any subdirectory under `upstream/`. The upstream
+submodule contains many skills that are intentionally not exposed by this
+repository.
+
 This repository pins external skill sources with git submodules and exposes a
 small selected set through local symlinks. It is intended for project
 development, experiment orchestration, debugging, architecture, and handoff

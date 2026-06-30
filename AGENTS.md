@@ -3,6 +3,16 @@
 This repository is a personal skill pack for research engineering workflows
 across local projects.
 
+## Installer Contract
+
+- Treat the repository root as the only installation entry point.
+- Install only after `git submodule update --init --recursive` and
+  `./scripts/link_selected_skills.sh`.
+- Install from generated `skills/` symlinks, or use
+  `./scripts/install_selected_skills.sh <target-skills-dir>`.
+- Never install by recursively scanning `upstream/` or by using
+  `upstream/mattpocock-skills` as the repository root.
+
 ## Repository Rules
 
 - Keep this repository generic. Do not add project-specific benchmark rules,

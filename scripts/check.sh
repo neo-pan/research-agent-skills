@@ -57,6 +57,10 @@ bash "${ROOT_DIR}/tests/check-selected-skills-module.sh" >/dev/null
 
 echo "Selected skills module ok"
 
+bash "${ROOT_DIR}/tests/check-upstream-install-guard.sh" >/dev/null
+
+echo "Upstream install guard ok"
+
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Missing python3: RDL Python tests require python3 for repository checks." >&2
   exit 1
