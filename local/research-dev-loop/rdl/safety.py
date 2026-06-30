@@ -105,6 +105,8 @@ def audit(session: Any) -> AuditResult:
 
 
 def state_errors(session: Any) -> tuple[Blocker, ...]:
+    if session.state_error is not None:
+        return (session.state_error,)
     errors: list[Blocker] = []
     _validate_state_values(session.root / "state.json", session.state, errors, session.raw_state)
     return tuple(errors)

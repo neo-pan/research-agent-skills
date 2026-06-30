@@ -58,6 +58,29 @@ class SafetyTests(unittest.TestCase):
 
             self.assertIn("invalid_round", {blocker.code for blocker in errors})
 
+    def test_state_errors_returns_missing_state_load_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = root / ".rdl" / "sessions" / "missing_state"
+            session_dir.mkdir(parents=True)
+            session = SessionStore(root).load_session(session_dir)
+
+            errors = safety.state_errors(session)
+
+            self.assertEqual({blocker.code for blocker in errors}, {"missing_state"})
+
+    def test_state_errors_returns_invalid_state_json_load_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = root / ".rdl" / "sessions" / "invalid_state"
+            session_dir.mkdir(parents=True)
+            (session_dir / "state.json").write_text("{ broken\n", encoding="utf-8")
+            session = SessionStore(root).load_session(session_dir)
+
+            errors = safety.state_errors(session)
+
+            self.assertEqual({blocker.code for blocker in errors}, {"invalid_state_json"})
+
     def test_repair_scope_assessment_accepts_valid_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
