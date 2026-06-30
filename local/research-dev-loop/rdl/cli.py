@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from . import documents, integrity, readiness, repair, templates, transition
@@ -22,6 +22,20 @@ class RdlArgumentParser(argparse.ArgumentParser):
 
 class RdlParserError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class CommandIntent:
+    command: str
+    json_output: bool = False
+    mode: str | None = None
+    mission_file: str | None = None
+    session_id: str | None = None
+    decision_type: str | None = None
+    guard_session_id: str | None = None
+    guard_command_id: str | None = None
+    reason_parts: tuple[str, ...] = ()
+    outcome: str | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -103,98 +117,77 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    if args.command == "doctor":
+    intent = _command_intent(args)
+    result = _execute_intent(intent)
+    _emit(result, json_output=intent.json_output)
+    return _exit_code(result)
+
+
+def _command_intent(args: argparse.Namespace) -> CommandIntent:
+    return CommandIntent(
+        command=args.command,
+        json_output=bool(getattr(args, "json", False)),
+        mode=getattr(args, "mode", None),
+        mission_file=getattr(args, "mission_file", None),
+        session_id=getattr(args, "session_id", None),
+        decision_type=getattr(args, "decision_type", None),
+        guard_session_id=getattr(args, "guard_session_id", None),
+        guard_command_id=getattr(args, "guard_command_id", None),
+        reason_parts=tuple(getattr(args, "reason", ()) or ()),
+        outcome=getattr(args, "outcome", None),
+    )
+
+
+def _execute_intent(intent: CommandIntent) -> CommandResult:
+    if intent.command == "doctor":
         result = _doctor()
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+        return result
 
-    if args.command == "start":
-        result = _start(args.mode, args.mission_file, args.session_id)
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+    if intent.command == "start":
+        result = _start(intent.mode, intent.mission_file, intent.session_id)
+        return result
 
-    if args.command == "status":
+    if intent.command == "status":
         result = _status()
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+        return result
 
-    if args.command == "repair":
+    if intent.command == "repair":
         result = _repair()
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+        return result
 
-    if args.command == "next":
+    if intent.command == "next":
         result = _next()
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+        return result
 
-    if args.command == "close":
-        result = _close(args.outcome)
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+    if intent.command == "close":
+        result = _close(intent.outcome)
+        return result
 
-    if args.command == "abandon":
-        result = _abandon(args.reason)
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+    if intent.command == "abandon":
+        result = _abandon(intent.reason_parts)
+        return result
 
-    if args.command == "guard-stop":
-        result = _guard_stop(args.guard_session_id, args.guard_command_id)
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+    if intent.command == "guard-stop":
+        result = _guard_stop(intent.guard_session_id, intent.guard_command_id)
+        return result
 
-    if args.command == "review":
+    if intent.command == "review":
         result = _review()
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+        return result
 
-    if args.command == "decide":
-        result = _decide(args.decision_type)
-        _emit(result, json_output=args.json)
-        if result.status == "error":
-            return 1
-        if result.status == "blocked":
-            return 2
-        return 0
+    if intent.command == "decide":
+        result = _decide(intent.decision_type)
+        return result
 
-    parser.error(f"unsupported command: {args.command!r}")
-    return 2
+    raise RdlParserError(f"unsupported command: {intent.command!r}")
+
+
+def _exit_code(result: CommandResult) -> int:
+    if result.status == "error":
+        return 1
+    if result.status == "blocked":
+        return 2
+    return 0
 
 
 def _parser_error_result(argv: Sequence[str], message: str) -> CommandResult:
