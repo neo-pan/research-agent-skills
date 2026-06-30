@@ -160,4 +160,10 @@ if grep -q 'upstream/mattpocock-skills' "${ROOT_DIR}/scripts/update_upstream.sh"
   fail "update_upstream.sh still hardcodes upstream/mattpocock-skills"
 fi
 
+pull_line="$(grep -n 'pull --ff-only' "${ROOT_DIR}/scripts/update_upstream.sh" | cut -d: -f1)"
+validation_line="$(grep -n 'selected_skills_validate_manifest' "${ROOT_DIR}/scripts/update_upstream.sh" | cut -d: -f1)"
+if [[ -z "${pull_line}" || -z "${validation_line}" || "${validation_line}" -le "${pull_line}" ]]; then
+  fail "update_upstream.sh must run full selected skill validation after pulling upstream"
+fi
+
 echo "Selected skills module ok"

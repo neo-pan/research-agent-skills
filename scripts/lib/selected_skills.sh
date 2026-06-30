@@ -52,6 +52,20 @@ selected_skills_upstream_dir() {
   echo "${SELECTED_SKILLS_UPSTREAM_DIR}"
 }
 
+selected_skills_validate_upstream_path() {
+  if [[ ! -f "${SELECTED_SKILLS_MANIFEST}" ]]; then
+    echo "Missing selected skill manifest: ${SELECTED_SKILLS_MANIFEST}" >&2
+    return 1
+  fi
+
+  if [[ -z "${SELECTED_SKILLS_UPSTREAM_PATH}" ]]; then
+    echo "Missing upstream.mattpocock.path in ${SELECTED_SKILLS_MANIFEST}" >&2
+    return 1
+  fi
+
+  return 0
+}
+
 selected_skills_each() {
   if [[ "$#" -ne 1 ]]; then
     echo "selected_skills_each requires callback function name" >&2
@@ -72,13 +86,7 @@ selected_skills_each() {
 selected_skills_validate_manifest() {
   local errors=0
 
-  if [[ ! -f "${SELECTED_SKILLS_MANIFEST}" ]]; then
-    echo "Missing selected skill manifest: ${SELECTED_SKILLS_MANIFEST}" >&2
-    return 1
-  fi
-
-  if [[ -z "${SELECTED_SKILLS_UPSTREAM_PATH}" ]]; then
-    echo "Missing upstream.mattpocock.path in ${SELECTED_SKILLS_MANIFEST}" >&2
+  if ! selected_skills_validate_upstream_path; then
     errors=1
   elif [[ ! -d "${SELECTED_SKILLS_UPSTREAM_DIR}/.git" && ! -f "${SELECTED_SKILLS_UPSTREAM_DIR}/.git" ]]; then
     cat >&2 <<EOF
