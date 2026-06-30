@@ -2,6 +2,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from rdl import safety, store
 from rdl.session import SessionStore
@@ -184,6 +185,20 @@ class SafetyTests(unittest.TestCase):
             self.assertEqual(live.code, "session_locked")
             self.assertIsNotNone(stale)
             self.assertEqual(stale.code, "stale_lock")
+
+    def test_permission_denied_lock_liveness_preserves_audit_and_repair_semantics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / ".lock"
+            lock.write_text("pid=123456\naction=test\ncreated_at_utc=2026-06-29T00:00:00Z\n", encoding="utf-8")
+
+            with patch("rdl.safety.os.kill", side_effect=PermissionError):
+                audit_blocker = safety.lock_blocker(lock)
+                repair_blocker = safety.repair_lock_blocker(lock)
+
+            self.assertIsNotNone(audit_blocker)
+            self.assertEqual(audit_blocker.code, "stale_lock")
+            self.assertIsNotNone(repair_blocker)
+            self.assertEqual(repair_blocker.code, "session_locked")
 
 
 if __name__ == "__main__":

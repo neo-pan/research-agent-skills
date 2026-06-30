@@ -49,7 +49,7 @@ def repair(session: Session) -> RepairResult:
 def _repair_stale_lock(path: Path, repaired: list[str], blockers: list[Blocker]) -> None:
     if not path.is_file():
         return
-    blocker = safety.lock_blocker(path)
+    blocker = safety.repair_lock_blocker(path)
     if blocker is None:
         return
     if blocker.code == "session_locked":

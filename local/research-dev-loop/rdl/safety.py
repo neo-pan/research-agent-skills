@@ -133,10 +133,18 @@ def lock_conflict(path: Path) -> Blocker:
 
 
 def lock_blocker(path: Path) -> Blocker | None:
+    return _lock_blocker(path, permission_denied_is_alive=False)
+
+
+def repair_lock_blocker(path: Path) -> Blocker | None:
+    return _lock_blocker(path, permission_denied_is_alive=True)
+
+
+def _lock_blocker(path: Path, *, permission_denied_is_alive: bool) -> Blocker | None:
     if not path.is_file():
         return None
     blockers: list[Blocker] = []
-    _validate_session_lock(path, blockers)
+    _validate_session_lock(path, blockers, permission_denied_is_alive=permission_denied_is_alive)
     return blockers[0] if blockers else None
 
 
@@ -238,13 +246,13 @@ def _invalid_artifact_entry() -> Blocker:
     )
 
 
-def _validate_session_lock(path: Path, blockers: list[Blocker]) -> None:
+def _validate_session_lock(path: Path, blockers: list[Blocker], *, permission_denied_is_alive: bool = False) -> None:
     if not path.is_file():
         return
     pid = lock_owner_pid(path)
     if pid == os.getpid():
         return
-    if pid is not None and _process_alive(pid):
+    if pid is not None and _process_alive(pid, permission_denied_is_alive=permission_denied_is_alive):
         blockers.append(_session_locked_blocker())
     else:
         blockers.append(
@@ -266,13 +274,13 @@ def _session_locked_blocker() -> Blocker:
     )
 
 
-def _process_alive(pid: int) -> bool:
+def _process_alive(pid: int, *, permission_denied_is_alive: bool) -> bool:
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        return permission_denied_is_alive
     except OSError:
         return False
     return True
