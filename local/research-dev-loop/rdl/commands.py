@@ -810,7 +810,7 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
     )
 
 
-def _guard_stop_readiness(session) -> list[Blocker]:
+def _guard_stop_readiness(session: Session) -> list[Blocker]:
     blockers = list(readiness.check(session, "guard-stop-advance"))
     decision = documents.field(session.round_dir() / "decision.md", "Decision")
     outcome = descriptor.close_outcome_for_decision(decision)
@@ -875,7 +875,7 @@ def _run_locked_session(
         )
 
 
-def _active_session_result(action: str, audit: bool = True):
+def _active_session_result(action: str, audit: bool = True) -> Session | CommandResult:
     try:
         session = SessionStore.cwd().active_session()
     except ValueError:
@@ -941,7 +941,13 @@ def _active_session_result(action: str, audit: bool = True):
     return session
 
 
-def _integrity_refresh_error(action: str, state, phase: str, round_number: int, exc: Exception) -> CommandResult:
+def _integrity_refresh_error(
+    action: str,
+    state: SessionState,
+    phase: str,
+    round_number: int,
+    exc: Exception,
+) -> CommandResult:
     blocker = Blocker(
         "integrity_refresh_failed",
         "integrity.json",
@@ -961,7 +967,13 @@ def _integrity_refresh_error(action: str, state, phase: str, round_number: int, 
     )
 
 
-def _template_write_error(action: str, state, phase: str, round_number: int, exc: Exception) -> CommandResult:
+def _template_write_error(
+    action: str,
+    state: SessionState,
+    phase: str,
+    round_number: int,
+    exc: Exception,
+) -> CommandResult:
     blocker = Blocker(
         "template_write_failed",
         "templates",
