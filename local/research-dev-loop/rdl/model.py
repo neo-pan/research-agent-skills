@@ -79,6 +79,7 @@ class CommandResult:
     warnings: tuple[str, ...] = ()
     blockers: tuple[Blocker, ...] = field(default_factory=tuple)
     next_action: str = ""
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

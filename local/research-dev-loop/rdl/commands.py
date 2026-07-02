@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, integrity, memory, readiness, repair, templates, transition
+from . import documents, integrity, memory, readiness, repair, summary, templates, transition
 from .model import Blocker, CommandResult, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -24,6 +24,8 @@ class CommandIntent:
     reason_parts: tuple[str, ...] = ()
     outcome: str | None = None
     next_mode: str | None = None
+    summarize_mode: str | None = None
+    summarize_round: int | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,8 @@ class _LockedContext:
 def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "doctor":
         return _doctor()
+    if intent.command == "summarize":
+        return _summarize(intent.summarize_mode, intent.summarize_round)
     if intent.command == "start":
         return _start(intent.mode, intent.mission_file, intent.session_id)
     if intent.command == "status":
@@ -262,6 +266,7 @@ def _state_result(
     round_number: int | None = None,
     mode: str | None = None,
     warnings: Sequence[str] = (),
+    details: dict[str, object] | None = None,
 ) -> CommandResult:
     blocker_tuple = tuple(blockers)
     return CommandResult(
@@ -275,6 +280,7 @@ def _state_result(
         warnings=tuple(warnings),
         blockers=blocker_tuple,
         next_action=next_action,
+        details={} if details is None else details,
     )
 
 
@@ -360,6 +366,86 @@ def _repair() -> CommandResult:
         "repair",
         state,
         next_action=",".join(result.repaired),
+    )
+
+
+def _summarize(mode: str | None, through_round: int | None) -> CommandResult:
+    summarize_mode = mode or "check"
+    if summarize_mode not in {"check", "write"}:
+        blocker = Blocker(
+            "invalid_summarize_mode",
+            "",
+            "summarize mode must be check or write.",
+            "Use rdl summarize --check or rdl summarize --write.",
+        )
+        return CommandResult(
+            status="error",
+            action="summarize",
+            blockers=(blocker,),
+            next_action="Use rdl summarize --check or rdl summarize --write.",
+        )
+    if summarize_mode == "write":
+        return _run_locked_session("summarize", lambda context: _summarize_write_locked(context, through_round))
+
+    loaded = _active_session_result("summarize")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    state = loaded.state
+    summary_plan = summary.check(loaded, through_round)
+    if summary_plan.blockers:
+        return _state_result(
+            "error",
+            "summarize",
+            state,
+            blockers=summary_plan.blockers,
+            next_action="pass a valid --round",
+            details=summary_plan.details("needs_update"),
+        )
+    status = "up_to_date" if summary.progress_up_to_date(loaded, summary_plan) else "needs_update"
+    return _state_result(
+        "ok",
+        "summarize",
+        state,
+        next_action="rdl summarize --write" if status == "needs_update" else "rdl doctor",
+        details=summary_plan.details(status),
+    )
+
+
+def _summarize_write_locked(context: _LockedContext, through_round: int | None) -> CommandResult:
+    session = context.session
+    state = context.state
+    summary_plan = summary.plan(session, through_round)
+    if summary_plan.blockers:
+        return _state_result(
+            "error",
+            "summarize",
+            state,
+            blockers=summary_plan.blockers,
+            next_action="pass a valid --round",
+            details=summary_plan.details("needs_update"),
+        )
+
+    blockers = summary.write(session, summary_plan)
+    if blockers:
+        return _state_result(
+            "blocked",
+            "summarize",
+            state,
+            blockers=blockers,
+            next_action="restore canonical progress.md tables",
+            details=summary_plan.details("needs_update"),
+        )
+
+    refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+    if refresh_error is not None:
+        return refresh_error
+
+    return _state_result(
+        "ok",
+        "summarize",
+        state,
+        next_action="rdl doctor",
+        details=summary_plan.details("written"),
     )
 
 

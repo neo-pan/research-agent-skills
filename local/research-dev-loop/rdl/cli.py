@@ -77,6 +77,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--json", action="store_true")
     doctor.set_defaults(command="doctor")
 
+    summarize = subparsers.add_parser("summarize", help="summarize RDL round state into top-level memory")
+    summarize_mode = summarize.add_mutually_exclusive_group()
+    summarize_mode.add_argument("--check", dest="summarize_mode", action="store_const", const="check")
+    summarize_mode.add_argument("--write", dest="summarize_mode", action="store_const", const="write")
+    summarize.add_argument("--round", dest="summarize_round", type=int)
+    summarize.add_argument("--json", action="store_true")
+    summarize.set_defaults(command="summarize", summarize_mode="check")
+
     return parser
 
 
@@ -120,6 +128,8 @@ def _command_intent(args: argparse.Namespace) -> CommandIntent:
         reason_parts=tuple(getattr(args, "reason", ()) or ()),
         outcome=getattr(args, "outcome", None),
         next_mode=getattr(args, "next_mode", None),
+        summarize_mode=getattr(args, "summarize_mode", None),
+        summarize_round=getattr(args, "summarize_round", None),
     )
 
 
@@ -159,7 +169,7 @@ def _parser_error_result(argv: Sequence[str], message: str) -> CommandResult:
 
 def _missing_value_option(argv: Sequence[str]) -> str:
     for index, token in enumerate(argv):
-        if token in {"--session-id", "--guard-session-id", "--guard-command-id", "--mode"}:
+        if token in {"--session-id", "--guard-session-id", "--guard-command-id", "--mode", "--round"}:
             if index + 1 >= len(argv) or argv[index + 1].startswith("--"):
                 return token
     return ""
@@ -174,6 +184,8 @@ def _missing_value_code(action: str, option: str) -> tuple[str, str]:
         return "missing_guard_command_id", "Pass --guard-command-id <id>."
     if action == "next" and option == "--mode":
         return "missing_mode", "Pass --mode research or --mode build."
+    if action == "summarize" and option == "--round":
+        return "missing_round", "Pass --round <number>."
     return "missing_option_value", "Run rdl --help."
 
 
@@ -211,4 +223,5 @@ def _result_dict(result: CommandResult) -> dict[str, object]:
         "warnings": list(result.warnings),
         "blockers": [asdict(blocker) for blocker in result.blockers],
         "next_action": result.next_action,
+        "details": result.details,
     }
