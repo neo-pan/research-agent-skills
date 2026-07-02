@@ -21,6 +21,7 @@ Run the Python module from a project repository:
 PYTHONPATH=local/research-dev-loop python3 -m rdl start research mission.md --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl start build plan.md --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl status --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl memory --check --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --json
@@ -61,6 +62,8 @@ checks, RDL Python tests, and repository prerequisite checks.
   updates when state changes.
 - Treat `.rdl/sessions/<session-id>/` as the recoverable state; do not depend on
   conversation memory for claims, evidence, open questions, or next steps.
+- Use `rdl handoff` or `rdl handoff --json` as the first read-only status
+  surface when taking over an existing long-running session.
 - At the start of a round, read `mission.md`, `progress.md`, `factors.md`,
   `decision-ledger.md`, and the previous round's decision/evidence records when
   they exist.

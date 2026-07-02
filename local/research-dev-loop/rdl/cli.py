@@ -79,6 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--json", action="store_true")
     doctor.set_defaults(command="doctor")
 
+    handoff = subparsers.add_parser("handoff", help="print a compact RDL session handoff report")
+    handoff.add_argument("--json", action="store_true")
+    handoff.set_defaults(command="handoff")
+
     summarize = subparsers.add_parser("summarize", help="summarize RDL round state into top-level memory")
     summarize_mode = summarize.add_mutually_exclusive_group()
     summarize_mode.add_argument("--check", dest="summarize_mode", action="store_const", const="check")
@@ -206,6 +210,9 @@ def _emit(result: CommandResult, json_output: bool) -> None:
     if json_output:
         print(json.dumps(_result_dict(result), sort_keys=True, separators=(",", ":")))
         return
+    if result.status == "ok" and result.action == "handoff":
+        _emit_handoff(result)
+        return
     if result.status == "ok":
         print(f"ok: {result.action} {result.next_action}")
         return
@@ -222,6 +229,64 @@ def _missing_from_blockers(blockers: Sequence[Blocker]) -> tuple[str, ...]:
             seen.add(path)
             missing.append(path)
     return tuple(missing)
+
+
+def _emit_handoff(result: CommandResult) -> None:
+    details = result.details
+    last_decision = details.get("last_decision", {})
+    memory_details = details.get("memory", {})
+    print(f"Session: {result.session_id}")
+    print(f"Mode/Profile/Round: {result.mode} / {result.profile} / {result.round}")
+    print(f"Handoff Status: {details.get('handoff_status', '')}")
+    print()
+    _print_section("Current Focus", details.get("current_focus", ""))
+    _print_decision_section(last_decision if isinstance(last_decision, dict) else {})
+    _print_section("Open Questions", details.get("open_questions", ""))
+    _print_section("Known Evidence Gaps", details.get("known_evidence_gaps", ""))
+    _print_section("Directions Tried", details.get("directions_tried", ""))
+    _print_section("Staleness Watch", details.get("staleness_watch", ""))
+    _print_section("Next Smallest Step", details.get("next_smallest_step", ""))
+    if isinstance(memory_details, dict):
+        print("Memory:")
+        print(f"  status: {memory_details.get('memory_status', '')}")
+        print(f"  progress gaps: {_join_values(memory_details.get('progress_gaps', []))}")
+        print(f"  factor gaps: {_join_values(memory_details.get('factor_gaps', []))}")
+        print()
+    _print_section("Suggested Actions", _bullet_values(details.get("suggested_actions", [])))
+
+
+def _print_decision_section(last_decision: dict[object, object]) -> None:
+    print("Last Decision:")
+    print(f"  decision: {last_decision.get('decision', '')}")
+    print(f"  closes: {last_decision.get('closes', '')}")
+    print(f"  evidence: {last_decision.get('evidence', '')}")
+    print(f"  uncertainty: {last_decision.get('uncertainty', '')}")
+    print(f"  remains unknown: {last_decision.get('what_remains_unknown', '')}")
+    print(f"  recommended next loop: {last_decision.get('recommended_next_loop', '')}")
+    print()
+
+
+def _print_section(title: str, value: object) -> None:
+    print(f"{title}:")
+    text = str(value).strip()
+    if not text:
+        print("  none recorded")
+    else:
+        for line in text.splitlines():
+            print(f"  {line}")
+    print()
+
+
+def _join_values(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) if value else "none"
+    return str(value) if value else "none"
+
+
+def _bullet_values(value: object) -> str:
+    if isinstance(value, list):
+        return "\n".join(f"- {item}" for item in value) if value else "none recorded"
+    return str(value) if value else "none recorded"
 
 
 def _result_dict(result: CommandResult) -> dict[str, object]:

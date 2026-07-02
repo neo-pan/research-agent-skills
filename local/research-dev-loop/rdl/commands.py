@@ -43,6 +43,8 @@ class _LockedContext:
 def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "doctor":
         return _doctor()
+    if intent.command == "handoff":
+        return _handoff()
     if intent.command == "summarize":
         return _summarize(intent.summarize_mode, intent.summarize_round)
     if intent.command == "memory":
@@ -554,6 +556,54 @@ def _memory_next_action(report: memory_report.MemoryReport) -> str:
     if report.memory_status == "healthy":
         return "rdl doctor"
     return "update session memory manually"
+
+
+def _handoff() -> CommandResult:
+    loaded = _active_session_result("handoff")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
+    state = session.state
+    prompt_context = memory.prompt_context(session)
+    report, _summary_plan = memory_report.check(session)
+    handoff_status = "ready" if report.memory_status == "healthy" else "needs_attention"
+    suggested_actions = list(report.suggested_actions) or ["rdl doctor"]
+    details = {
+        "handoff_status": handoff_status,
+        "current_focus": prompt_context.claim_or_capability,
+        "open_questions": prompt_context.open_questions,
+        "known_evidence_gaps": prompt_context.known_evidence_gaps,
+        "directions_tried": prompt_context.directions_tried,
+        "staleness_watch": prompt_context.staleness_watch,
+        "next_smallest_step": prompt_context.next_smallest_step,
+        "last_decision": _last_decision_details(session),
+        "memory": report.details(),
+        "suggested_actions": suggested_actions,
+    }
+    return _state_result(
+        "ok",
+        "handoff",
+        state,
+        next_action="rdl doctor" if handoff_status == "ready" else "update session memory manually",
+        details=details,
+    )
+
+
+def _last_decision_details(session: Session) -> dict[str, str]:
+    decision_file = session.round_dir() / "decision.md"
+    return {
+        "decision": _field_or_none_recorded(decision_file, "Decision"),
+        "closes": _field_or_none_recorded(decision_file, "Closes"),
+        "evidence": _field_or_none_recorded(decision_file, "Evidence"),
+        "uncertainty": _field_or_none_recorded(decision_file, "Uncertainty"),
+        "what_remains_unknown": _field_or_none_recorded(decision_file, "What remains unknown"),
+        "recommended_next_loop": _field_or_none_recorded(decision_file, "Recommended next loop"),
+    }
+
+
+def _field_or_none_recorded(path: Path, name: str) -> str:
+    value = documents.field(path, name)
+    return value if value else memory.NONE_RECORDED
 
 
 def _next(next_mode: str | None = None, next_profile: str | None = None) -> CommandResult:
