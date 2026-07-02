@@ -357,7 +357,7 @@ def _validate_artifact_citations(session_dir: Path, round_dir: Path) -> list[Blo
     blockers: list[Blocker] = []
 
     for path, label, text in _citation_sources(session_dir, round_dir):
-        for artifact_id in documents.extract_artifact_ids(text):
+        for artifact_id in _artifact_ids_for_source(label, text):
             if artifact_id not in manifest_ids:
                 blockers.append(
                     Blocker(
@@ -368,6 +368,22 @@ def _validate_artifact_citations(session_dir: Path, round_dir: Path) -> list[Blo
                     )
                 )
     return blockers
+
+
+def _artifact_ids_for_source(label: str, text: str) -> set[str]:
+    artifact_ids = set(documents.extract_artifact_ids(text))
+    if label == "Evidence Artifacts":
+        artifact_ids.update(_evidence_artifact_table_ids(text))
+    return artifact_ids
+
+
+def _evidence_artifact_table_ids(markdown: str) -> set[str]:
+    artifact_ids: set[str] = set()
+    for row in _table_rows(markdown):
+        artifact_id = row.get("id", "")
+        if _meaningful(artifact_id):
+            artifact_ids.add(artifact_id)
+    return artifact_ids
 
 
 def _citation_sources(session_dir: Path, round_dir: Path) -> list[tuple[Path, str, str]]:

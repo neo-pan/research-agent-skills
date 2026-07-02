@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import documents, store, templates
+from . import documents, memory, store, templates
 from .model import Blocker, CloseOutcome, SessionPhase, SessionStatus
 from .protocol import descriptor
 
@@ -17,6 +17,7 @@ class TransitionResult:
     phase: str
     round: int
     next_action: str
+    mode: str = ""
 
 
 class TransitionBlocked(Exception):
@@ -25,10 +26,20 @@ class TransitionBlocked(Exception):
         self.blocker = blocker
 
 
-def advance(session: Any) -> TransitionResult:
+def advance(session: Any, next_mode: str | None = None) -> TransitionResult:
     state = session.state
     current_round = state.round
     next_round = current_round + 1
+    target_mode = next_mode or str(state.mode)
+    if descriptor.mode_spec(target_mode) is None:
+        raise TransitionBlocked(
+            Blocker(
+                "invalid_mode",
+                "",
+                "mode must be research or build.",
+                "Use research or build for the next round mode.",
+            )
+        )
     next_round_dir = session.round_dir(next_round)
     relative_next_round = f"rounds/{next_round:03d}"
     if next_round_dir.exists():
@@ -46,15 +57,17 @@ def advance(session: Any) -> TransitionResult:
     next_loop = documents.field(decision_file, "Recommended next loop")
     expected_closes = descriptor.expected_closes(state.mode)
     previous_decision = f"{decision}; closes {expected_closes}; recommended next loop {next_loop}"
+    prompt_context = memory.prompt_context(session, current_round)
 
     next_round_dir.mkdir(parents=True)
     prompt_path = next_round_dir / "prompt.md"
     templates.write_prompt(
         prompt_path,
-        state.mode,
+        target_mode,
         next_round,
-        f"Continue {state.mode} session {state.session_id}",
+        f"Continue {target_mode} session {state.session_id}",
         previous_decision,
+        prompt_context,
     )
 
     now = now_utc()
@@ -62,12 +75,13 @@ def advance(session: Any) -> TransitionResult:
         session.root,
         {
             "round": next_round,
+            "mode": target_mode,
             "phase": SessionPhase.PLAN.value,
             "updated_at_utc": now,
         },
     )
-    _append_round_decision(session.root, current_round, decision, expected_closes, next_loop, next_round)
-    return TransitionResult(SessionPhase.PLAN.value, next_round, str(prompt_path))
+    _append_round_decision(session.root, current_round, decision, expected_closes, next_loop, next_round, target_mode)
+    return TransitionResult(SessionPhase.PLAN.value, next_round, str(prompt_path), target_mode)
 
 
 def close(session: Any, outcome: CloseOutcome | str) -> TransitionResult:
@@ -137,6 +151,7 @@ def _append_round_decision(
     expected_closes: str,
     next_loop: str,
     next_round: int,
+    next_mode: str,
 ) -> None:
     _append_text(
         session_dir / "decision-ledger.md",
@@ -145,7 +160,8 @@ def _append_round_decision(
         f"- Decision: {decision}\n"
         f"- Closes: {expected_closes}\n"
         f"- Recommended next loop: {next_loop}\n"
-        f"- Next round: {next_round:03d}\n",
+        f"- Next round: {next_round:03d}\n"
+        f"- Next mode: {next_mode}\n",
     )
 
 

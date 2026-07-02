@@ -64,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     abandon.set_defaults(command="abandon")
 
     next_command = subparsers.add_parser("next", help="advance the active RDL session")
+    next_command.add_argument("--mode", dest="next_mode")
     next_command.add_argument("--json", action="store_true")
     next_command.set_defaults(command="next")
 
@@ -118,6 +119,7 @@ def _command_intent(args: argparse.Namespace) -> CommandIntent:
         guard_command_id=getattr(args, "guard_command_id", None),
         reason_parts=tuple(getattr(args, "reason", ()) or ()),
         outcome=getattr(args, "outcome", None),
+        next_mode=getattr(args, "next_mode", None),
     )
 
 
@@ -157,7 +159,7 @@ def _parser_error_result(argv: Sequence[str], message: str) -> CommandResult:
 
 def _missing_value_option(argv: Sequence[str]) -> str:
     for index, token in enumerate(argv):
-        if token in {"--session-id", "--guard-session-id", "--guard-command-id"}:
+        if token in {"--session-id", "--guard-session-id", "--guard-command-id", "--mode"}:
             if index + 1 >= len(argv) or argv[index + 1].startswith("--"):
                 return token
     return ""
@@ -170,6 +172,8 @@ def _missing_value_code(action: str, option: str) -> tuple[str, str]:
         return "missing_guard_session_id", "Pass --guard-session-id <id>."
     if action == "guard-stop" and option == "--guard-command-id":
         return "missing_guard_command_id", "Pass --guard-command-id <id>."
+    if action == "next" and option == "--mode":
+        return "missing_mode", "Pass --mode research or --mode build."
     return "missing_option_value", "Run rdl --help."
 
 

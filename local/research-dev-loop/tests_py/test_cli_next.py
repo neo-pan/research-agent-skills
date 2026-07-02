@@ -10,7 +10,14 @@ from rdl import integrity, store
 from rdl.cli import main
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_decision, complete_research_round, complete_review, create_session
+from rdl_test_support import (
+    COMPLETE_INTERPRETATION,
+    COMPLETE_RESEARCH_EVIDENCE,
+    complete_decision,
+    complete_research_round,
+    complete_review,
+    create_session,
+)
 
 
 class CliNextTests(unittest.TestCase):
@@ -44,6 +51,86 @@ class CliNextTests(unittest.TestCase):
             manifest = store.read_json(session_dir / "integrity.json")
             entries = {entry["path"]: entry for entry in manifest["entries"]}
             self.assertEqual(entries["rounds/002/prompt.md"]["policy"], "managed_prefix")
+
+    def test_next_json_can_transition_to_build_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "next_mode")
+            complete_research_round(session_dir, "continue")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--mode", "build", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["mode"], "build")
+            self.assertEqual(store.read_json(session_dir / "state.json")["mode"], "build")
+            prompt = (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Mode: build", prompt)
+            self.assertIn("Required Files: prompt.md, intent.md, work.md, evidence.md, review.md, decision.md", prompt)
+            ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
+            self.assertIn("- Next mode: build", ledger)
+
+    def test_next_json_recommended_loop_mismatch_warns_without_switching_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "next_warn")
+            complete_research_round(session_dir, "continue")
+            decision_path = session_dir / "rounds" / "001" / "decision.md"
+            decision_path.write_text(
+                decision_path.read_text(encoding="utf-8").replace("Recommended next loop: none", "Recommended next loop: build"),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["mode"], "research")
+            self.assertIn("recommended_next_loop_differs_from_next_mode", result["warnings"])
+            self.assertIn("Mode: research", (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8"))
+
+    def test_next_json_rejects_invalid_mode_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "bad_next_mode")
+            complete_research_round(session_dir, "continue")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--mode", "deploy", "--json"]), 1)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "error")
+            self.assertIn("invalid_mode", {blocker["code"] for blocker in result["blockers"]})
+            self.assertFalse((session_dir / "rounds" / "002").exists())
+
+    def test_doctor_json_warns_for_empty_session_memory_after_multiple_rounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "memory_warn")
+            complete_research_round(session_dir, "continue")
+            with change_dir(root), redirect_stdout(StringIO()):
+                self.assertEqual(main(["next", "--json"]), 0)
+            round_two = session_dir / "rounds" / "002"
+            (round_two / "review.md").write_text(complete_review("continue"), encoding="utf-8")
+            (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            (round_two / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_two / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+            with change_dir(root), redirect_stdout(StringIO()):
+                self.assertEqual(main(["next", "--json"]), 0)
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertIn("empty_progress_memory_after_multiple_rounds", result["warnings"])
+            self.assertIn("empty_factors_memory_after_first_round", result["warnings"])
 
     def test_next_json_blocks_for_missing_readiness_records_without_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -89,7 +176,7 @@ class CliNextTests(unittest.TestCase):
             complete_research_round(session_dir, "continue")
             decision_path = session_dir / "rounds" / "001" / "decision.md"
             decision_path.write_text(
-                decision_path.read_text(encoding="utf-8").replace("Evidence: fixture evidence", "Evidence: ART-1"),
+                decision_path.read_text(encoding="utf-8").replace("Evidence: fixture evidence", "Evidence: [artifact:ART-1]"),
                 encoding="utf-8",
             )
             integrity.refresh(SessionStore(root).active_session())
@@ -101,6 +188,92 @@ class CliNextTests(unittest.TestCase):
             result = json.loads(stdout.getvalue())
             self.assertIn("missing_artifact_citation", {blocker["code"] for blocker in result["blockers"]})
             self.assertFalse((session_dir / "rounds" / "002").exists())
+
+    def test_next_json_ignores_plain_artifact_like_tokens(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            complete_research_round(session_dir, "continue")
+            decision_path = session_dir / "rounds" / "001" / "decision.md"
+            decision_path.write_text(
+                decision_path.read_text(encoding="utf-8").replace("Evidence: fixture evidence", "Evidence: ART-1 and RUN-12"),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "ok")
+            self.assertTrue((session_dir / "rounds" / "002" / "prompt.md").is_file())
+
+    def test_next_json_blocks_for_missing_evidence_artifacts_table_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            complete_research_round(session_dir, "continue")
+            evidence_path = session_dir / "rounds" / "001" / "evidence.md"
+            evidence_path.write_text(
+                evidence_path.read_text(encoding="utf-8")
+                + "\n## Evidence Artifacts\n\n"
+                "| ID | Kind | Path or URL | Supports | Notes |\n"
+                "|---|---|---|---|---|\n"
+                "| EV-MISSING | log | artifacts/missing.log | claim | fixture |\n",
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertIn("missing_artifact_citation", {blocker["code"] for blocker in result["blockers"]})
+            self.assertFalse((session_dir / "rounds" / "002").exists())
+
+    def test_next_json_accepts_evidence_artifacts_table_id_in_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            complete_research_round(session_dir, "continue")
+            evidence_path = session_dir / "rounds" / "001" / "evidence.md"
+            evidence_path.write_text(
+                evidence_path.read_text(encoding="utf-8")
+                + "\n## Evidence Artifacts\n\n"
+                "| ID | Kind | Path or URL | Supports | Notes |\n"
+                "|---|---|---|---|---|\n"
+                "| EV-OK | log | artifacts/ok.log | claim | fixture |\n",
+                encoding="utf-8",
+            )
+            (session_dir / "artifact-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "artifacts": [
+                            {
+                                "id": "EV-OK",
+                                "kind": "log",
+                                "path": "artifacts/ok.log",
+                                "round": 1,
+                                "description": "Fixture evidence artifact",
+                            }
+                        ]
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "ok")
+            self.assertTrue((session_dir / "rounds" / "002" / "prompt.md").is_file())
 
     def test_next_json_blocks_for_existing_next_round_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:

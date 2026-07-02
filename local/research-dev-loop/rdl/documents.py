@@ -66,7 +66,7 @@ def section_has_content(path: str | Path, heading: str) -> bool:
 
 
 def extract_artifact_ids(markdown_text: str) -> set[str]:
-    return set(re.findall(r"\b[A-Z][A-Z0-9]*-?[0-9][A-Z0-9-]*\b", markdown_text.replace("`", "")))
+    return set(re.findall(r"\[artifact:([A-Za-z][A-Za-z0-9_.-]*)\]", markdown_text))
 
 
 def validate(kind: str, path: str | Path, context: dict[str, Any] | None = None) -> list[Blocker]:

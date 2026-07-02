@@ -37,6 +37,88 @@ class TransitionTests(unittest.TestCase):
             self.assertIn("## Round 1 Decision", ledger)
             self.assertIn("- Next round: 002", ledger)
 
+    def test_advance_carries_session_memory_into_next_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "carry")
+            complete_research_round(session_dir, "continue")
+            (session_dir / "progress.md").write_text(
+                """# Progress
+
+## Active
+
+| Item | Mode | Claim or Capability | Blocking? | Next Review Trigger |
+|---|---|---|---|---|
+| parser | research | raw schema can normalize | yes | schema sample |
+
+## Completed
+
+| Item | Decision | Evidence | Round |
+|---|---|---|---|
+
+## Blocked
+
+| Item | Reason | Needed Evidence or Input | Decision Impact |
+|---|---|---|---|
+
+## Deferred
+
+| Item | Reason | Revisit Trigger |
+|---|---|---|
+
+## Open Questions
+
+| Question | Owner | Blocking? | Resolution |
+|---|---|---|---|
+| explain count mismatch | agent | yes | - |
+
+## Directions Tried
+
+| Direction | Rounds | Outcome | Why Not Repeat |
+|---|---|---|---|
+| naive parse | 001 | rejected | missed schema variants |
+
+## Staleness Watch
+
+| Signal | Evidence | Response |
+|---|---|---|
+| repeated failure | EV1 | pivot parser |
+""",
+                encoding="utf-8",
+            )
+            decision_path = session_dir / "rounds" / "001" / "decision.md"
+            decision_path.write_text(
+                decision_path.read_text(encoding="utf-8")
+                .replace("What remains unknown: later work", "What remains unknown: schema edge cases")
+                .replace("Next smallest step: continue same mode", "Next smallest step: inspect sample schema"),
+                encoding="utf-8",
+            )
+            session = SessionStore(root).active_session()
+
+            transition.advance(session)
+
+            prompt = (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Claim or Capability Under Review:\n- raw schema can normalize", prompt)
+            self.assertIn("- explain count mismatch", prompt)
+            self.assertIn("- schema edge cases", prompt)
+            self.assertIn("- naive parse", prompt)
+            self.assertIn("- repeated failure", prompt)
+            self.assertIn("Next Smallest Step: inspect sample schema", prompt)
+
+    def test_advance_rejects_invalid_next_mode_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root)
+            complete_research_round(session_dir, "continue")
+            session = SessionStore(root).active_session()
+
+            with self.assertRaises(transition.TransitionBlocked) as raised:
+                transition.advance(session, "deploy")
+
+            self.assertEqual(raised.exception.blocker.code, "invalid_mode")
+            self.assertFalse((session_dir / "rounds" / "002").exists())
+            self.assertEqual(store.read_json(session_dir / "state.json")["mode"], "research")
+
     def test_advance_refuses_existing_next_round(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

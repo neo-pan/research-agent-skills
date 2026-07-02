@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, integrity, readiness, repair, templates, transition
+from . import documents, integrity, memory, readiness, repair, templates, transition
 from .model import Blocker, CommandResult, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -23,6 +23,7 @@ class CommandIntent:
     guard_command_id: str | None = None
     reason_parts: tuple[str, ...] = ()
     outcome: str | None = None
+    next_mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "repair":
         return _repair()
     if intent.command == "next":
-        return _next()
+        return _next(intent.next_mode)
     if intent.command == "close":
         return _close(intent.outcome)
     if intent.command == "abandon":
@@ -259,16 +260,19 @@ def _state_result(
     next_action: str = "",
     phase: str | None = None,
     round_number: int | None = None,
+    mode: str | None = None,
+    warnings: Sequence[str] = (),
 ) -> CommandResult:
     blocker_tuple = tuple(blockers)
     return CommandResult(
         status=status,
         action=action,
         session_id=state.session_id,
-        mode=str(state.mode),
+        mode=str(state.mode) if mode is None else mode,
         phase=str(state.phase) if phase is None else str(phase),
         round=state.round if round_number is None else round_number,
         missing=_missing_from_blockers(blocker_tuple),
+        warnings=tuple(warnings),
         blockers=blocker_tuple,
         next_action=next_action,
     )
@@ -281,6 +285,7 @@ def _doctor() -> CommandResult:
     session = loaded
 
     blockers = tuple(readiness.check(session, "doctor-current"))
+    warnings = memory.advisory_warnings(session)
     state = session.state
     if blockers:
         return _state_result(
@@ -288,6 +293,7 @@ def _doctor() -> CommandResult:
             "doctor",
             state,
             blockers=blockers,
+            warnings=warnings,
             next_action="complete missing RDL records",
         )
 
@@ -295,6 +301,7 @@ def _doctor() -> CommandResult:
         "ok",
         "doctor",
         state,
+        warnings=warnings,
         next_action="rdl review",
     )
 
@@ -356,13 +363,28 @@ def _repair() -> CommandResult:
     )
 
 
-def _next() -> CommandResult:
-    return _run_locked_session("next", _next_locked)
+def _next(next_mode: str | None = None) -> CommandResult:
+    if next_mode is not None and next_mode not in {SessionMode.RESEARCH.value, SessionMode.BUILD.value}:
+        blocker = Blocker(
+            "invalid_mode",
+            "",
+            "mode must be research or build.",
+            "Use rdl next --mode research or rdl next --mode build.",
+        )
+        return CommandResult(
+            status="error",
+            action="next",
+            blockers=(blocker,),
+            next_action="Use rdl next --mode research or rdl next --mode build.",
+        )
+    return _run_locked_session("next", lambda context: _next_locked(context, next_mode))
 
 
-def _next_locked(context: _LockedContext) -> CommandResult:
+def _next_locked(context: _LockedContext, next_mode: str | None) -> CommandResult:
     session = context.session
     state = context.state
+    prompt_context = memory.prompt_context(session)
+    warnings = memory.advisory_warnings(session, next_mode=next_mode, prompt_context_value=prompt_context)
 
     blockers = tuple(readiness.check(session, "advance"))
     if blockers:
@@ -371,17 +393,19 @@ def _next_locked(context: _LockedContext) -> CommandResult:
             "next",
             state,
             blockers=blockers,
+            warnings=warnings,
             next_action="complete current round review and decision",
         )
 
     try:
-        result = transition.advance(session)
+        result = transition.advance(session, next_mode)
     except transition.TransitionBlocked as exc:
         return _state_result(
             "blocked",
             "next",
             state,
             blockers=(exc.blocker,),
+            warnings=warnings,
             next_action="inspect existing next round",
         )
 
@@ -395,6 +419,8 @@ def _next_locked(context: _LockedContext) -> CommandResult:
         state,
         phase=result.phase,
         round_number=result.round,
+        mode=result.mode,
+        warnings=warnings,
         next_action=result.next_action,
     )
 

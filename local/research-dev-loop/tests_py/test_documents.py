@@ -48,7 +48,8 @@ class DocumentTests(unittest.TestCase):
         self.assertFalse(documents.has_content(Path("/tmp/rdl-definitely-missing-file.md")))
 
     def test_extract_artifact_ids(self):
-        self.assertEqual(documents.extract_artifact_ids("See `E1`, RUN-12, and abc."), {"E1", "RUN-12"})
+        self.assertEqual(documents.extract_artifact_ids("See [artifact:E1], [artifact:RUN-12], and E2."), {"E1", "RUN-12"})
+        self.assertEqual(documents.extract_artifact_ids("See `E1`, RUN-12, and abc."), set())
 
     def test_complete_review_validates(self):
         with markdown(COMPLETE_REVIEW) as path:
