@@ -177,7 +177,7 @@ def _replace_section_block(text: str, section: str, rows: tuple[str, ...]) -> st
     end = SUMMARY_END.format(section=section)
     block = "\n".join((start, *rows, end))
     pattern = re.compile(
-        rf"\n?{re.escape(start)}\n.*?\n{re.escape(end)}",
+        rf"\n?{re.escape(start)}\n(?:.*?\n)?{re.escape(end)}",
         re.DOTALL,
     )
     if pattern.search(text):

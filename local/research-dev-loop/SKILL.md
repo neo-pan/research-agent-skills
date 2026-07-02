@@ -21,6 +21,7 @@ Run the Python module from a project repository:
 PYTHONPATH=local/research-dev-loop python3 -m rdl start research mission.md --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl start build plan.md --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl status --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl memory --check --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --json
 ```
@@ -67,6 +68,10 @@ checks, RDL Python tests, and repository prerequisite checks.
   round changes completed work, active claims or capabilities, blockers, open
   questions, directions tried, datasets, workloads, baselines, metrics,
   validators, prompts, backends, hardware, or nondeterminism.
+- Use `rdl memory --check` when `doctor` reports weak session memory or a
+  session has run for multiple rounds. Use `rdl memory --write` only to refresh
+  deterministic managed summary blocks; still update active, blocked, deferred,
+  and factor records manually when they require judgment.
 - In every `full-review` round, record whether the round produced fresh evidence
   and whether the current direction is becoming stale. In lightweight rounds,
   create `review.md` only when there is real review value; if it exists, it must

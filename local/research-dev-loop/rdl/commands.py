@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, integrity, memory, readiness, repair, summary, templates, transition
+from . import documents, integrity, memory, memory_report, readiness, repair, summary, templates, transition
 from .model import Blocker, CommandResult, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -27,6 +27,7 @@ class CommandIntent:
     next_mode: str | None = None
     summarize_mode: str | None = None
     summarize_round: int | None = None
+    memory_mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,8 @@ def execute(intent: CommandIntent) -> CommandResult:
         return _doctor()
     if intent.command == "summarize":
         return _summarize(intent.summarize_mode, intent.summarize_round)
+    if intent.command == "memory":
+        return _memory(intent.memory_mode)
     if intent.command == "start":
         return _start(intent.mode, intent.profile, intent.mission_file, intent.session_id)
     if intent.command == "status":
@@ -460,6 +463,97 @@ def _summarize_write_locked(context: _LockedContext, through_round: int | None) 
         next_action="rdl doctor",
         details=summary_plan.details("written"),
     )
+
+
+def _memory(mode: str | None) -> CommandResult:
+    memory_mode = mode or "check"
+    if memory_mode not in {"check", "write"}:
+        blocker = Blocker(
+            "invalid_memory_mode",
+            "",
+            "memory mode must be check or write.",
+            "Use rdl memory --check or rdl memory --write.",
+        )
+        return CommandResult(
+            status="error",
+            action="memory",
+            blockers=(blocker,),
+            next_action=blocker.next_action,
+        )
+    if memory_mode == "write":
+        return _run_locked_session("memory", _memory_write_locked)
+
+    loaded = _active_session_result("memory")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    state = loaded.state
+    report, summary_plan = memory_report.check(loaded)
+    if summary_plan.blockers:
+        return _state_result(
+            "error",
+            "memory",
+            state,
+            blockers=summary_plan.blockers,
+            next_action="inspect session round state",
+            details=report.details("needs_attention"),
+        )
+    return _state_result(
+        "ok",
+        "memory",
+        state,
+        next_action=_memory_next_action(report),
+        details=report.details(),
+    )
+
+
+def _memory_write_locked(context: _LockedContext) -> CommandResult:
+    session = context.session
+    state = context.state
+    report, summary_plan = memory_report.check(session)
+    if summary_plan.blockers:
+        return _state_result(
+            "error",
+            "memory",
+            state,
+            blockers=summary_plan.blockers,
+            next_action="inspect session round state",
+            details=report.details("needs_attention"),
+        )
+
+    wrote_summary = not summary.progress_up_to_date(session, summary_plan) and summary_plan.total_rows > 0
+    if wrote_summary:
+        blockers = summary.write(session, summary_plan)
+        if blockers:
+            return _state_result(
+                "blocked",
+                "memory",
+                state,
+                blockers=blockers,
+                next_action="restore canonical progress.md tables",
+                details=report.details("needs_attention"),
+            )
+
+        refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+        if refresh_error is not None:
+            return refresh_error
+
+    refreshed = SessionStore.cwd().load_session(session.root)
+    written_report = memory_report.report_after_write(refreshed, summary.plan(refreshed))
+    return _state_result(
+        "ok",
+        "memory",
+        state,
+        next_action=_memory_next_action(written_report),
+        details=written_report.details("written" if wrote_summary else written_report.memory_status),
+    )
+
+
+def _memory_next_action(report: memory_report.MemoryReport) -> str:
+    if any(action.startswith("Run rdl memory --write") for action in report.suggested_actions):
+        return "rdl memory --write"
+    if report.memory_status == "healthy":
+        return "rdl doctor"
+    return "update session memory manually"
 
 
 def _next(next_mode: str | None = None, next_profile: str | None = None) -> CommandResult:

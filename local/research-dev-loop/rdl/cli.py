@@ -87,6 +87,13 @@ def build_parser() -> argparse.ArgumentParser:
     summarize.add_argument("--json", action="store_true")
     summarize.set_defaults(command="summarize", summarize_mode="check")
 
+    memory = subparsers.add_parser("memory", help="inspect and refresh top-level RDL session memory")
+    memory_mode = memory.add_mutually_exclusive_group()
+    memory_mode.add_argument("--check", dest="memory_mode", action="store_const", const="check")
+    memory_mode.add_argument("--write", dest="memory_mode", action="store_const", const="write")
+    memory.add_argument("--json", action="store_true")
+    memory.set_defaults(command="memory", memory_mode="check")
+
     return parser
 
 
@@ -133,6 +140,7 @@ def _command_intent(args: argparse.Namespace) -> CommandIntent:
         next_mode=getattr(args, "next_mode", None),
         summarize_mode=getattr(args, "summarize_mode", None),
         summarize_round=getattr(args, "summarize_round", None),
+        memory_mode=getattr(args, "memory_mode", None),
     )
 
 
