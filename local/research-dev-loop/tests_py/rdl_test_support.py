@@ -5,11 +5,11 @@ from rdl import integrity, templates
 from rdl.session import SessionStore
 
 
-def create_session(root: Path, session_id: str = "r1", mode: str = "research") -> Path:
+def create_session(root: Path, session_id: str = "r1", mode: str = "research", profile: str = "full-review") -> Path:
     root.mkdir(parents=True, exist_ok=True)
     mission_source = root / "mission.md"
     mission_source.write_text("# Mission\n\nFixture mission.\n", encoding="utf-8")
-    return SessionStore(root).create_session(mode, mission_source, session_id).root
+    return SessionStore(root).create_session(mode, mission_source, session_id, profile).root
 
 
 def complete_research_round(session_dir: Path, decision: str = "continue") -> None:
@@ -32,6 +32,7 @@ def set_current_round(session_dir: Path, round_number: int) -> Path:
         templates.write_prompt(
             round_dir / "prompt.md",
             state["mode"],
+            state.get("profile", "full-review"),
             round_number,
             state.get("prompt_objective", "") or "mission.md",
             "fixture previous decision",

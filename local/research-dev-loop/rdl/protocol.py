@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from .model import SessionMode
+from .model import RoundProfile, SessionMode
 
 IntegrityPolicy = Literal["cli_owned", "append_only", "managed_prefix", "human_owned"]
 
@@ -20,6 +20,12 @@ class ModeSpec:
     completed_round_files: tuple[str, ...]
     expected_closes: str
     prompt_expected_exit_decision: str
+
+
+@dataclass(frozen=True)
+class ProfileSpec:
+    completed_round_files_by_mode: dict[str, tuple[str, ...]]
+    prompt_expected_exit_decision_by_mode: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -66,7 +72,39 @@ MODE_SPECS = {
     ),
 }
 
+PROFILE_SPECS = {
+    RoundProfile.FULL_REVIEW.value: ProfileSpec(
+        completed_round_files_by_mode={
+            SessionMode.RESEARCH.value: MODE_SPECS[SessionMode.RESEARCH.value].completed_round_files,
+            SessionMode.BUILD.value: MODE_SPECS[SessionMode.BUILD.value].completed_round_files,
+        },
+        prompt_expected_exit_decision_by_mode={
+            SessionMode.RESEARCH.value: MODE_SPECS[SessionMode.RESEARCH.value].prompt_expected_exit_decision,
+            SessionMode.BUILD.value: MODE_SPECS[SessionMode.BUILD.value].prompt_expected_exit_decision,
+        },
+    ),
+    RoundProfile.CHECKPOINT.value: ProfileSpec(
+        completed_round_files_by_mode={
+            SessionMode.RESEARCH.value: ("prompt.md", "evidence.md", "decision.md"),
+            SessionMode.BUILD.value: ("prompt.md", "evidence.md", "decision.md"),
+        },
+        prompt_expected_exit_decision_by_mode={
+            SessionMode.RESEARCH.value: "checkpoint decision with evidence",
+            SessionMode.BUILD.value: "checkpoint decision with evidence",
+        },
+    ),
+    RoundProfile.BUILD_UPDATE.value: ProfileSpec(
+        completed_round_files_by_mode={
+            SessionMode.BUILD.value: ("prompt.md", "intent.md", "work.md", "evidence.md", "decision.md"),
+        },
+        prompt_expected_exit_decision_by_mode={
+            SessionMode.BUILD.value: "build update decision with verification evidence",
+        },
+    ),
+}
+
 VALUE_SETS = {
+    "round-profile": ("full-review", "checkpoint", "build-update"),
     "review-mode": ("manual", "checklist", "phase-review", "subagent", "project-adapter"),
     "review-verdict": ("PASS", "PASS_WITH_NOTES", "BLOCKED", "INCONCLUSIVE"),
     "fresh-evidence": ("yes", "mixed", "no"),
@@ -177,6 +215,7 @@ READINESS_PLANS = {
         "mode-minimums",
         "round-evidence-discipline",
         "artifact-citations",
+        "close-if-decision",
     ),
     "guard-stop-advance": (
         "review",
@@ -186,8 +225,10 @@ READINESS_PLANS = {
         "mode-minimums",
         "round-evidence-discipline",
         "artifact-citations",
+        "close-if-decision",
     ),
     "close": (
+        "full-review-close-profile",
         "final-report",
         "close-evidence-discipline",
         "progress-close-readiness",
@@ -195,6 +236,7 @@ READINESS_PLANS = {
         "repeated-negative-evidence",
     ),
     "guard-stop-close": (
+        "full-review-close-profile",
         "final-report",
         "close-evidence-discipline",
         "progress-close-readiness",
@@ -228,9 +270,16 @@ class ProtocolDescriptor:
     def round_file_names(self) -> tuple[str, ...]:
         return ROUND_FILES
 
-    def completed_round_files(self, mode: SessionMode | str) -> tuple[str, ...]:
-        spec = self.mode_spec(mode)
-        return spec.completed_round_files if spec is not None else ()
+    def completed_round_files(
+        self,
+        mode: SessionMode | str,
+        profile: RoundProfile | str = RoundProfile.FULL_REVIEW,
+    ) -> tuple[str, ...]:
+        mode_value = _mode_value(mode)
+        profile_spec = self.profile_spec(profile)
+        if profile_spec is None:
+            return ()
+        return profile_spec.completed_round_files_by_mode.get(mode_value, ())
 
     def required_fields(self, kind: str) -> tuple[str, ...]:
         spec = self.document_spec(kind)
@@ -250,9 +299,15 @@ class ProtocolDescriptor:
         spec = self.mode_spec(mode)
         return spec.expected_closes if spec is not None else ""
 
-    def prompt_expected_exit_decision(self, mode: SessionMode | str) -> str:
-        spec = self.mode_spec(mode)
-        return spec.prompt_expected_exit_decision if spec is not None else ""
+    def prompt_expected_exit_decision(
+        self,
+        mode: SessionMode | str,
+        profile: RoundProfile | str = RoundProfile.FULL_REVIEW,
+    ) -> str:
+        if not self.profile_allowed_for_mode(mode, profile):
+            return ""
+        spec = self.profile_spec(profile)
+        return spec.prompt_expected_exit_decision_by_mode.get(_mode_value(mode), "") if spec is not None else ""
 
     def policy_for_path(self, path: str) -> IntegrityPolicy:
         policy = self.path_policy(path)
@@ -297,12 +352,24 @@ class ProtocolDescriptor:
     def mode_spec(self, mode: SessionMode | str) -> ModeSpec | None:
         return MODE_SPECS.get(_mode_value(mode))
 
+    def profile_spec(self, profile: RoundProfile | str) -> ProfileSpec | None:
+        return PROFILE_SPECS.get(_profile_value(profile))
+
+    def profile_allowed_for_mode(self, mode: SessionMode | str, profile: RoundProfile | str) -> bool:
+        mode_value = _mode_value(mode)
+        spec = self.profile_spec(profile)
+        return spec is not None and mode_value in spec.completed_round_files_by_mode
+
     def close_outcome_for_decision(self, decision: str) -> str:
         return CLOSE_OUTCOME_BY_DECISION.get(decision, "")
 
 
 def _mode_value(mode: SessionMode | str) -> str:
     return mode.value if isinstance(mode, SessionMode) else str(mode)
+
+
+def _profile_value(profile: RoundProfile | str) -> str:
+    return profile.value if isinstance(profile, RoundProfile) else str(profile)
 
 
 def _safe_relative_protocol_path(path: str) -> bool:

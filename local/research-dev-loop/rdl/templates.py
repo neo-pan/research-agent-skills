@@ -52,20 +52,23 @@ def write_decision(destination: str | Path, decision_type: str, closes: str) -> 
 
 def render_prompt(
     mode: SessionMode | str,
+    profile: str,
     round_number: int,
     objective: str,
     previous_decision: str,
     prompt_context: memory.PromptContext | None = None,
 ) -> str:
     mode_value = mode.value if isinstance(mode, SessionMode) else str(mode)
-    required_files = descriptor.completed_round_files(mode_value)
-    expected_exit_decision = descriptor.prompt_expected_exit_decision(mode_value)
+    profile_value = str(profile)
+    required_files = descriptor.completed_round_files(mode_value, profile_value)
+    expected_exit_decision = descriptor.prompt_expected_exit_decision(mode_value, profile_value)
     if not required_files or not expected_exit_decision:
-        raise ValueError("mode must be research or build")
+        raise ValueError("mode/profile combination is unsupported")
     context = prompt_context or memory.PromptContext()
 
     replacements = {
         "{{MODE}}": mode_value,
+        "{{PROFILE}}": profile_value,
         "{{ROUND}}": str(round_number),
         "{{OBJECTIVE}}": objective,
         "{{CLAIM_OR_CAPABILITY_UNDER_REVIEW}}": context.claim_or_capability,
@@ -87,9 +90,10 @@ def render_prompt(
 def write_prompt(
     destination: str | Path,
     mode: SessionMode | str,
+    profile: str,
     round_number: int,
     objective: str,
     previous_decision: str,
     prompt_context: memory.PromptContext | None = None,
 ) -> None:
-    store.write_text_atomic(destination, render_prompt(mode, round_number, objective, previous_decision, prompt_context))
+    store.write_text_atomic(destination, render_prompt(mode, profile, round_number, objective, previous_decision, prompt_context))

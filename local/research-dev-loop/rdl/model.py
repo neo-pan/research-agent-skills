@@ -19,6 +19,12 @@ class SessionMode(StrEnum):
     BUILD = "build"
 
 
+class RoundProfile(StrEnum):
+    FULL_REVIEW = "full-review"
+    CHECKPOINT = "checkpoint"
+    BUILD_UPDATE = "build-update"
+
+
 class SessionPhase(StrEnum):
     PLAN = "plan"
     WORK = "work"
@@ -73,6 +79,7 @@ class CommandResult:
     action: str
     session_id: str = ""
     mode: str = ""
+    profile: str = ""
     phase: str = ""
     round: int = 0
     missing: tuple[str, ...] = ()
@@ -87,6 +94,7 @@ class SessionState:
     schema_version: int
     session_id: str
     mode: SessionMode
+    profile: RoundProfile
     phase: SessionPhase
     round: int
     status: SessionStatus
@@ -105,6 +113,7 @@ class SessionState:
             schema_version=_int_field(data, "schema_version"),
             session_id=_str_field(data, "session_id"),
             mode=SessionMode(_str_field(data, "mode")),
+            profile=RoundProfile(_optional_str_field(data, "profile") or RoundProfile.FULL_REVIEW.value),
             phase=SessionPhase(_str_field(data, "phase")),
             round=_int_field(data, "round"),
             status=SessionStatus(_str_field(data, "status")),

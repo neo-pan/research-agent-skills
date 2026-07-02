@@ -10,7 +10,7 @@ from typing import Any
 
 from . import integrity, store
 from .documents import validate as validate_document
-from .model import AuditResult, Blocker, SessionMode, SessionPhase, SessionState, SessionStatus
+from .model import AuditResult, Blocker, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 
 
@@ -179,6 +179,7 @@ def _validate_state_values(path: Path, state: SessionState, errors: list[Blocker
 
     raw = raw_state if isinstance(raw_state, dict) else {}
     raw_mode = raw.get("mode") if raw_state is not None else state.mode.value
+    raw_profile = raw.get("profile", RoundProfile.FULL_REVIEW.value) if raw_state is not None else state.profile.value
     raw_phase = raw.get("phase") if raw_state is not None else state.phase.value
     raw_status = raw.get("status") if raw_state is not None else state.status.value
     raw_round = raw.get("round", state.round)
@@ -191,6 +192,10 @@ def _validate_state_values(path: Path, state: SessionState, errors: list[Blocker
         add("missing_session_id", "session_id is missing.")
     if raw_mode not in {mode.value for mode in SessionMode}:
         add("invalid_mode", "mode must be research or build.")
+    if raw_profile not in {profile.value for profile in RoundProfile}:
+        add("invalid_profile", "profile must be full-review, checkpoint, or build-update.")
+    elif raw_mode in {mode.value for mode in SessionMode} and not descriptor.profile_allowed_for_mode(raw_mode, raw_profile):
+        add("invalid_profile_for_mode", "profile is not supported for this mode.")
     if raw_phase not in {phase.value for phase in SessionPhase}:
         add("invalid_phase", "phase is unsupported.")
     if not _strict_int(raw_round) or raw_round < 1:

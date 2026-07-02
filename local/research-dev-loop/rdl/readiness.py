@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from . import documents, store
-from .model import Blocker, SessionMode
+from .model import Blocker, RoundProfile, SessionMode
 from .protocol import descriptor
 from .session import Session
 
@@ -35,9 +35,10 @@ def check(session: Session, plan: str, outcome: str | None = None) -> list[Block
 def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocker]:
     round_dir = session.round_dir()
     expected_closes = descriptor.expected_closes(session.state.mode)
+    profile = session.state.profile
 
     if rule == "review":
-        return documents.validate("review", round_dir / "review.md")
+        return _validate_profile_review(profile, round_dir)
     if rule == "decision":
         return documents.validate("decision", round_dir / "decision.md", {"expected_closes": expected_closes})
     if rule == "review-decision-alignment":
@@ -45,11 +46,15 @@ def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocke
     if rule == "staleness-response":
         return _validate_staleness_response(round_dir)
     if rule == "mode-minimums":
-        return _validate_mode_round_minimums(session.state.mode, round_dir)
+        return _validate_profile_round_minimums(session.state.mode, profile, round_dir)
     if rule == "round-evidence-discipline":
         return _validate_round_evidence_discipline(round_dir)
     if rule == "artifact-citations":
         return _validate_artifact_citations(session.root, round_dir)
+    if rule == "full-review-close-profile":
+        if profile != RoundProfile.FULL_REVIEW:
+            return [_close_requires_full_review_blocker(round_dir / "decision.md")]
+        return []
     if rule == "final-report":
         return documents.validate("final-report", session.root / "final-report.md", {"outcome": outcome})
     if rule == "close-evidence-discipline":
@@ -62,6 +67,8 @@ def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocke
         decision = documents.field(round_dir / "decision.md", "Decision")
         close_outcome = descriptor.close_outcome_for_decision(decision)
         if close_outcome:
+            if profile != RoundProfile.FULL_REVIEW:
+                return [_close_requires_full_review_blocker(round_dir / "decision.md")]
             return check(session, "close", close_outcome)
         return []
     return [
@@ -72,6 +79,13 @@ def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocke
             "Fix the RDL readiness descriptor.",
         )
     ]
+
+
+def _validate_profile_review(profile: RoundProfile, round_dir: Path) -> list[Blocker]:
+    review_file = round_dir / "review.md"
+    if profile == RoundProfile.FULL_REVIEW or review_file.is_file():
+        return documents.validate("review", review_file)
+    return []
 
 
 def _validate_review_decision_alignment(round_dir: Path) -> list[Blocker]:
@@ -165,6 +179,23 @@ def _blocking_review_gaps(gaps: str) -> bool:
     return bool(gaps and gaps.strip().lower() not in NO_REVIEW_GAP_VALUES)
 
 
+def _validate_profile_round_minimums(mode: SessionMode, profile: RoundProfile, round_dir: Path) -> list[Blocker]:
+    if profile == RoundProfile.CHECKPOINT:
+        return []
+    if profile == RoundProfile.BUILD_UPDATE:
+        if mode != SessionMode.BUILD:
+            return [
+                Blocker(
+                    "invalid_profile_for_mode",
+                    "",
+                    "build-update profile is only supported for build mode.",
+                    "Use checkpoint or full-review for research mode.",
+                )
+            ]
+        return _validate_build_minimums(round_dir)
+    return _validate_mode_round_minimums(mode, round_dir)
+
+
 def _validate_mode_round_minimums(mode: SessionMode, round_dir: Path) -> list[Blocker]:
     blockers: list[Blocker] = []
     if mode == SessionMode.RESEARCH:
@@ -188,6 +219,11 @@ def _validate_mode_round_minimums(mode: SessionMode, round_dir: Path) -> list[Bl
         )
         return blockers
 
+    return _validate_build_minimums(round_dir)
+
+
+def _validate_build_minimums(round_dir: Path) -> list[Blocker]:
+    blockers: list[Blocker] = []
     blockers.extend(
         _validate_round_file_content(
             round_dir,
@@ -208,6 +244,15 @@ def _validate_mode_round_minimums(mode: SessionMode, round_dir: Path) -> list[Bl
     )
     blockers.extend(_validate_build_verification_evidence(round_dir))
     return blockers
+
+
+def _close_requires_full_review_blocker(decision_file: Path) -> Blocker:
+    return Blocker(
+        "close_requires_full_review_profile",
+        f"{decision_file}#Decision",
+        "Closing decisions require the full-review profile.",
+        "Switch to full-review for the closing round and complete full close readiness.",
+    )
 
 
 def _validate_round_file_content(round_dir: Path, file_name: str, code: str, message: str, next_action: str) -> list[Blocker]:

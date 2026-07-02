@@ -11,6 +11,7 @@ class TemplateTests(unittest.TestCase):
     def test_render_research_prompt_matches_protocol_fields(self):
         text = templates.render_prompt(
             SessionMode.RESEARCH,
+            "full-review",
             2,
             "Continue research session r1",
             "continue; closes claim; recommended next loop build",
@@ -19,6 +20,7 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("<!-- rdl:managed policy=managed_prefix -->", text)
         self.assertIn("# Round 2 Prompt", text)
         self.assertIn("Mode: research", text)
+        self.assertIn("Profile: full-review", text)
         self.assertIn("Objective: Continue research session r1", text)
         self.assertIn("Claim or Capability Under Review:\nnone recorded", text)
         self.assertIn("Previous Decision: continue; closes claim; recommended next loop build", text)
@@ -32,7 +34,7 @@ class TemplateTests(unittest.TestCase):
         self.assertTrue(text.endswith("\n"))
 
     def test_render_build_prompt_uses_build_required_files_and_exit_decision(self):
-        text = templates.render_prompt("build", 1, "mission.md", "none")
+        text = templates.render_prompt("build", "full-review", 1, "mission.md", "none")
 
         self.assertIn("# Round 1 Prompt", text)
         self.assertIn("Mode: build", text)
@@ -41,7 +43,18 @@ class TemplateTests(unittest.TestCase):
 
     def test_render_prompt_rejects_unknown_mode(self):
         with self.assertRaises(ValueError):
-            templates.render_prompt("deploy", 1, "mission.md", "none")
+            templates.render_prompt("deploy", "full-review", 1, "mission.md", "none")
+
+    def test_render_checkpoint_prompt_uses_profile_required_files(self):
+        text = templates.render_prompt("research", "checkpoint", 1, "mission.md", "none")
+
+        self.assertIn("Profile: checkpoint", text)
+        self.assertIn("Required Files: prompt.md, evidence.md, decision.md", text)
+        self.assertIn("Expected Exit Decision: checkpoint decision with evidence", text)
+
+    def test_render_prompt_rejects_unsupported_profile_for_mode(self):
+        with self.assertRaises(ValueError):
+            templates.render_prompt("research", "build-update", 1, "mission.md", "none")
 
     def test_template_path_rejects_unknown_template(self):
         with self.assertRaises(FileNotFoundError):
@@ -93,7 +106,7 @@ class TemplateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / "rounds" / "002" / "prompt.md"
 
-            templates.write_prompt(destination, "research", 2, "Continue research", "continue")
+            templates.write_prompt(destination, "research", "full-review", 2, "Continue research", "continue")
 
             self.assertTrue(destination.is_file())
             text = destination.read_text(encoding="utf-8")

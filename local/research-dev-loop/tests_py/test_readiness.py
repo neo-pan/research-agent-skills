@@ -6,6 +6,10 @@ from rdl import readiness
 from rdl.session import SessionStore
 
 from rdl_test_support import (
+    COMPLETE_BUILD_EVIDENCE,
+    COMPLETE_INTENT,
+    COMPLETE_RESEARCH_EVIDENCE,
+    COMPLETE_WORK,
     REPEATED_NEGATIVE_EVIDENCE,
     complete_build_round,
     complete_decision,
@@ -59,6 +63,84 @@ class ReadinessTests(unittest.TestCase):
 
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
             self.assertNotIn("missing_verification_evidence", codes)
+
+    def test_checkpoint_profile_does_not_require_review_or_interpretation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research", profile="checkpoint")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+
+            self.assertEqual(readiness.check(SessionStore(Path(tmp)).active_session(), "advance"), [])
+
+    def test_checkpoint_profile_still_requires_decision_and_evidence_discipline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research", profile="checkpoint")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "evidence.md").write_text("# Evidence\n\nA fact.\n", encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+
+            self.assertIn("missing_decision", codes)
+            self.assertIn("missing_evaluation_integrity", codes)
+
+    def test_build_update_profile_does_not_require_review_but_requires_build_minimums(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), session_id="bu1", mode="build", profile="build-update")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "intent.md").write_text(COMPLETE_INTENT, encoding="utf-8")
+            (round_dir / "work.md").write_text(COMPLETE_WORK, encoding="utf-8")
+            (round_dir / "evidence.md").write_text(COMPLETE_BUILD_EVIDENCE, encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("accept", "capability"), encoding="utf-8")
+
+            self.assertEqual(readiness.check(SessionStore(Path(tmp)).active_session(), "advance"), [])
+
+    def test_build_update_profile_requires_verification_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), session_id="bu2", mode="build", profile="build-update")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "intent.md").write_text(COMPLETE_INTENT, encoding="utf-8")
+            (round_dir / "work.md").write_text(COMPLETE_WORK, encoding="utf-8")
+            (round_dir / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("accept", "capability"), encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+
+            self.assertIn("missing_verification_evidence", codes)
+
+    def test_lightweight_profile_validates_review_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research", profile="checkpoint")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            (round_dir / "review.md").write_text("# Review\n\nReviewer:\n", encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+
+            self.assertIn("missing_review_field", codes)
+
+    def test_close_decision_requires_full_review_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research", profile="checkpoint")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("close-positive", "claim"), encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
+
+            self.assertIn("close_requires_full_review_profile", codes)
+
+    def test_advance_blocks_close_decision_outside_full_review_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research", profile="checkpoint")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("close-positive", "claim"), encoding="utf-8")
+
+            codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
+
+            self.assertIn("close_requires_full_review_profile", codes)
 
     def test_document_validators_are_used_for_review_and_decision(self):
         with tempfile.TemporaryDirectory() as tmp:

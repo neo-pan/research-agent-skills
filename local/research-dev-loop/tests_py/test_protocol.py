@@ -1,6 +1,6 @@
 import unittest
 
-from rdl.model import SessionMode
+from rdl.model import RoundProfile, SessionMode
 from rdl.protocol import descriptor
 
 
@@ -49,6 +49,9 @@ class ProtocolDescriptorTests(unittest.TestCase):
             descriptor.completed_round_files("build"),
             ("prompt.md", "intent.md", "work.md", "evidence.md", "review.md", "decision.md"),
         )
+        self.assertEqual(descriptor.completed_round_files("research", "checkpoint"), ("prompt.md", "evidence.md", "decision.md"))
+        self.assertEqual(descriptor.completed_round_files("build", "build-update"), ("prompt.md", "intent.md", "work.md", "evidence.md", "decision.md"))
+        self.assertEqual(descriptor.completed_round_files("research", "build-update"), ())
 
     def test_required_fields_and_sections(self):
         self.assertIn("Recommended Decision", descriptor.required_fields("review"))
@@ -112,12 +115,14 @@ class ProtocolDescriptorTests(unittest.TestCase):
 
     def test_allowed_values(self):
         self.assertTrue(descriptor.value_allowed("review-mode", "manual"))
+        self.assertTrue(descriptor.value_allowed("round-profile", "checkpoint"))
         self.assertTrue(descriptor.value_allowed("review-verdict", "PASS"))
         self.assertTrue(descriptor.value_allowed("decision-type", "close-positive"))
         self.assertTrue(descriptor.value_allowed("recommended-next-loop", "none"))
         self.assertTrue(descriptor.value_allowed("close-outcome", "positive"))
 
         self.assertFalse(descriptor.value_allowed("review-mode", "unsupported"))
+        self.assertFalse(descriptor.value_allowed("round-profile", "audit"))
         self.assertFalse(descriptor.value_allowed("review-verdict", "MAYBE"))
         self.assertFalse(descriptor.value_allowed("decision-type", "close-unknown"))
         self.assertFalse(descriptor.value_allowed("recommended-next-loop", "deploy"))
@@ -131,6 +136,9 @@ class ProtocolDescriptorTests(unittest.TestCase):
     def test_prompt_expected_exit_decision(self):
         self.assertEqual(descriptor.prompt_expected_exit_decision("research"), "claim decision with evidence and uncertainty")
         self.assertEqual(descriptor.prompt_expected_exit_decision(SessionMode.BUILD), "capability decision with verification evidence")
+        self.assertEqual(descriptor.prompt_expected_exit_decision("research", "checkpoint"), "checkpoint decision with evidence")
+        self.assertEqual(descriptor.prompt_expected_exit_decision("build", "build-update"), "build update decision with verification evidence")
+        self.assertEqual(descriptor.prompt_expected_exit_decision("research", "build-update"), "")
         self.assertEqual(descriptor.prompt_expected_exit_decision("unknown"), "")
 
     def test_known_paths(self):
@@ -172,9 +180,11 @@ class ProtocolDescriptorTests(unittest.TestCase):
                 "mode-minimums",
                 "round-evidence-discipline",
                 "artifact-citations",
+                "close-if-decision",
             ),
         )
         self.assertIn("final-report", descriptor.readiness_plan("close"))
+        self.assertIn("full-review-close-profile", descriptor.readiness_plan("close"))
 
     def test_document_specs_collect_fields_sections_and_values(self):
         review = descriptor.document_spec("review")
@@ -208,6 +218,14 @@ class ProtocolDescriptorTests(unittest.TestCase):
         self.assertEqual(build.prompt_expected_exit_decision, "capability decision with verification evidence")
 
         self.assertIsNone(descriptor.mode_spec("unknown"))
+
+    def test_profile_specs_collect_round_profile_protocol_facts(self):
+        checkpoint = descriptor.profile_spec(RoundProfile.CHECKPOINT)
+        self.assertIsNotNone(checkpoint)
+        self.assertTrue(descriptor.profile_allowed_for_mode("research", "checkpoint"))
+        self.assertTrue(descriptor.profile_allowed_for_mode(SessionMode.BUILD, RoundProfile.BUILD_UPDATE))
+        self.assertFalse(descriptor.profile_allowed_for_mode("research", "build-update"))
+        self.assertIsNone(descriptor.profile_spec("audit"))
 
     def test_close_outcome_for_decision_is_protocol_owned(self):
         self.assertEqual(descriptor.close_outcome_for_decision("close-positive"), "positive")

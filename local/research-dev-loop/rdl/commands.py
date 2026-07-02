@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import documents, integrity, memory, readiness, repair, summary, templates, transition
-from .model import Blocker, CommandResult, SessionMode, SessionPhase, SessionState, SessionStatus
+from .model import Blocker, CommandResult, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
 
@@ -16,6 +16,7 @@ from .session import Session, SessionStore, SessionLockError, acquire_session_lo
 class CommandIntent:
     command: str
     mode: str | None = None
+    profile: str | None = None
     mission_file: str | None = None
     session_id: str | None = None
     decision_type: str | None = None
@@ -44,13 +45,13 @@ def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "summarize":
         return _summarize(intent.summarize_mode, intent.summarize_round)
     if intent.command == "start":
-        return _start(intent.mode, intent.mission_file, intent.session_id)
+        return _start(intent.mode, intent.profile, intent.mission_file, intent.session_id)
     if intent.command == "status":
         return _status()
     if intent.command == "repair":
         return _repair()
     if intent.command == "next":
-        return _next(intent.next_mode)
+        return _next(intent.next_mode, intent.profile)
     if intent.command == "close":
         return _close(intent.outcome)
     if intent.command == "abandon":
@@ -64,7 +65,7 @@ def execute(intent: CommandIntent) -> CommandResult:
     raise ValueError(f"unsupported command: {intent.command!r}")
 
 
-def _start(mode: str | None, mission_file: str | None, session_id: str | None) -> CommandResult:
+def _start(mode: str | None, profile: str | None, mission_file: str | None, session_id: str | None) -> CommandResult:
     if not mode or not mission_file:
         blocker = Blocker(
             "missing_arguments",
@@ -92,6 +93,15 @@ def _start(mode: str | None, mission_file: str | None, session_id: str | None) -
             missing=_missing_from_blockers((blocker,)),
             blockers=(blocker,),
             next_action="Use rdl start research or rdl start build.",
+        )
+    profile_value = profile or RoundProfile.FULL_REVIEW.value
+    profile_blocker = _profile_blocker(mode, profile_value)
+    if profile_blocker is not None:
+        return CommandResult(
+            status="error",
+            action="start",
+            blockers=(profile_blocker,),
+            next_action=profile_blocker.next_action,
         )
 
     mission_path = Path(mission_file)
@@ -187,11 +197,11 @@ def _start(mode: str | None, mission_file: str | None, session_id: str | None) -
         )
 
     try:
-        session = store.create_session(mode, mission_path, new_session_id)
+        session = store.create_session(mode, mission_path, new_session_id, profile_value)
     except FileNotFoundError as exc:
-        return _template_write_error("start", _synthetic_state(new_session_id, mode), "plan", 1, exc)
+        return _template_write_error("start", _synthetic_state(new_session_id, mode, profile_value), "plan", 1, exc)
     except Exception as exc:
-        state = _synthetic_state(new_session_id, mode)
+        state = _synthetic_state(new_session_id, mode, profile_value)
         return _integrity_refresh_error("start", state, "plan", 1, exc)
 
     state = session.state
@@ -243,11 +253,12 @@ def _status() -> CommandResult:
     )
 
 
-def _synthetic_state(session_id: str, mode: str) -> SessionState:
+def _synthetic_state(session_id: str, mode: str, profile: str = RoundProfile.FULL_REVIEW.value) -> SessionState:
     return SessionState(
         schema_version=1,
         session_id=session_id,
         mode=SessionMode(mode),
+        profile=RoundProfile(profile),
         phase=SessionPhase.PLAN,
         round=1,
         status=SessionStatus.ACTIVE,
@@ -265,6 +276,7 @@ def _state_result(
     phase: str | None = None,
     round_number: int | None = None,
     mode: str | None = None,
+    profile: str | None = None,
     warnings: Sequence[str] = (),
     details: dict[str, object] | None = None,
 ) -> CommandResult:
@@ -274,6 +286,7 @@ def _state_result(
         action=action,
         session_id=state.session_id,
         mode=str(state.mode) if mode is None else mode,
+        profile=str(state.profile) if profile is None else profile,
         phase=str(state.phase) if phase is None else str(phase),
         round=state.round if round_number is None else round_number,
         missing=_missing_from_blockers(blocker_tuple),
@@ -449,7 +462,7 @@ def _summarize_write_locked(context: _LockedContext, through_round: int | None) 
     )
 
 
-def _next(next_mode: str | None = None) -> CommandResult:
+def _next(next_mode: str | None = None, next_profile: str | None = None) -> CommandResult:
     if next_mode is not None and next_mode not in {SessionMode.RESEARCH.value, SessionMode.BUILD.value}:
         blocker = Blocker(
             "invalid_mode",
@@ -463,12 +476,36 @@ def _next(next_mode: str | None = None) -> CommandResult:
             blockers=(blocker,),
             next_action="Use rdl next --mode research or rdl next --mode build.",
         )
-    return _run_locked_session("next", lambda context: _next_locked(context, next_mode))
+    if next_profile is not None and next_profile not in {profile.value for profile in RoundProfile}:
+        blocker = Blocker(
+            "invalid_profile",
+            "",
+            "profile must be full-review, checkpoint, or build-update.",
+            "Use rdl next --profile full-review, checkpoint, or build-update.",
+        )
+        return CommandResult(
+            status="error",
+            action="next",
+            blockers=(blocker,),
+            next_action=blocker.next_action,
+        )
+    return _run_locked_session("next", lambda context: _next_locked(context, next_mode, next_profile))
 
 
-def _next_locked(context: _LockedContext, next_mode: str | None) -> CommandResult:
+def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: str | None) -> CommandResult:
     session = context.session
     state = context.state
+    target_mode = next_mode or str(state.mode)
+    target_profile = next_profile or str(state.profile)
+    profile_blocker = _profile_blocker(target_mode, target_profile)
+    if profile_blocker is not None:
+        return _state_result(
+            "blocked",
+            "next",
+            state,
+            blockers=(profile_blocker,),
+            next_action=profile_blocker.next_action,
+        )
     prompt_context = memory.prompt_context(session)
     warnings = memory.advisory_warnings(session, next_mode=next_mode, prompt_context_value=prompt_context)
 
@@ -484,7 +521,7 @@ def _next_locked(context: _LockedContext, next_mode: str | None) -> CommandResul
         )
 
     try:
-        result = transition.advance(session, next_mode)
+        result = transition.advance(session, next_mode, next_profile)
     except transition.TransitionBlocked as exc:
         return _state_result(
             "blocked",
@@ -506,6 +543,7 @@ def _next_locked(context: _LockedContext, next_mode: str | None) -> CommandResul
         phase=result.phase,
         round_number=result.round,
         mode=result.mode,
+        profile=result.profile,
         warnings=warnings,
         next_action=result.next_action,
     )
@@ -1027,6 +1065,24 @@ def _template_write_error(
         blockers=(blocker,),
         next_action="repair RDL templates",
     )
+
+
+def _profile_blocker(mode: str, profile: str) -> Blocker | None:
+    if profile not in {round_profile.value for round_profile in RoundProfile}:
+        return Blocker(
+            "invalid_profile",
+            "",
+            "profile must be full-review, checkpoint, or build-update.",
+            "Use full-review, checkpoint, or build-update.",
+        )
+    if not descriptor.profile_allowed_for_mode(mode, profile):
+        return Blocker(
+            "invalid_profile_for_mode",
+            "",
+            "profile is not supported for the selected mode.",
+            "Use full-review or checkpoint for research; use any supported profile for build.",
+        )
+    return None
 
 
 def _missing_from_blockers(blockers: Sequence[Blocker]) -> tuple[str, ...]:

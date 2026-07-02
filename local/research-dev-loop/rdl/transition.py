@@ -18,6 +18,7 @@ class TransitionResult:
     round: int
     next_action: str
     mode: str = ""
+    profile: str = ""
 
 
 class TransitionBlocked(Exception):
@@ -26,11 +27,12 @@ class TransitionBlocked(Exception):
         self.blocker = blocker
 
 
-def advance(session: Any, next_mode: str | None = None) -> TransitionResult:
+def advance(session: Any, next_mode: str | None = None, next_profile: str | None = None) -> TransitionResult:
     state = session.state
     current_round = state.round
     next_round = current_round + 1
     target_mode = next_mode or str(state.mode)
+    target_profile = next_profile or str(state.profile)
     if descriptor.mode_spec(target_mode) is None:
         raise TransitionBlocked(
             Blocker(
@@ -38,6 +40,24 @@ def advance(session: Any, next_mode: str | None = None) -> TransitionResult:
                 "",
                 "mode must be research or build.",
                 "Use research or build for the next round mode.",
+            )
+        )
+    if descriptor.profile_spec(target_profile) is None:
+        raise TransitionBlocked(
+            Blocker(
+                "invalid_profile",
+                "",
+                "profile must be full-review, checkpoint, or build-update.",
+                "Use full-review, checkpoint, or build-update for the next round profile.",
+            )
+        )
+    if not descriptor.profile_allowed_for_mode(target_mode, target_profile):
+        raise TransitionBlocked(
+            Blocker(
+                "invalid_profile_for_mode",
+                "",
+                "profile is not supported for the selected mode.",
+                "Use full-review or checkpoint for research; use any supported profile for build.",
             )
         )
     next_round_dir = session.round_dir(next_round)
@@ -64,6 +84,7 @@ def advance(session: Any, next_mode: str | None = None) -> TransitionResult:
     templates.write_prompt(
         prompt_path,
         target_mode,
+        target_profile,
         next_round,
         f"Continue {target_mode} session {state.session_id}",
         previous_decision,
@@ -76,12 +97,23 @@ def advance(session: Any, next_mode: str | None = None) -> TransitionResult:
         {
             "round": next_round,
             "mode": target_mode,
+            "profile": target_profile,
             "phase": SessionPhase.PLAN.value,
             "updated_at_utc": now,
         },
     )
-    _append_round_decision(session.root, current_round, decision, expected_closes, next_loop, next_round, target_mode)
-    return TransitionResult(SessionPhase.PLAN.value, next_round, str(prompt_path), target_mode)
+    _append_round_decision(
+        session.root,
+        current_round,
+        str(state.profile),
+        decision,
+        expected_closes,
+        next_loop,
+        next_round,
+        target_mode,
+        target_profile,
+    )
+    return TransitionResult(SessionPhase.PLAN.value, next_round, str(prompt_path), target_mode, target_profile)
 
 
 def close(session: Any, outcome: CloseOutcome | str) -> TransitionResult:
@@ -147,21 +179,25 @@ def _update_state(session_dir: Path, updates: dict[str, object]) -> None:
 def _append_round_decision(
     session_dir: Path,
     round_number: int,
+    current_profile: str,
     decision: str,
     expected_closes: str,
     next_loop: str,
     next_round: int,
     next_mode: str,
+    next_profile: str,
 ) -> None:
     _append_text(
         session_dir / "decision-ledger.md",
         "\n"
         f"## Round {round_number} Decision\n\n"
+        f"- Profile: {current_profile}\n"
         f"- Decision: {decision}\n"
         f"- Closes: {expected_closes}\n"
         f"- Recommended next loop: {next_loop}\n"
         f"- Next round: {next_round:03d}\n"
-        f"- Next mode: {next_mode}\n",
+        f"- Next mode: {next_mode}\n"
+        f"- Next profile: {next_profile}\n",
     )
 
 

@@ -2,6 +2,7 @@
 # Round {{ROUND}} Prompt
 
 Mode: {{MODE}}
+Profile: {{PROFILE}}
 Objective: {{OBJECTIVE}}
 Claim or Capability Under Review:
 {{CLAIM_OR_CAPABILITY_UNDER_REVIEW}}

@@ -22,6 +22,7 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl start research mission.md --js
 PYTHONPATH=local/research-dev-loop python3 -m rdl start build plan.md --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl status --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --json
 ```
 
 ## Requirements
@@ -49,6 +50,14 @@ checks, RDL Python tests, and repository prerequisite checks.
 - Use `rdl next --mode build` or `rdl next --mode research` when the next round
   should change loop type. `Recommended next loop` records intent, but does not
   by itself switch mode.
+- Use `--profile full-review` for phase gates, go/no-go decisions, and closing
+  rounds. Use `--profile checkpoint` for compact evidence+decision checkpoints.
+  Use `--profile build-update` only in build mode for compact capability work
+  updates. If no profile is supplied, RDL keeps the current profile and defaults
+  new sessions to `full-review`.
+- Lightweight profiles reduce round boilerplate; they do not remove the need for
+  decision-grade evidence, `decision.md`, artifact discipline, or session-memory
+  updates when state changes.
 - Treat `.rdl/sessions/<session-id>/` as the recoverable state; do not depend on
   conversation memory for claims, evidence, open questions, or next steps.
 - At the start of a round, read `mission.md`, `progress.md`, `factors.md`,
@@ -58,8 +67,10 @@ checks, RDL Python tests, and repository prerequisite checks.
   round changes completed work, active claims or capabilities, blockers, open
   questions, directions tried, datasets, workloads, baselines, metrics,
   validators, prompts, backends, hardware, or nondeterminism.
-- In every review, record whether the round produced fresh evidence and whether
-  the current direction is becoming stale.
+- In every `full-review` round, record whether the round produced fresh evidence
+  and whether the current direction is becoming stale. In lightweight rounds,
+  create `review.md` only when there is real review value; if it exists, it must
+  be complete and aligned with `decision.md`.
 - When staleness appears, continue only with an explicit stall response, or
   change direction with prior directions checked.
 - Index artifacts in `artifact-manifest.json`; do not copy project artifacts.

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import integrity, safety, store, templates, transition
-from .model import AuditResult, Blocker, SessionMode, SessionPhase, SessionState, SessionStatus
+from .model import AuditResult, Blocker, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 
 
 @dataclass(frozen=True)
@@ -107,8 +107,15 @@ class SessionStore:
     def load_session(self, session_dir: str | Path) -> Session:
         return self._load_session(Path(session_dir))
 
-    def create_session(self, mode: SessionMode | str, mission_file: str | Path, session_id: str) -> Session:
+    def create_session(
+        self,
+        mode: SessionMode | str,
+        mission_file: str | Path,
+        session_id: str,
+        profile: RoundProfile | str = RoundProfile.FULL_REVIEW,
+    ) -> Session:
         mode_value = mode.value if isinstance(mode, SessionMode) else str(mode)
+        profile_value = profile.value if isinstance(profile, RoundProfile) else str(profile)
         session_dir = self.sessions_root / session_id
         tmp_dir = session_dir.with_name(f"{session_dir.name}.tmp.{os.getpid()}")
         if tmp_dir.exists():
@@ -118,7 +125,7 @@ class SessionStore:
             (tmp_dir / "rounds" / "001").mkdir(parents=True)
             templates.initialize_session_files(tmp_dir, mission_file)
             prompt_objective = Path(mission_file).name
-            templates.write_prompt(tmp_dir / "rounds" / "001" / "prompt.md", mode_value, 1, prompt_objective, "none")
+            templates.write_prompt(tmp_dir / "rounds" / "001" / "prompt.md", mode_value, profile_value, 1, prompt_objective, "none")
             now = transition.now_utc()
             store.write_json_atomic(
                 tmp_dir / "state.json",
@@ -126,6 +133,7 @@ class SessionStore:
                     "schema_version": 1,
                     "session_id": session_id,
                     "mode": mode_value,
+                    "profile": profile_value,
                     "phase": SessionPhase.PLAN.value,
                     "round": 1,
                     "status": SessionStatus.ACTIVE.value,
@@ -182,6 +190,7 @@ def _placeholder_state(session_id: str) -> SessionState:
         schema_version=1,
         session_id=session_id,
         mode=SessionMode.RESEARCH,
+        profile=RoundProfile.FULL_REVIEW,
         phase=SessionPhase.PLAN,
         round=1,
         status=SessionStatus.ACTIVE,
@@ -197,6 +206,10 @@ def _partial_state(raw: Any, fallback_session_id: str) -> SessionState:
     except ValueError:
         mode = SessionMode.RESEARCH
     try:
+        profile = RoundProfile(raw.get("profile", RoundProfile.FULL_REVIEW.value))
+    except ValueError:
+        profile = RoundProfile.FULL_REVIEW
+    try:
         phase = SessionPhase(raw.get("phase", "plan"))
     except ValueError:
         phase = SessionPhase.PLAN
@@ -211,6 +224,7 @@ def _partial_state(raw: Any, fallback_session_id: str) -> SessionState:
         schema_version=raw.get("schema_version") if _strict_int(raw.get("schema_version")) else 0,
         session_id=raw.get("session_id") if isinstance(raw.get("session_id"), str) else "",
         mode=mode,
+        profile=profile,
         phase=phase,
         round=round_value,
         status=status,

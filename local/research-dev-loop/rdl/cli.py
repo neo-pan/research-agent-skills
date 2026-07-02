@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("mode", nargs="?")
     start.add_argument("mission_file", nargs="?")
     start.add_argument("--session-id")
+    start.add_argument("--profile")
     start.add_argument("--json", action="store_true")
     start.set_defaults(command="start")
 
@@ -65,6 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     next_command = subparsers.add_parser("next", help="advance the active RDL session")
     next_command.add_argument("--mode", dest="next_mode")
+    next_command.add_argument("--profile")
     next_command.add_argument("--json", action="store_true")
     next_command.set_defaults(command="next")
 
@@ -120,6 +122,7 @@ def _command_intent(args: argparse.Namespace) -> CommandIntent:
     return CommandIntent(
         command=args.command,
         mode=getattr(args, "mode", None),
+        profile=getattr(args, "profile", None),
         mission_file=getattr(args, "mission_file", None),
         session_id=getattr(args, "session_id", None),
         decision_type=getattr(args, "decision_type", None),
@@ -169,7 +172,7 @@ def _parser_error_result(argv: Sequence[str], message: str) -> CommandResult:
 
 def _missing_value_option(argv: Sequence[str]) -> str:
     for index, token in enumerate(argv):
-        if token in {"--session-id", "--guard-session-id", "--guard-command-id", "--mode", "--round"}:
+        if token in {"--session-id", "--guard-session-id", "--guard-command-id", "--mode", "--profile", "--round"}:
             if index + 1 >= len(argv) or argv[index + 1].startswith("--"):
                 return token
     return ""
@@ -184,6 +187,8 @@ def _missing_value_code(action: str, option: str) -> tuple[str, str]:
         return "missing_guard_command_id", "Pass --guard-command-id <id>."
     if action == "next" and option == "--mode":
         return "missing_mode", "Pass --mode research or --mode build."
+    if option == "--profile":
+        return "missing_profile", "Pass --profile full-review, checkpoint, or build-update."
     if action == "summarize" and option == "--round":
         return "missing_round", "Pass --round <number>."
     return "missing_option_value", "Run rdl --help."
@@ -217,6 +222,7 @@ def _result_dict(result: CommandResult) -> dict[str, object]:
         "action": result.action,
         "session_id": result.session_id,
         "mode": result.mode,
+        "profile": result.profile,
         "phase": result.phase,
         "round": result.round,
         "missing": list(result.missing),

@@ -28,6 +28,7 @@ class CliStartStatusTests(unittest.TestCase):
             self.assertEqual(result["action"], "start")
             self.assertEqual(result["session_id"], "start_research")
             self.assertEqual(result["mode"], "research")
+            self.assertEqual(result["profile"], "full-review")
             self.assertEqual(result["phase"], "plan")
             self.assertEqual(result["round"], 1)
             self.assertEqual(result["next_action"], str(prompt_file))
@@ -36,6 +37,7 @@ class CliStartStatusTests(unittest.TestCase):
                 self.assertTrue((session_dir / name).is_file(), name)
             prompt = prompt_file.read_text(encoding="utf-8")
             self.assertIn("Mode: research", prompt)
+            self.assertIn("Profile: full-review", prompt)
             self.assertIn("Objective: mission-source.md", prompt)
             self.assertIn("Previous Decision: none", prompt)
             self.assertIn("Required Files: prompt.md, evidence.md, interpretation.md, review.md, decision.md", prompt)
@@ -44,6 +46,7 @@ class CliStartStatusTests(unittest.TestCase):
             self.assertEqual(state["schema_version"], 1)
             self.assertEqual(state["session_id"], "start_research")
             self.assertEqual(state["mode"], "research")
+            self.assertEqual(state["profile"], "full-review")
             self.assertEqual(state["phase"], "plan")
             self.assertEqual(state["round"], 1)
             self.assertEqual(state["status"], "active")
@@ -73,6 +76,36 @@ class CliStartStatusTests(unittest.TestCase):
             self.assertIn("Mode: build", prompt)
             self.assertIn("Required Files: prompt.md, intent.md, work.md, evidence.md, review.md, decision.md", prompt)
             self.assertIn("Expected Exit Decision: capability decision with verification evidence", prompt)
+
+    def test_start_json_accepts_checkpoint_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mission = root / "mission.md"
+            mission.write_text("# Mission\n\nCheckpoint this claim.\n", encoding="utf-8")
+
+            code, result = run_cli(root, ["start", "research", str(mission), "--profile", "checkpoint", "--session-id", "start_checkpoint", "--json"])
+
+            session_dir = root / ".rdl" / "sessions" / "start_checkpoint"
+            self.assertEqual(code, 0)
+            self.assertEqual(result["profile"], "checkpoint")
+            state = store.read_json(session_dir / "state.json")
+            self.assertEqual(state["profile"], "checkpoint")
+            prompt = (session_dir / "rounds" / "001" / "prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Profile: checkpoint", prompt)
+            self.assertIn("Required Files: prompt.md, evidence.md, decision.md", prompt)
+
+    def test_start_json_rejects_profile_not_supported_by_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mission = root / "mission.md"
+            mission.write_text("# Mission\n", encoding="utf-8")
+
+            code, result = run_cli(root, ["start", "research", str(mission), "--profile", "build-update", "--session-id", "bad_profile", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "invalid_profile_for_mode")
+            self.assertFalse((root / ".rdl" / "sessions" / "bad_profile").exists())
 
     def test_start_json_blocks_when_active_session_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -174,6 +207,7 @@ class CliStartStatusTests(unittest.TestCase):
             self.assertEqual(result["action"], "status")
             self.assertEqual(result["session_id"], "status_active")
             self.assertEqual(result["mode"], "build")
+            self.assertEqual(result["profile"], "full-review")
             self.assertEqual(result["phase"], "plan")
             self.assertEqual(result["round"], 1)
             self.assertEqual(result["next_action"], "active")

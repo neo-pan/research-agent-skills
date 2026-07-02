@@ -200,7 +200,7 @@ def _state_required_round_files(session: Any) -> list[str]:
         return paths
     for round_number in range(1, session.state.round + 1):
         round_prefix = f"rounds/{round_number:03d}"
-        for file_name in descriptor.completed_round_files(session.state.mode):
+        for file_name in descriptor.completed_round_files(session.state.mode, session.state.profile):
             relative = f"{round_prefix}/{file_name}"
             if (session.root / relative).is_file():
                 paths.append(relative)

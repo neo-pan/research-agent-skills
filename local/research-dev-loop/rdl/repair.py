@@ -92,6 +92,6 @@ def _repair_initial_prompt(session: Session, repaired: list[str]) -> list[Blocke
                 f"Restore {prompt_relative} or start a new session with prompt metadata.",
             )
         ]
-    templates.write_prompt(prompt_path, session.state.mode, 1, session.state.prompt_objective, "none")
+    templates.write_prompt(prompt_path, session.state.mode, session.state.profile, 1, session.state.prompt_objective, "none")
     repaired.append(prompt_relative)
     return []

@@ -36,6 +36,15 @@ class CliParserErrorTests(unittest.TestCase):
         self.assertEqual(result["blockers"][0]["code"], "missing_session_id")
         self.assertEqual(result["next_action"], "Pass --session-id <id>.")
 
+    def test_missing_profile_with_json_returns_structured_error(self):
+        code, result = run_cli(["next", "--profile", "--json"])
+
+        self.assertEqual(code, 1)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["action"], "next")
+        self.assertEqual(result["blockers"][0]["code"], "missing_profile")
+        self.assertEqual(result["next_action"], "Pass --profile full-review, checkpoint, or build-update.")
+
     def test_unknown_command_with_json_returns_structured_error(self):
         code, result = run_cli(["unknown-command", "--json"])
 

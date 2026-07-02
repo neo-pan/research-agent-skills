@@ -6,7 +6,7 @@ import hashlib
 from pathlib import Path
 
 from rdl import store
-from rdl.model import SessionMode, SessionPhase, SessionStatus
+from rdl.model import RoundProfile, SessionMode, SessionPhase, SessionStatus
 from rdl.session import SessionState, SessionStore
 
 from rdl_test_support import create_session, refresh_integrity, write_json
@@ -28,6 +28,7 @@ class StoreSessionTests(unittest.TestCase):
             self.assertIsNotNone(session)
             self.assertEqual(session.state.session_id, "r1")
             self.assertEqual(session.state.mode, SessionMode.RESEARCH)
+            self.assertEqual(session.state.profile, RoundProfile.FULL_REVIEW)
             self.assertEqual(session.state.phase, SessionPhase.PLAN)
             self.assertEqual(session.state.status, SessionStatus.ACTIVE)
             self.assertEqual(session.round_dir().name, "001")
@@ -286,6 +287,43 @@ class StoreSessionTests(unittest.TestCase):
     def test_session_state_requires_object(self):
         with self.assertRaises(ValueError):
             SessionState.from_json([])
+
+    def test_session_state_defaults_missing_profile_for_legacy_state(self):
+        state = SessionState.from_json(
+            {
+                "schema_version": 1,
+                "session_id": "legacy",
+                "mode": "research",
+                "phase": "plan",
+                "round": 1,
+                "status": "active",
+                "mission_file": "mission.md",
+            }
+        )
+
+        self.assertEqual(state.profile, RoundProfile.FULL_REVIEW)
+
+    def test_session_audit_rejects_invalid_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp))
+            state = store.read_json(session_dir / "state.json")
+            state["profile"] = "audit"
+            write_json(session_dir / "state.json", state)
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+
+            self.assertIn("invalid_profile", {blocker.code for blocker in audit.errors})
+
+    def test_session_audit_rejects_profile_not_supported_by_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = create_session(Path(tmp), mode="research")
+            state = store.read_json(session_dir / "state.json")
+            state["profile"] = "build-update"
+            write_json(session_dir / "state.json", state)
+
+            audit = SessionStore(Path(tmp)).active_session().audit()
+
+            self.assertIn("invalid_profile_for_mode", {blocker.code for blocker in audit.errors})
 
 
 if __name__ == "__main__":

@@ -36,6 +36,23 @@ class TransitionTests(unittest.TestCase):
             ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
             self.assertIn("## Round 1 Decision", ledger)
             self.assertIn("- Next round: 002", ledger)
+            self.assertIn("- Profile: full-review", ledger)
+            self.assertIn("- Next profile: full-review", ledger)
+
+    def test_advance_can_set_next_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "transition_profile")
+            complete_research_round(session_dir, "continue")
+            session = SessionStore(root).active_session()
+
+            result = transition.advance(session, next_profile="checkpoint")
+
+            state = store.read_json(session_dir / "state.json")
+            self.assertEqual(result.profile, "checkpoint")
+            self.assertEqual(state["profile"], "checkpoint")
+            prompt = (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Profile: checkpoint", prompt)
 
     def test_advance_carries_session_memory_into_next_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:

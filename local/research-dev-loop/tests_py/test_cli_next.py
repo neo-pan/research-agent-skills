@@ -11,8 +11,11 @@ from rdl.cli import main
 from rdl.session import SessionStore
 
 from rdl_test_support import (
+    COMPLETE_BUILD_EVIDENCE,
     COMPLETE_INTERPRETATION,
+    COMPLETE_INTENT,
     COMPLETE_RESEARCH_EVIDENCE,
+    COMPLETE_WORK,
     complete_decision,
     complete_research_round,
     complete_review,
@@ -72,6 +75,69 @@ class CliNextTests(unittest.TestCase):
             ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
             self.assertIn("- Next mode: build", ledger)
 
+    def test_next_json_can_set_next_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "next_profile")
+            complete_research_round(session_dir, "continue")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--profile", "checkpoint", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["profile"], "checkpoint")
+            state = store.read_json(session_dir / "state.json")
+            self.assertEqual(state["profile"], "checkpoint")
+            prompt = (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Profile: checkpoint", prompt)
+            self.assertIn("Required Files: prompt.md, evidence.md, decision.md", prompt)
+            ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
+            self.assertIn("- Profile: full-review", ledger)
+            self.assertIn("- Next profile: checkpoint", ledger)
+
+    def test_next_json_can_transition_mode_and_profile_together(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "next_build_update")
+            complete_research_round(session_dir, "continue")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--mode", "build", "--profile", "build-update", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["mode"], "build")
+            self.assertEqual(result["profile"], "build-update")
+            state = store.read_json(session_dir / "state.json")
+            self.assertEqual(state["mode"], "build")
+            self.assertEqual(state["profile"], "build-update")
+            prompt = (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Mode: build", prompt)
+            self.assertIn("Profile: build-update", prompt)
+            self.assertIn("Required Files: prompt.md, intent.md, work.md, evidence.md, decision.md", prompt)
+
+    def test_next_json_blocks_incompatible_inherited_profile_for_new_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "incompatible_profile", mode="build", profile="build-update")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "intent.md").write_text(COMPLETE_INTENT, encoding="utf-8")
+            (round_dir / "work.md").write_text(COMPLETE_WORK, encoding="utf-8")
+            (round_dir / "evidence.md").write_text(COMPLETE_BUILD_EVIDENCE, encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("accept", "capability"), encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--mode", "research", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "blocked")
+            self.assertIn("invalid_profile_for_mode", {blocker["code"] for blocker in result["blockers"]})
+            self.assertFalse((session_dir / "rounds" / "002").exists())
+
     def test_next_json_recommended_loop_mismatch_warns_without_switching_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -106,6 +172,21 @@ class CliNextTests(unittest.TestCase):
             result = json.loads(stdout.getvalue())
             self.assertEqual(result["status"], "error")
             self.assertIn("invalid_mode", {blocker["code"] for blocker in result["blockers"]})
+            self.assertFalse((session_dir / "rounds" / "002").exists())
+
+    def test_next_json_rejects_invalid_profile_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "bad_next_profile")
+            complete_research_round(session_dir, "continue")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--profile", "audit", "--json"]), 1)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "error")
+            self.assertIn("invalid_profile", {blocker["code"] for blocker in result["blockers"]})
             self.assertFalse((session_dir / "rounds" / "002").exists())
 
     def test_doctor_json_warns_for_empty_session_memory_after_multiple_rounds(self):
@@ -149,6 +230,23 @@ class CliNextTests(unittest.TestCase):
             self.assertIn("missing_decision", codes)
             self.assertFalse((session_dir / "rounds" / "002").exists())
             self.assertEqual(store.read_json(session_dir / "state.json")["round"], 1)
+
+    def test_next_json_blocks_close_decision_outside_full_review_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "next_close_checkpoint", profile="checkpoint")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("close-positive", "claim"), encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertIn("close_requires_full_review_profile", {blocker["code"] for blocker in result["blockers"]})
+            self.assertFalse((session_dir / "rounds" / "002").exists())
 
     def test_next_json_blocks_for_missing_research_evidence_and_interpretation(self):
         with tempfile.TemporaryDirectory() as tmp:
