@@ -213,6 +213,96 @@ class CliNextTests(unittest.TestCase):
             self.assertIn("empty_progress_memory_after_multiple_rounds", result["warnings"])
             self.assertIn("empty_factors_memory_after_first_round", result["warnings"])
 
+    def test_doctor_and_next_warn_when_recent_rounds_have_no_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "artifact_warn")
+            complete_research_round(session_dir, "continue")
+            with change_dir(root), redirect_stdout(StringIO()):
+                self.assertEqual(main(["next", "--json"]), 0)
+            round_two = session_dir / "rounds" / "002"
+            (round_two / "review.md").write_text(complete_review("continue"), encoding="utf-8")
+            (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            (round_two / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_two / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+            with change_dir(root), redirect_stdout(StringIO()):
+                self.assertEqual(main(["next", "--json"]), 0)
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--json"]), 2)
+            doctor_result = json.loads(stdout.getvalue())
+            self.assertIn("no_recent_artifacts_after_multiple_rounds", doctor_result["warnings"])
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--json"]), 2)
+            next_result = json.loads(stdout.getvalue())
+            self.assertIn("no_recent_artifacts_after_multiple_rounds", next_result["warnings"])
+
+    def test_doctor_json_does_not_warn_for_recent_artifact_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "artifact_present")
+            complete_research_round(session_dir, "continue")
+            with change_dir(root), redirect_stdout(StringIO()):
+                self.assertEqual(main(["next", "--json"]), 0)
+            round_two = session_dir / "rounds" / "002"
+            (round_two / "review.md").write_text(complete_review("continue"), encoding="utf-8")
+            (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            (round_two / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_two / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+            (session_dir / "artifact-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "artifacts": [
+                            {
+                                "id": "EV2",
+                                "kind": "log",
+                                "round": 2,
+                                "description": "recent evidence",
+                                "path": "artifacts/recent.log",
+                            }
+                        ]
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            with change_dir(root), redirect_stdout(StringIO()):
+                self.assertEqual(main(["next", "--json"]), 0)
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertNotIn("no_recent_artifacts_after_multiple_rounds", result["warnings"])
+
+    def test_doctor_json_warns_for_repeated_next_smallest_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "step_warn")
+            complete_research_round(session_dir, "continue")
+            with change_dir(root), redirect_stdout(StringIO()):
+                self.assertEqual(main(["next", "--json"]), 0)
+            round_two = session_dir / "rounds" / "002"
+            (round_two / "review.md").write_text(complete_review("continue"), encoding="utf-8")
+            (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            (round_two / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+            (round_two / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertIn("unchanged_next_smallest_step_across_rounds", result["warnings"])
+
     def test_next_json_blocks_for_missing_readiness_records_without_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

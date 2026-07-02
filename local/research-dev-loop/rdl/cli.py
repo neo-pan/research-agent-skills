@@ -234,13 +234,18 @@ def _missing_from_blockers(blockers: Sequence[Blocker]) -> tuple[str, ...]:
 def _emit_handoff(result: CommandResult) -> None:
     details = result.details
     last_decision = details.get("last_decision", {})
+    latest_completed_decision = details.get("latest_completed_decision", {})
     memory_details = details.get("memory", {})
     print(f"Session: {result.session_id}")
     print(f"Mode/Profile/Round: {result.mode} / {result.profile} / {result.round}")
     print(f"Handoff Status: {details.get('handoff_status', '')}")
     print()
     _print_section("Current Focus", details.get("current_focus", ""))
-    _print_decision_section(last_decision if isinstance(last_decision, dict) else {})
+    _print_decision_section("Last Decision", last_decision if isinstance(last_decision, dict) else {})
+    _print_decision_section(
+        "Latest Completed Decision",
+        latest_completed_decision if isinstance(latest_completed_decision, dict) else {},
+    )
     _print_section("Open Questions", details.get("open_questions", ""))
     _print_section("Known Evidence Gaps", details.get("known_evidence_gaps", ""))
     _print_section("Directions Tried", details.get("directions_tried", ""))
@@ -255,14 +260,16 @@ def _emit_handoff(result: CommandResult) -> None:
     _print_section("Suggested Actions", _bullet_values(details.get("suggested_actions", [])))
 
 
-def _print_decision_section(last_decision: dict[object, object]) -> None:
-    print("Last Decision:")
-    print(f"  decision: {last_decision.get('decision', '')}")
-    print(f"  closes: {last_decision.get('closes', '')}")
-    print(f"  evidence: {last_decision.get('evidence', '')}")
-    print(f"  uncertainty: {last_decision.get('uncertainty', '')}")
-    print(f"  remains unknown: {last_decision.get('what_remains_unknown', '')}")
-    print(f"  recommended next loop: {last_decision.get('recommended_next_loop', '')}")
+def _print_decision_section(title: str, decision_details: dict[object, object]) -> None:
+    print(f"{title}:")
+    if "round" in decision_details:
+        print(f"  round: {decision_details.get('round', '')}")
+    print(f"  decision: {decision_details.get('decision', '')}")
+    print(f"  closes: {decision_details.get('closes', '')}")
+    print(f"  evidence: {decision_details.get('evidence', '')}")
+    print(f"  uncertainty: {decision_details.get('uncertainty', '')}")
+    print(f"  remains unknown: {decision_details.get('what_remains_unknown', '')}")
+    print(f"  recommended next loop: {decision_details.get('recommended_next_loop', '')}")
     print()
 
 

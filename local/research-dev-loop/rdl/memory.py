@@ -70,6 +70,10 @@ def advisory_warnings(
     next_loop = documents.field(session.round_dir() / "decision.md", "Recommended next loop")
     if _meaningful(next_loop) and next_loop != "none" and next_loop != target_mode:
         warnings.append("recommended_next_loop_differs_from_next_mode")
+    if _next_smallest_step_repeated(session):
+        warnings.append("unchanged_next_smallest_step_across_rounds")
+    if _no_recent_artifacts_after_multiple_rounds(session):
+        warnings.append("no_recent_artifacts_after_multiple_rounds")
 
     return tuple(dict.fromkeys(warnings))
 
@@ -202,6 +206,30 @@ def _historical_handoff_exists(session: "Session") -> bool:
         if documents.field(review_file, "Staleness Signal") in {"possible", "repeated"}:
             return True
     return False
+
+
+def _next_smallest_step_repeated(session: "Session") -> bool:
+    if session.state.round < 2:
+        return False
+    current = _field_or_none(session.round_dir(session.state.round) / "decision.md", "Next smallest step")
+    previous = _field_or_none(session.round_dir(session.state.round - 1) / "decision.md", "Next smallest step")
+    return current != NONE_RECORDED and current == previous
+
+
+def _no_recent_artifacts_after_multiple_rounds(session: "Session") -> bool:
+    if session.state.round < 3:
+        return False
+    manifest_file = session.root / "artifact-manifest.json"
+    try:
+        manifest = store.read_json(manifest_file)
+    except (OSError, ValueError):
+        return False
+    artifacts = manifest.get("artifacts", []) if isinstance(manifest, dict) else []
+    recent_rounds = {session.state.round, session.state.round - 1}
+    for artifact in artifacts:
+        if isinstance(artifact, dict) and artifact.get("round") in recent_rounds:
+            return False
+    return True
 
 
 def _all_none(values: tuple[str, ...]) -> bool:

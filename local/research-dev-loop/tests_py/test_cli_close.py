@@ -49,6 +49,10 @@ class CliCloseTests(unittest.TestCase):
                     ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
                     self.assertIn("## Session Closed", ledger)
                     self.assertIn(f"- Decision: close-{outcome}", ledger)
+                    self.assertIn("- Evidence: fixture evidence", ledger)
+                    self.assertIn("- Uncertainty: bounded", ledger)
+                    self.assertIn("- Remaining unknown: later work", ledger)
+                    self.assertIn("- Next smallest step: continue same mode", ledger)
                     manifest = store.read_json(session_dir / "integrity.json")
                     self.assertIn("final-report.md", {entry["path"] for entry in manifest["entries"]})
 

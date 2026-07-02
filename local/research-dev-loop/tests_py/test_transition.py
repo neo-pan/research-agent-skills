@@ -38,6 +38,30 @@ class TransitionTests(unittest.TestCase):
             self.assertIn("- Next round: 002", ledger)
             self.assertIn("- Profile: full-review", ledger)
             self.assertIn("- Next profile: full-review", ledger)
+            self.assertIn("- Evidence: fixture evidence", ledger)
+            self.assertIn("- Uncertainty: bounded", ledger)
+            self.assertIn("- Remaining unknown: later work", ledger)
+            self.assertIn("- Next smallest step: continue same mode", ledger)
+
+    def test_advance_truncates_long_decision_summary_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "transition_summary")
+            complete_research_round(session_dir, "continue")
+            decision_file = session_dir / "rounds" / "001" / "decision.md"
+            long_evidence = "x" * 260
+            decision_file.write_text(
+                decision_file.read_text(encoding="utf-8").replace("Evidence: fixture evidence", f"Evidence: {long_evidence}"),
+                encoding="utf-8",
+            )
+            session = SessionStore(root).active_session()
+
+            transition.advance(session)
+
+            ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
+            evidence_line = next(line for line in ledger.splitlines() if line.startswith("- Evidence: "))
+            self.assertLessEqual(len(evidence_line.removeprefix("- Evidence: ")), 240)
+            self.assertTrue(evidence_line.endswith("..."))
 
     def test_advance_can_set_next_profile(self):
         with tempfile.TemporaryDirectory() as tmp:

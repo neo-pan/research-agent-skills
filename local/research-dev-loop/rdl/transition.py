@@ -197,7 +197,8 @@ def _append_round_decision(
         f"- Recommended next loop: {next_loop}\n"
         f"- Next round: {next_round:03d}\n"
         f"- Next mode: {next_mode}\n"
-        f"- Next profile: {next_profile}\n",
+        f"- Next profile: {next_profile}\n"
+        + _decision_summary(session_dir / "rounds" / f"{round_number:03d}" / "decision.md")
     )
 
 
@@ -210,8 +211,40 @@ def _append_close_record(session_dir: Path, outcome: str, expected_closes: str, 
         f"- Decision: close-{outcome}\n"
         f"- Closes: {expected_closes}\n"
         f"- Round: {round_number:03d}\n"
-        f"- Closed at UTC: {now}\n",
+        f"- Closed at UTC: {now}\n"
+        + _decision_summary(session_dir / "rounds" / f"{round_number:03d}" / "decision.md")
     )
+
+
+def _decision_summary(decision_file: Path) -> str:
+    fields = (
+        ("Evidence", "Evidence"),
+        ("Uncertainty", "Uncertainty"),
+        ("Remaining unknown", "What remains unknown"),
+        ("Next smallest step", "Next smallest step"),
+    )
+    lines = [f"- {label}: {_compact_field(decision_file, field)}" for label, field in fields]
+    return "".join(f"{line}\n" for line in lines)
+
+
+def _compact_field(decision_file: Path, field: str) -> str:
+    raw_value = documents.field(decision_file, field)
+    first_line = ""
+    for line in raw_value.splitlines():
+        candidate = " ".join(line.strip().split())
+        if _meaningful(candidate):
+            first_line = candidate
+            break
+    if not first_line:
+        return "none recorded"
+    if len(first_line) > 240:
+        return first_line[:237].rstrip() + "..."
+    return first_line
+
+
+def _meaningful(value: str) -> bool:
+    normalized = value.strip().lower()
+    return bool(normalized and normalized not in {"-", "...", "tbd", "todo", "n/a", "not applicable", "none recorded"})
 
 
 def _append_abandon_records(session_dir: Path, reason: str, round_number: int, now: str) -> None:

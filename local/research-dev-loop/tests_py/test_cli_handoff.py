@@ -47,6 +47,25 @@ class CliHandoffTests(unittest.TestCase):
             self.assertEqual(result["details"]["memory"]["progress_gaps"], ["Active", "Blocked", "Deferred"])
             self.assertEqual(snapshot(session_dir), before)
 
+    def test_handoff_json_reports_latest_completed_decision_after_advance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "handoff_after_advance")
+            complete_research_round(session_dir, "continue")
+            code, result = run_cli_json(root, ["next", "--json"])
+            if code != 0:
+                raise AssertionError(result)
+            before = snapshot(session_dir)
+
+            code, result = run_cli_json(root, ["handoff", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["last_decision"]["decision"], "none recorded")
+            self.assertEqual(result["details"]["latest_completed_decision"]["round"], 1)
+            self.assertEqual(result["details"]["latest_completed_decision"]["decision"], "continue")
+            self.assertEqual(result["details"]["latest_completed_decision"]["closes"], "claim")
+            self.assertEqual(snapshot(session_dir), before)
+
     def test_handoff_blocks_without_active_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, result = run_cli_json(Path(tmp), ["handoff", "--json"])
@@ -66,6 +85,8 @@ class CliHandoffTests(unittest.TestCase):
             self.assertIn("Session: handoff_complete", output)
             self.assertIn("Current Focus:", output)
             self.assertIn("Last Decision:", output)
+            self.assertIn("Latest Completed Decision:", output)
+            self.assertIn("  decision: continue", output)
             self.assertIn("Memory:", output)
             self.assertIn("Suggested Actions:", output)
             self.assertNotIn("ok: handoff", output)

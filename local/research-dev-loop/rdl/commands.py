@@ -577,6 +577,7 @@ def _handoff() -> CommandResult:
         "staleness_watch": prompt_context.staleness_watch,
         "next_smallest_step": prompt_context.next_smallest_step,
         "last_decision": _last_decision_details(session),
+        "latest_completed_decision": _latest_completed_decision_details(session),
         "memory": report.details(),
         "suggested_actions": suggested_actions,
     }
@@ -590,7 +591,23 @@ def _handoff() -> CommandResult:
 
 
 def _last_decision_details(session: Session) -> dict[str, str]:
-    decision_file = session.round_dir() / "decision.md"
+    return _decision_details(session.round_dir() / "decision.md")
+
+
+def _latest_completed_decision_details(session: Session) -> dict[str, object]:
+    for round_number in range(session.state.round, 0, -1):
+        decision_file = session.round_dir(round_number) / "decision.md"
+        if documents.field(decision_file, "Decision"):
+            details: dict[str, object] = {"round": round_number}
+            details.update(_decision_details(decision_file))
+            return details
+
+    details = {"round": 0}
+    details.update(_decision_details(Path()))
+    return details
+
+
+def _decision_details(decision_file: Path) -> dict[str, str]:
     return {
         "decision": _field_or_none_recorded(decision_file, "Decision"),
         "closes": _field_or_none_recorded(decision_file, "Closes"),
