@@ -10,5 +10,5 @@ Current local skills:
 
 - `phase-review` - manual independent review gate.
 - `research-dev-loop` - lightweight Research Development Loop records and CLI;
-  requires Bash, standard shell tools, `sha256sum` or `shasum`, and `jq` or
-  `python3` for JSON validation.
+  see `local/research-dev-loop/README.md` for current capabilities, dogfood
+  takeover workflow, and deferred automation boundaries.

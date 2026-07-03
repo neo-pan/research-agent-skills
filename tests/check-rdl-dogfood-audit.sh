@@ -143,9 +143,70 @@ assert_non_directory_fails() {
     || fail "non-directory audit should explain the parameter error"
 }
 
+assert_invalid_json_reports_sanitized_stderr() {
+  local project_root="${tmp_dir}/invalid-json-project"
+  local relative_project_root
+  local wrapper_dir="${tmp_dir}/python-wrapper"
+  local real_python
+  mkdir -p "${project_root}" "${wrapper_dir}"
+  relative_project_root="$(realpath --relative-to="${ROOT_DIR}" "${project_root}")"
+  real_python="$(command -v python3)"
+
+  cat >"${wrapper_dir}/python3" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "-m" && "${2:-}" == "rdl" ]]; then
+  printf 'not-json\n'
+  printf 'failure in %s/secret-session\n' "${AUDIT_TEST_PROJECT_ROOT}" >&2
+  printf 'loader used %s/local/research-dev-loop\n' "${AUDIT_TEST_ROOT_DIR}" >&2
+  printf 'temporary cache path=%s/audit-cache (%s/nested-cache)\n' "${AUDIT_TEST_TMP_DIR}" "${AUDIT_TEST_TMP_DIR}" >&2
+  printf 'this fourth line should not be printed\n' >&2
+  exit 17
+fi
+
+exec "${REAL_PYTHON}" "$@"
+SH
+  chmod +x "${wrapper_dir}/python3"
+
+  if PATH="${wrapper_dir}:${PATH}" \
+    REAL_PYTHON="${real_python}" \
+    AUDIT_TEST_PROJECT_ROOT="${project_root}" \
+    AUDIT_TEST_ROOT_DIR="${ROOT_DIR}" \
+    AUDIT_TEST_TMP_DIR="${tmp_dir}" \
+    "${AUDIT}" "${relative_project_root}" >"${tmp_dir}/invalid-json.out" 2>"${tmp_dir}/invalid-json.err"
+  then
+    fail "invalid JSON audit should fail"
+  fi
+
+  grep -q "invalid-json" "${tmp_dir}/invalid-json.out" \
+    || fail "invalid JSON audit should report invalid-json"
+  grep -q "exit: 17" "${tmp_dir}/invalid-json.out" \
+    || fail "invalid JSON audit should report the failing exit code"
+  grep -q "<project-root>/secret-session" "${tmp_dir}/invalid-json.out" \
+    || fail "invalid JSON audit should sanitize project-root stderr"
+  grep -q "<skill-pack-root>/local/research-dev-loop" "${tmp_dir}/invalid-json.out" \
+    || fail "invalid JSON audit should sanitize skill-pack-root stderr"
+  grep -q "<tmp-path>" "${tmp_dir}/invalid-json.out" \
+    || fail "invalid JSON audit should sanitize temporary paths"
+  if grep -q "this fourth line should not be printed" "${tmp_dir}/invalid-json.out"; then
+    fail "invalid JSON stderr summary should be limited"
+  fi
+  if grep -q "${project_root}" "${tmp_dir}/invalid-json.out"; then
+    fail "invalid JSON audit output must not include the external project absolute path"
+  fi
+  if grep -q "${ROOT_DIR}" "${tmp_dir}/invalid-json.out"; then
+    fail "invalid JSON audit output must not include the skill-pack absolute path"
+  fi
+  if grep -q "${tmp_dir}" "${tmp_dir}/invalid-json.out"; then
+    fail "invalid JSON audit output must not include temporary absolute paths"
+  fi
+}
+
 assert_complete_session_passes
 assert_incomplete_session_fails
 assert_empty_project_fails
 assert_non_directory_fails
+assert_invalid_json_reports_sanitized_stderr
 
 echo "RDL dogfood audit ok"

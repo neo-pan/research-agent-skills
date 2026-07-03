@@ -21,11 +21,12 @@ if [[ "$#" -ne 1 ]]; then
   exit 1
 fi
 
-PROJECT_ROOT="$1"
-if [[ ! -d "${PROJECT_ROOT}" ]]; then
+PROJECT_ROOT_INPUT="$1"
+if [[ ! -d "${PROJECT_ROOT_INPUT}" ]]; then
   echo "error: project root is not a directory" >&2
   exit 1
 fi
+PROJECT_ROOT="$(cd "${PROJECT_ROOT_INPUT}" && pwd)"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "error: python3 is required" >&2
@@ -55,10 +56,11 @@ run_rdl_json memory memory --check
 run_rdl_json summarize summarize --check
 run_rdl_json doctor doctor
 
-python3 - "${tmp_dir}" <<'PY'
+python3 - "${tmp_dir}" "${PROJECT_ROOT}" "${ROOT_DIR}" <<'PY'
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -74,6 +76,7 @@ COMMANDS = (
 
 def main() -> int:
     tmp_dir = Path(sys.argv[1])
+    scrub_paths = tuple(path for path in sys.argv[2:4] if path)
     failed = False
     results: dict[str, dict[str, Any]] = {}
 
@@ -90,6 +93,11 @@ def main() -> int:
             print()
             print(f"{label}: invalid-json")
             print(f"  exit: {code}")
+            stderr_summary = _stderr_summary(tmp_dir / f"{name}.stderr", scrub_paths)
+            if stderr_summary:
+                print("  stderr:")
+                for line in stderr_summary:
+                    print(f"    {line}")
             continue
 
         results[name] = result
@@ -164,6 +172,25 @@ def _list(value: Any) -> list[Any]:
 def _join(value: Any) -> str:
     items = _list(value)
     return ", ".join(str(item) for item in items) if items else "none"
+
+
+def _stderr_summary(path: Path, scrub_paths: tuple[str, ...]) -> list[str]:
+    lines: list[str] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        text = _sanitize_line(line.strip(), scrub_paths)
+        if text:
+            lines.append(text)
+        if len(lines) == 3:
+            break
+    return lines
+
+
+def _sanitize_line(line: str, scrub_paths: tuple[str, ...]) -> str:
+    text = line
+    for index, raw_path in enumerate(scrub_paths):
+        placeholder = "<project-root>" if index == 0 else "<skill-pack-root>"
+        text = text.replace(raw_path, placeholder)
+    return re.sub(r"(?<![\w.-])/(?:tmp|var/tmp)/[^\s'\"),;:]+", "<tmp-path>", text)
 
 
 if __name__ == "__main__":
