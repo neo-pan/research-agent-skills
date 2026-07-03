@@ -45,7 +45,59 @@ class CliHandoffTests(unittest.TestCase):
             self.assertEqual(result["details"]["handoff_status"], "needs_attention")
             self.assertEqual(result["details"]["last_decision"]["decision"], "none recorded")
             self.assertEqual(result["details"]["memory"]["progress_gaps"], ["Active", "Blocked", "Deferred"])
+            self.assertEqual(result["next_action"], "rdl progress active|blocked|deferred|none")
             self.assertEqual(snapshot(session_dir), before)
+
+    def test_handoff_next_action_points_to_memory_write_for_stale_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "handoff_summary")
+            session_dir = SessionStore(root).active_session().root
+            complete_research_round(session_dir)
+
+            code, result = run_cli_json(root, ["handoff", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["handoff_status"], "needs_attention")
+            self.assertEqual(result["next_action"], "rdl memory --write")
+
+    def test_handoff_next_action_points_to_factors_when_only_factor_gaps_remain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "handoff_factors")
+            progress = """# Progress
+
+## Active
+
+No active items.
+
+## Completed
+
+No completed items.
+
+## Blocked
+
+No blocked items.
+
+## Deferred
+
+No deferred items.
+
+## Open Questions
+
+## Directions Tried
+
+## Staleness Watch
+"""
+            (session_dir / "progress.md").write_text(progress, encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, result = run_cli_json(root, ["handoff", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["memory"]["progress_gaps"], [])
+            self.assertIn("Model or Algorithm", result["details"]["memory"]["factor_gaps"])
+            self.assertEqual(result["next_action"], "rdl factors set|note")
 
     def test_handoff_json_reports_latest_completed_decision_after_advance(self):
         with tempfile.TemporaryDirectory() as tmp:

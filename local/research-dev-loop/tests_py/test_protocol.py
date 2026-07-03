@@ -35,6 +35,7 @@ class ProtocolDescriptorTests(unittest.TestCase):
                 "prompt.md",
                 "intent.md",
                 "work.md",
+                "events.md",
                 "evidence.md",
                 "interpretation.md",
                 "review.md",
@@ -145,6 +146,7 @@ class ProtocolDescriptorTests(unittest.TestCase):
         self.assertTrue(descriptor.path_known("state.json"))
         self.assertTrue(descriptor.path_known("final-report.md"))
         self.assertTrue(descriptor.path_known("rounds/001/prompt.md"))
+        self.assertTrue(descriptor.path_known("rounds/001/events.md"))
         self.assertTrue(descriptor.path_known("rounds/999/evidence.md"))
 
         for path in (

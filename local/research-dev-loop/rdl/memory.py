@@ -217,7 +217,8 @@ def _next_smallest_step_repeated(session: "Session") -> bool:
 
 
 def _no_recent_artifacts_after_multiple_rounds(session: "Session") -> bool:
-    if session.state.round < 3:
+    recent_rounds = _recent_completed_rounds(session, limit=2)
+    if len(recent_rounds) < 2:
         return False
     manifest_file = session.root / "artifact-manifest.json"
     try:
@@ -225,11 +226,22 @@ def _no_recent_artifacts_after_multiple_rounds(session: "Session") -> bool:
     except (OSError, ValueError):
         return False
     artifacts = manifest.get("artifacts", []) if isinstance(manifest, dict) else []
-    recent_rounds = {session.state.round, session.state.round - 1}
+    recent_round_set = set(recent_rounds)
     for artifact in artifacts:
-        if isinstance(artifact, dict) and artifact.get("round") in recent_rounds:
+        if isinstance(artifact, dict) and artifact.get("round") in recent_round_set:
             return False
     return True
+
+
+def _recent_completed_rounds(session: "Session", *, limit: int) -> tuple[int, ...]:
+    rounds: list[int] = []
+    for round_number in range(session.state.round, 0, -1):
+        if _field_or_none(session.round_dir(round_number) / "decision.md", "Decision") == NONE_RECORDED:
+            continue
+        rounds.append(round_number)
+        if len(rounds) == limit:
+            break
+    return tuple(rounds)
 
 
 def _all_none(values: tuple[str, ...]) -> bool:

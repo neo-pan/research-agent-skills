@@ -53,6 +53,7 @@ ROUND_FILES = (
     "prompt.md",
     "intent.md",
     "work.md",
+    "events.md",
     "evidence.md",
     "interpretation.md",
     "review.md",

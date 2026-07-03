@@ -241,6 +241,22 @@ class CliNextTests(unittest.TestCase):
             next_result = json.loads(stdout.getvalue())
             self.assertIn("no_recent_artifacts_after_multiple_rounds", next_result["warnings"])
 
+    def test_doctor_json_does_not_count_fresh_incomplete_round_as_recent_artifact_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "artifact_fresh_round")
+            complete_research_round(session_dir, "continue")
+            with change_dir(root), redirect_stdout(StringIO()):
+                self.assertEqual(main(["next", "--json"]), 0)
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(store.read_json(session_dir / "state.json")["round"], 2)
+            self.assertNotIn("no_recent_artifacts_after_multiple_rounds", result["warnings"])
+
     def test_doctor_json_does_not_warn_for_recent_artifact_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

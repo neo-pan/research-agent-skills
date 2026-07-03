@@ -29,6 +29,9 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("Directions Tried:\nnone recorded", text)
         self.assertIn("Staleness Watch:\nnone recorded", text)
         self.assertIn("Next Smallest Step: none recorded", text)
+        self.assertIn("Start-of-round check: read rdl handoff", text)
+        self.assertIn("During-round check: use optional events.md", text)
+        self.assertIn("Before rdl next: update session memory with rdl progress and rdl factors", text)
         self.assertIn(f"Required Files: {', '.join(descriptor.completed_round_files(SessionMode.RESEARCH))}", text)
         self.assertIn(f"Expected Exit Decision: {descriptor.prompt_expected_exit_decision(SessionMode.RESEARCH)}", text)
         self.assertTrue(text.endswith("\n"))
@@ -100,7 +103,18 @@ class TemplateTests(unittest.TestCase):
                 with self.subTest(template=name):
                     self.assertTrue((session_dir / name).is_file())
             self.assertFalse((session_dir / "state.json").exists())
+            self.assertFalse((session_dir / "events.md").exists())
             self.assertFalse((session_dir / "final-report.md").exists())
+
+    def test_events_template_is_optional_round_file(self):
+        text = templates.template_path("events.md").read_text(encoding="utf-8")
+
+        self.assertIn("# Events", text)
+        self.assertIn("## Operational Events", text)
+        self.assertTrue(descriptor.path_known("rounds/001/events.md"))
+        self.assertNotIn("events.md", descriptor.completed_round_files("research", "full-review"))
+        self.assertNotIn("events.md", descriptor.completed_round_files("research", "checkpoint"))
+        self.assertNotIn("events.md", descriptor.completed_round_files("build", "build-update"))
 
     def test_write_prompt_writes_rendered_prompt_atomically(self):
         with tempfile.TemporaryDirectory() as tmp:

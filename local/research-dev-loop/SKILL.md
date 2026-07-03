@@ -62,6 +62,11 @@ checks, RDL Python tests, and repository prerequisite checks.
 - Lightweight profiles reduce round boilerplate; they do not remove the need for
   decision-grade evidence, `decision.md`, artifact discipline, or session-memory
   updates when state changes.
+- Use optional round-local `events.md` for operational events that matter for
+  recovery but are not decision-grade evidence: command timeouts, partial
+  transfers, retries, cache or working-directory requirements, and environment
+  notes. Keep `evidence.md` focused on evidence that changes a claim or
+  capability decision.
 - Treat `.rdl/sessions/<session-id>/` as the recoverable state; do not depend on
   conversation memory for claims, evidence, open questions, or next steps.
 - Use `rdl handoff` or `rdl handoff --json` as the first read-only status

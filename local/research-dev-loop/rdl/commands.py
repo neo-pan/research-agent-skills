@@ -815,7 +815,7 @@ def _handoff() -> CommandResult:
         "ok",
         "handoff",
         state,
-        next_action="rdl doctor" if handoff_status == "ready" else "update session memory manually",
+        next_action="rdl doctor" if handoff_status == "ready" else _memory_next_action(report),
         details=details,
     )
 
