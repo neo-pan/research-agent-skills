@@ -107,6 +107,140 @@ class MigratedShellE2ETests(unittest.TestCase):
             self.assertEqual(result["round"], 2)
             self.assertIn("Mode: build", (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8"))
 
+    def test_dogfood_long_session_recovery_after_mode_profile_memory_repair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "mission.md").write_text("# Mission\n\nRecover a long mixed RDL session.\n", encoding="utf-8")
+
+            code, result = run_cli(root, ["start", "research", "mission.md", "--session-id", "dogfood_recovery", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(result["mode"], "research")
+            session_dir = root / ".rdl" / "sessions" / "dogfood_recovery"
+
+            round_one = session_dir / "rounds" / "001"
+            (round_one / "evidence.md").write_text(research_evidence("EV1"), encoding="utf-8")
+            (round_one / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+            (round_one / "review.md").write_text(complete_review("continue"), encoding="utf-8")
+            (round_one / "decision.md").write_text(
+                dogfood_decision(
+                    "continue",
+                    "claim",
+                    "build",
+                    "parser normalization assumptions remain unresolved",
+                    "build fixture parser capability",
+                    "EV1",
+                ),
+                encoding="utf-8",
+            )
+            write_artifact_manifest(
+                session_dir,
+                (
+                    artifact_record("EV1", 1, "research claim evidence"),
+                ),
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, result = run_cli(root, ["next", "--mode", "build", "--profile", "build-update", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(result["mode"], "build")
+            self.assertEqual(result["profile"], "build-update")
+            prompt_two = (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Mode: build", prompt_two)
+            self.assertIn("Profile: build-update", prompt_two)
+            self.assertIn("parser normalization assumptions remain unresolved", prompt_two)
+            self.assertIn("Next Smallest Step: build fixture parser capability", prompt_two)
+
+            round_two = session_dir / "rounds" / "002"
+            (round_two / "intent.md").write_text(COMPLETE_INTENT, encoding="utf-8")
+            (round_two / "work.md").write_text(COMPLETE_WORK, encoding="utf-8")
+            (round_two / "evidence.md").write_text(build_evidence("EV2"), encoding="utf-8")
+            (round_two / "decision.md").write_text(
+                dogfood_decision(
+                    "accept",
+                    "capability",
+                    "research",
+                    "sample coverage still needs review",
+                    "inspect parser sample coverage",
+                    "EV2",
+                ),
+                encoding="utf-8",
+            )
+            write_artifact_manifest(
+                session_dir,
+                (
+                    artifact_record("EV1", 1, "research claim evidence"),
+                    artifact_record("EV2", 2, "build verification evidence"),
+                ),
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, result = run_cli(root, ["next", "--mode", "research", "--profile", "checkpoint", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(result["mode"], "research")
+            self.assertEqual(result["profile"], "checkpoint")
+            prompt_three = (session_dir / "rounds" / "003" / "prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Mode: research", prompt_three)
+            self.assertIn("Profile: checkpoint", prompt_three)
+            self.assertIn("sample coverage still needs review", prompt_three)
+            self.assertIn("Next Smallest Step: inspect parser sample coverage", prompt_three)
+
+            code, result = run_cli(root, ["memory", "--check", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["memory_status"], "needs_attention")
+            self.assertEqual(result["details"]["progress_gaps"], ["Active", "Blocked", "Deferred"])
+            self.assertIn("Dataset or Workload", result["details"]["factor_gaps"])
+            self.assertEqual(result["details"]["deterministic_updates"]["Completed"], 2)
+
+            code, result = run_cli(root, ["memory", "--write", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["memory_status"], "written")
+            progress = (session_dir / "progress.md").read_text(encoding="utf-8")
+            self.assertIn("| round-001 | continue | [artifact:EV1] | 001 |", progress)
+            self.assertIn("| round-002 | accept | [artifact:EV2] | 002 |", progress)
+            self.assertIn("## Session Summary Refresh", (session_dir / "decision-ledger.md").read_text(encoding="utf-8"))
+
+            self.assertEqual(
+                run_cli(
+                    root,
+                    [
+                        "progress",
+                        "active",
+                        "--item",
+                        "coverage",
+                        "--mode",
+                        "research",
+                        "--text",
+                        "parser sample coverage review",
+                        "--blocking",
+                        "no",
+                        "--trigger",
+                        "after build artifact audit",
+                        "--json",
+                    ],
+                )[0],
+                0,
+            )
+            self.assertEqual(run_cli(root, ["progress", "none", "--section", "Blocked", "--reason", "no current blockers", "--json"])[0], 0)
+            self.assertEqual(run_cli(root, ["progress", "none", "--section", "Deferred", "--reason", "no deferred work", "--json"])[0], 0)
+            set_all_factors(root)
+
+            code, result = run_cli(root, ["memory", "--check", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["memory_status"], "healthy")
+            self.assertEqual(result["details"]["progress_gaps"], [])
+            self.assertEqual(result["details"]["factor_gaps"], [])
+
+            code, result = run_cli(root, ["handoff", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["handoff_status"], "ready")
+            self.assertEqual(result["details"]["current_focus"], "- parser sample coverage review")
+            self.assertEqual(result["details"]["last_decision"]["decision"], "none recorded")
+            self.assertEqual(result["details"]["latest_completed_decision"]["round"], 2)
+            self.assertEqual(result["details"]["latest_completed_decision"]["decision"], "accept")
+            self.assertEqual(result["details"]["latest_completed_decision"]["closes"], "capability")
+            self.assertIn("sample coverage still needs review", result["details"]["open_questions"])
+            self.assertEqual(result["details"]["memory"]["memory_status"], "healthy")
+
     def test_descriptor_ignores_unknown_round_files_but_requires_protected_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -259,6 +393,106 @@ def artifact_manifest(artifact_id: str) -> str:
         },
         indent=2,
     ) + "\n"
+
+
+def artifact_record(artifact_id: str, round_number: int, description: str) -> dict:
+    return {
+        "id": artifact_id,
+        "kind": "log",
+        "path": f"artifacts/{artifact_id.lower()}.log",
+        "round": round_number,
+        "description": description,
+    }
+
+
+def write_artifact_manifest(session_dir: Path, records: tuple[dict, ...]) -> None:
+    (session_dir / "artifact-manifest.json").write_text(json.dumps({"artifacts": list(records)}, indent=2) + "\n", encoding="utf-8")
+
+
+def research_evidence(artifact_id: str) -> str:
+    return f"""# Evidence
+
+Research evidence: fixture claim evidence.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+parser normalization assumptions remain unresolved
+
+## Evidence Budget
+
+One local fixture check.
+
+## Evidence Artifacts
+
+| ID | Kind | Path or URL | Supports | Notes |
+|---|---|---|---|---|
+| {artifact_id} | log | artifacts/{artifact_id.lower()}.log | claim | fixture |
+"""
+
+
+def build_evidence(artifact_id: str) -> str:
+    return f"""# Evidence
+
+Verification evidence: fixture capability check passed.
+
+## Evaluation Integrity
+
+Manual fixture integrity reviewed.
+
+## Missing Evidence
+
+sample coverage still needs review
+
+## Evidence Budget
+
+One local fixture check.
+
+## Evidence Artifacts
+
+| ID | Kind | Path or URL | Supports | Notes |
+|---|---|---|---|---|
+| {artifact_id} | log | artifacts/{artifact_id.lower()}.log | capability | fixture |
+"""
+
+
+def dogfood_decision(decision: str, closes: str, next_loop: str, unknown: str, next_step: str, artifact_id: str) -> str:
+    return f"""# Decision
+
+Decision: {decision}
+Closes: {closes}
+Evidence: [artifact:{artifact_id}]
+Uncertainty: bounded
+What this rules out: unsupported alternatives
+What remains unknown: {unknown}
+Direction changed: no
+Prior directions checked: fixture prior directions checked
+Stall response: no staleness signal
+Recommended next loop: {next_loop}
+Next smallest step: {next_step}
+"""
+
+
+def set_all_factors(root: Path) -> None:
+    for section in (
+        "Model or Algorithm",
+        "Dataset or Workload",
+        "Seed and Sampling",
+        "Hardware or Backend",
+        "Prompt or Policy Version",
+        "Baseline",
+        "Candidate-Visible Context",
+        "Metric Definition",
+        "Evaluator or Validator Version",
+        "Environment",
+        "Known Non-Determinism",
+    ):
+        code, result = run_cli(root, ["factors", "set", "--section", section, "--value", f"dogfood {section}", "--json"])
+        if code != 0:
+            raise AssertionError(result)
 
 
 def complete_decision_with_next_loop(decision: str, closes: str, next_loop: str) -> str:
