@@ -5,26 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from . import documents, summary
+from . import documents, session_memory_edit, summary
 
 if TYPE_CHECKING:
     from .session import Session
 
 
-PROGRESS_MANUAL_SECTIONS = ("Active", "Blocked", "Deferred")
-FACTOR_SECTIONS = (
-    "Model or Algorithm",
-    "Dataset or Workload",
-    "Seed and Sampling",
-    "Hardware or Backend",
-    "Prompt or Policy Version",
-    "Baseline",
-    "Candidate-Visible Context",
-    "Metric Definition",
-    "Evaluator or Validator Version",
-    "Environment",
-    "Known Non-Determinism",
-)
+PROGRESS_MANUAL_SECTIONS = session_memory_edit.PROGRESS_MANUAL_SECTIONS
+FACTOR_SECTIONS = session_memory_edit.FACTOR_SECTIONS
 
 
 @dataclass(frozen=True)
@@ -90,9 +78,10 @@ def _suggested_actions(
         actions.append("Run rdl memory --write to refresh deterministic progress summary blocks.")
     if progress_gaps:
         sections = ", ".join(progress_gaps)
-        actions.append(f"Manually update progress.md sections: {sections}.")
+        actions.append(f"Record progress memory with rdl progress for sections: {sections}.")
     if factor_gaps:
-        actions.append("Record decision-relevant factor changes in factors.md before advancing the session.")
+        first_gap = factor_gaps[0]
+        actions.append(f"Record factor memory with rdl factors set --section \"{first_gap}\" --value <text>.")
     if not actions:
         actions.append("Run rdl doctor.")
     return tuple(actions)

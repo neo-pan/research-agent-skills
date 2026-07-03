@@ -98,6 +98,27 @@ def build_parser() -> argparse.ArgumentParser:
     memory.add_argument("--json", action="store_true")
     memory.set_defaults(command="memory", memory_mode="check")
 
+    progress = subparsers.add_parser("progress", help="record explicit progress session memory")
+    progress.add_argument("progress_action", nargs="?")
+    progress.add_argument("--item")
+    progress.add_argument("--mode")
+    progress.add_argument("--text")
+    progress.add_argument("--blocking")
+    progress.add_argument("--trigger")
+    progress.add_argument("--reason")
+    progress.add_argument("--needed")
+    progress.add_argument("--impact")
+    progress.add_argument("--section")
+    progress.add_argument("--json", action="store_true")
+    progress.set_defaults(command="progress")
+
+    factors = subparsers.add_parser("factors", help="record explicit factor session memory")
+    factors.add_argument("factor_action", nargs="?")
+    factors.add_argument("--section")
+    factors.add_argument("--value")
+    factors.add_argument("--json", action="store_true")
+    factors.set_defaults(command="factors")
+
     return parser
 
 
@@ -145,6 +166,17 @@ def _command_intent(args: argparse.Namespace) -> CommandIntent:
         summarize_mode=getattr(args, "summarize_mode", None),
         summarize_round=getattr(args, "summarize_round", None),
         memory_mode=getattr(args, "memory_mode", None),
+        progress_action=getattr(args, "progress_action", None),
+        factor_action=getattr(args, "factor_action", None),
+        item=getattr(args, "item", None),
+        text=getattr(args, "text", None),
+        blocking=getattr(args, "blocking", None),
+        trigger=getattr(args, "trigger", None),
+        reason=getattr(args, "reason", None),
+        needed=getattr(args, "needed", None),
+        impact=getattr(args, "impact", None),
+        section=getattr(args, "section", None),
+        value=getattr(args, "value", None),
     )
 
 
@@ -184,7 +216,23 @@ def _parser_error_result(argv: Sequence[str], message: str) -> CommandResult:
 
 def _missing_value_option(argv: Sequence[str]) -> str:
     for index, token in enumerate(argv):
-        if token in {"--session-id", "--guard-session-id", "--guard-command-id", "--mode", "--profile", "--round"}:
+        if token in {
+            "--session-id",
+            "--guard-session-id",
+            "--guard-command-id",
+            "--mode",
+            "--profile",
+            "--round",
+            "--item",
+            "--text",
+            "--blocking",
+            "--trigger",
+            "--reason",
+            "--needed",
+            "--impact",
+            "--section",
+            "--value",
+        }:
             if index + 1 >= len(argv) or argv[index + 1].startswith("--"):
                 return token
     return ""
@@ -203,6 +251,18 @@ def _missing_value_code(action: str, option: str) -> tuple[str, str]:
         return "missing_profile", "Pass --profile full-review, checkpoint, or build-update."
     if action == "summarize" and option == "--round":
         return "missing_round", "Pass --round <number>."
+    if action in {"progress", "factors"} and option in {
+        "--item",
+        "--text",
+        "--blocking",
+        "--trigger",
+        "--reason",
+        "--needed",
+        "--impact",
+        "--section",
+        "--value",
+    }:
+        return "missing_memory_value", f"Pass {option} <value>."
     return "missing_option_value", "Run rdl --help."
 
 

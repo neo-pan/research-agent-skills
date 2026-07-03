@@ -45,6 +45,15 @@ class CliParserErrorTests(unittest.TestCase):
         self.assertEqual(result["blockers"][0]["code"], "missing_profile")
         self.assertEqual(result["next_action"], "Pass --profile full-review, checkpoint, or build-update.")
 
+    def test_missing_memory_edit_option_with_json_returns_structured_error(self):
+        code, result = run_cli(["progress", "active", "--item", "--json"])
+
+        self.assertEqual(code, 1)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["action"], "progress")
+        self.assertEqual(result["blockers"][0]["code"], "missing_memory_value")
+        self.assertEqual(result["next_action"], "Pass --item <value>.")
+
     def test_unknown_command_with_json_returns_structured_error(self):
         code, result = run_cli(["unknown-command", "--json"])
 

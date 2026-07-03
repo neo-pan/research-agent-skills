@@ -25,6 +25,8 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl memory --check --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl progress active --item parser --mode build --text "raw parser capability" --blocking no --trigger "sample coverage review" --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl factors set --section "Dataset or Workload" --value "current workload slice" --json
 ```
 
 ## Requirements
@@ -71,6 +73,9 @@ checks, RDL Python tests, and repository prerequisite checks.
   round changes completed work, active claims or capabilities, blockers, open
   questions, directions tried, datasets, workloads, baselines, metrics,
   validators, prompts, backends, hardware, or nondeterminism.
+- Use `rdl progress active|blocked|deferred|none` and
+  `rdl factors set|note` to explicitly maintain top-level session memory
+  without hand-editing Markdown tables.
 - Use `rdl memory --check` when `doctor` reports weak session memory or a
   session has run for multiple rounds. Use `rdl memory --write` only to refresh
   deterministic managed summary blocks; still update active, blocked, deferred,

@@ -54,8 +54,11 @@ class CliMemoryTests(unittest.TestCase):
             self.assertEqual(result["details"]["memory_status"], "written")
             self.assertEqual(result["details"]["progress_gaps"], ["Active", "Blocked", "Deferred"])
             self.assertIn("Dataset or Workload", result["details"]["factor_gaps"])
-            self.assertIn("Manually update progress.md sections: Active, Blocked, Deferred.", result["details"]["suggested_actions"])
-            self.assertIn("Record decision-relevant factor changes in factors.md before advancing the session.", result["details"]["suggested_actions"])
+            self.assertIn("Record progress memory with rdl progress for sections: Active, Blocked, Deferred.", result["details"]["suggested_actions"])
+            self.assertIn(
+                "Record factor memory with rdl factors set --section \"Model or Algorithm\" --value <text>.",
+                result["details"]["suggested_actions"],
+            )
             progress = (session_dir / "progress.md").read_text(encoding="utf-8")
             self.assertIn("<!-- rdl:summary section=Completed start -->", progress)
             self.assertIn("| round-001 | continue | fixture evidence | 001 |", progress)
@@ -64,6 +67,16 @@ class CliMemoryTests(unittest.TestCase):
             manifest = store.read_json(session_dir / "integrity.json")
             progress_entry = next(entry for entry in manifest["entries"] if entry["path"] == "progress.md")
             self.assertEqual(progress_entry["sha256"], integrity.file_sha256(session_dir / "progress.md"))
+
+    def test_memory_next_action_points_to_progress_helper_for_manual_gaps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "memory_progress_next")
+
+            code, result = run_cli(root, ["memory", "--check", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["next_action"], "rdl progress active|blocked|deferred|none")
 
     def test_memory_write_is_quiet_when_summary_is_up_to_date(self):
         with tempfile.TemporaryDirectory() as tmp:

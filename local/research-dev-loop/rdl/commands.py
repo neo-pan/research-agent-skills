@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, integrity, memory, memory_report, readiness, repair, summary, templates, transition
+from . import documents, integrity, memory, memory_report, readiness, repair, session_memory_edit, summary, templates, transition
 from .model import Blocker, CommandResult, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -28,6 +28,17 @@ class CommandIntent:
     summarize_mode: str | None = None
     summarize_round: int | None = None
     memory_mode: str | None = None
+    progress_action: str | None = None
+    factor_action: str | None = None
+    item: str | None = None
+    text: str | None = None
+    blocking: str | None = None
+    trigger: str | None = None
+    reason: str | None = None
+    needed: str | None = None
+    impact: str | None = None
+    section: str | None = None
+    value: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,6 +60,10 @@ def execute(intent: CommandIntent) -> CommandResult:
         return _summarize(intent.summarize_mode, intent.summarize_round)
     if intent.command == "memory":
         return _memory(intent.memory_mode)
+    if intent.command == "progress":
+        return _progress(intent)
+    if intent.command == "factors":
+        return _factors(intent)
     if intent.command == "start":
         return _start(intent.mode, intent.profile, intent.mission_file, intent.session_id)
     if intent.command == "status":
@@ -553,9 +568,224 @@ def _memory_write_locked(context: _LockedContext) -> CommandResult:
 def _memory_next_action(report: memory_report.MemoryReport) -> str:
     if any(action.startswith("Run rdl memory --write") for action in report.suggested_actions):
         return "rdl memory --write"
+    if any(action.startswith("Record progress memory with rdl progress") for action in report.suggested_actions):
+        return "rdl progress active|blocked|deferred|none"
+    if any(action.startswith("Record factor memory with rdl factors") for action in report.suggested_actions):
+        return "rdl factors set|note"
     if report.memory_status == "healthy":
         return "rdl doctor"
     return "update session memory manually"
+
+
+def _progress(intent: CommandIntent) -> CommandResult:
+    action = intent.progress_action or ""
+    if action not in {"active", "blocked", "deferred", "none"}:
+        blocker = Blocker(
+            "invalid_progress_action",
+            "",
+            "progress action must be active, blocked, deferred, or none.",
+            "Use rdl progress active, blocked, deferred, or none.",
+        )
+        return CommandResult(status="error", action="progress", blockers=(blocker,), next_action=blocker.next_action)
+
+    blockers = _progress_argument_blockers(intent)
+    if blockers:
+        return CommandResult(
+            status="error",
+            action="progress",
+            blockers=tuple(blockers),
+            missing=_missing_from_blockers(blockers),
+            next_action=blockers[0].next_action,
+        )
+    return _run_locked_session("progress", lambda context: _progress_locked(context, intent))
+
+
+def _progress_locked(context: _LockedContext, intent: CommandIntent) -> CommandResult:
+    state = context.state
+    action = intent.progress_action or ""
+    if action == "active":
+        section = "Active"
+        cells = (
+            intent.item or "",
+            intent.mode or "",
+            intent.text or "",
+            intent.blocking or "",
+            intent.trigger or "",
+        )
+    elif action == "blocked":
+        section = "Blocked"
+        cells = (intent.item or "", intent.reason or "", intent.needed or "", intent.impact or "")
+    elif action == "deferred":
+        section = "Deferred"
+        cells = (intent.item or "", intent.reason or "", intent.trigger or "")
+    else:
+        section = intent.section or ""
+        cells = _none_progress_cells(section, intent.reason or "", state)
+
+    edit_result, blockers = session_memory_edit.append_progress_row(context.session.root, section, cells)
+    if blockers:
+        return _state_result(
+            "blocked",
+            "progress",
+            state,
+            blockers=blockers,
+            next_action="restore canonical progress.md",
+        )
+
+    refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+    if refresh_error is not None:
+        return refresh_error
+
+    return _state_result(
+        "ok",
+        "progress",
+        state,
+        next_action="rdl memory --check",
+        details={} if edit_result is None else edit_result.details(),
+    )
+
+
+def _factors(intent: CommandIntent) -> CommandResult:
+    action = intent.factor_action or ""
+    if action not in {"set", "note"}:
+        blocker = Blocker(
+            "invalid_factor_action",
+            "",
+            "factors action must be set or note.",
+            "Use rdl factors set or rdl factors note.",
+        )
+        return CommandResult(status="error", action="factors", blockers=(blocker,), next_action=blocker.next_action)
+
+    blockers = _factors_argument_blockers(intent)
+    if blockers:
+        return CommandResult(
+            status="error",
+            action="factors",
+            blockers=tuple(blockers),
+            missing=_missing_from_blockers(blockers),
+            next_action=blockers[0].next_action,
+        )
+    return _run_locked_session("factors", lambda context: _factors_locked(context, intent))
+
+
+def _factors_locked(context: _LockedContext, intent: CommandIntent) -> CommandResult:
+    state = context.state
+    if intent.factor_action == "set":
+        edit_result, blockers = session_memory_edit.set_factor(context.session.root, intent.section or "", intent.value or "")
+    else:
+        edit_result, blockers = session_memory_edit.append_factor_note(context.session.root, intent.section or "", intent.value or "")
+    if blockers:
+        return _state_result(
+            "blocked",
+            "factors",
+            state,
+            blockers=blockers,
+            next_action="restore canonical factors.md",
+        )
+
+    refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+    if refresh_error is not None:
+        return refresh_error
+
+    return _state_result(
+        "ok",
+        "factors",
+        state,
+        next_action="rdl memory --check",
+        details={} if edit_result is None else edit_result.details(),
+    )
+
+
+def _progress_argument_blockers(intent: CommandIntent) -> list[Blocker]:
+    action = intent.progress_action or ""
+    if action == "active":
+        blockers = _required_memory_values(
+            (
+                (intent.item, "--item"),
+                (intent.mode, "--mode"),
+                (intent.text, "--text"),
+                (intent.blocking, "--blocking"),
+                (intent.trigger, "--trigger"),
+            )
+        )
+        if intent.mode is not None and intent.mode not in {SessionMode.RESEARCH.value, SessionMode.BUILD.value}:
+            blockers.append(
+                Blocker(
+                    "invalid_mode",
+                    "",
+                    "mode must be research or build.",
+                    "Use --mode research or --mode build.",
+                )
+            )
+        if intent.blocking is not None and intent.blocking not in {"yes", "no"}:
+            blockers.append(
+                Blocker(
+                    "invalid_blocking_value",
+                    "",
+                    "blocking must be yes or no.",
+                    "Use --blocking yes or --blocking no.",
+                )
+            )
+        return blockers
+    if action == "blocked":
+        return _required_memory_values(
+            (
+                (intent.item, "--item"),
+                (intent.reason, "--reason"),
+                (intent.needed, "--needed"),
+                (intent.impact, "--impact"),
+            )
+        )
+    if action == "deferred":
+        return _required_memory_values(((intent.item, "--item"), (intent.reason, "--reason"), (intent.trigger, "--trigger")))
+    return _required_memory_values(((intent.section, "--section"), (intent.reason, "--reason"))) + _progress_section_blockers(intent.section)
+
+
+def _factors_argument_blockers(intent: CommandIntent) -> list[Blocker]:
+    return _required_memory_values(((intent.section, "--section"), (intent.value, "--value"))) + _factor_section_blockers(intent.section)
+
+
+def _required_memory_values(values: Sequence[tuple[str | None, str]]) -> list[Blocker]:
+    blockers: list[Blocker] = []
+    for value, option in values:
+        blocker = session_memory_edit.value_blocker(value, option)
+        if blocker is not None:
+            blockers.append(blocker)
+    return blockers
+
+
+def _progress_section_blockers(section: str | None) -> list[Blocker]:
+    if section is None or section in session_memory_edit.PROGRESS_MANUAL_SECTIONS:
+        return []
+    return [
+        Blocker(
+            "invalid_progress_section",
+            "",
+            "progress section must be Active, Blocked, or Deferred.",
+            "Use --section Active, Blocked, or Deferred.",
+        )
+    ]
+
+
+def _factor_section_blockers(section: str | None) -> list[Blocker]:
+    if section is None or section in session_memory_edit.FACTOR_SECTIONS:
+        return []
+    return [
+        Blocker(
+            "invalid_factor_section",
+            "",
+            "factor section is not a canonical RDL factor heading.",
+            "Use a canonical factors.md section heading.",
+        )
+    ]
+
+
+def _none_progress_cells(section: str, reason: str, state: SessionState) -> tuple[str, ...]:
+    if section == "Active":
+        return ("no-active-items", str(state.mode), f"none: {reason}", "no", "-")
+    if section == "Blocked":
+        return ("no-blocked-items", reason, "none", "none")
+    return ("no-deferred-items", reason, "-")
 
 
 def _handoff() -> CommandResult:
