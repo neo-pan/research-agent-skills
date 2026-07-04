@@ -10,7 +10,7 @@ from rdl import integrity, store
 from rdl.cli import main
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_final_report, complete_research_round, create_session, write_json
+from rdl_test_support import assert_gate_details_compatible, complete_final_report, complete_research_round, create_session, write_json
 
 
 class CliGuardStopTests(unittest.TestCase):
@@ -75,6 +75,7 @@ class CliGuardStopTests(unittest.TestCase):
                     self.assertEqual(result["phase"], "complete")
                     self.assertEqual(result["round"], 1)
                     self.assertEqual(result["next_action"], f"closed-{outcome}")
+                    assert_gate_details_compatible(self, result["details"]["gate"])
                     state = store.read_json(session_dir / "state.json")
                     self.assertEqual(state["status"], f"closed-{outcome}")
                     self.assertEqual(state["phase"], "complete")
@@ -95,6 +96,7 @@ class CliGuardStopTests(unittest.TestCase):
             self.assertEqual(result["phase"], "plan")
             self.assertEqual(result["round"], 2)
             self.assertEqual(result["next_action"], str(session_dir / "rounds" / "002" / "prompt.md"))
+            assert_gate_details_compatible(self, result["details"]["gate"])
             state = store.read_json(session_dir / "state.json")
             self.assertEqual(state["round"], 2)
             self.assertEqual(state["phase"], "plan")

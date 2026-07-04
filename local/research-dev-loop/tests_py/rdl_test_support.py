@@ -5,6 +5,98 @@ from rdl import integrity, templates
 from rdl.session import SessionStore
 
 
+def assert_gate_details_compatible(
+    testcase,
+    gate_details: dict,
+    *,
+    allowed_statuses=("ok", "needs_attention"),
+) -> None:
+    expected_top_keys = {
+        "gate_status",
+        "findings",
+        "memory",
+        "artifact",
+        "summary",
+        "advisory_warnings",
+    }
+    testcase.assertTrue(expected_top_keys.issubset(gate_details.keys()), gate_details)
+    testcase.assertIn(gate_details["gate_status"], allowed_statuses)
+    testcase.assertIsInstance(gate_details["findings"], list)
+    testcase.assertIsInstance(gate_details["advisory_warnings"], list)
+
+    for finding in gate_details["findings"]:
+        testcase.assertTrue(
+            {
+                "severity",
+                "category",
+                "code",
+                "location",
+                "message",
+                "next_action",
+            }.issubset(finding.keys()),
+            finding,
+        )
+        testcase.assertIn(finding["severity"], {"blocking", "warning", "note"})
+        testcase.assertIn(
+            finding["category"],
+            {"protocol", "evidence", "artifact", "summary", "memory", "semantic", "state"},
+        )
+        testcase.assertIsInstance(finding["code"], str)
+        testcase.assertIsInstance(finding["location"], str)
+        testcase.assertIsInstance(finding["message"], str)
+        testcase.assertIsInstance(finding["next_action"], str)
+        testcase.assertNotEqual(finding["severity"], "blocking")
+
+    memory = gate_details["memory"]
+    testcase.assertTrue(
+        {
+            "memory_status",
+            "progress_gaps",
+            "factor_gaps",
+            "deterministic_updates",
+            "quality_warnings",
+            "suggested_actions",
+        }.issubset(memory.keys()),
+        memory,
+    )
+    testcase.assertIn(memory["memory_status"], {"healthy", "needs_attention", "written"})
+    testcase.assertIsInstance(memory["progress_gaps"], list)
+    testcase.assertIsInstance(memory["factor_gaps"], list)
+    testcase.assertIsInstance(memory["deterministic_updates"], dict)
+    testcase.assertIsInstance(memory["quality_warnings"], list)
+    testcase.assertIsInstance(memory["suggested_actions"], list)
+
+    artifact = gate_details["artifact"]
+    testcase.assertTrue(
+        {
+            "artifact_status",
+            "checked_paths",
+            "remote_artifacts",
+            "findings",
+        }.issubset(artifact.keys()),
+        artifact,
+    )
+    testcase.assertIn(artifact["artifact_status"], {"ok", "needs_attention", "blocked", "not_available"})
+    testcase.assertIsInstance(artifact["checked_paths"], int)
+    testcase.assertIsInstance(artifact["remote_artifacts"], int)
+    testcase.assertIsInstance(artifact["findings"], list)
+
+    summary = gate_details["summary"]
+    testcase.assertTrue(
+        {
+            "summary_status",
+            "rounds_scanned",
+            "progress_updates",
+            "factor_gaps",
+        }.issubset(summary.keys()),
+        summary,
+    )
+    testcase.assertIn(summary["summary_status"], {"up_to_date", "needs_update", "written"})
+    testcase.assertIsInstance(summary["rounds_scanned"], int)
+    testcase.assertIsInstance(summary["progress_updates"], dict)
+    testcase.assertIsInstance(summary["factor_gaps"], list)
+
+
 def create_session(root: Path, session_id: str = "r1", mode: str = "research", profile: str = "full-review") -> Path:
     root.mkdir(parents=True, exist_ok=True)
     mission_source = root / "mission.md"

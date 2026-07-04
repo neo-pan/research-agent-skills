@@ -16,6 +16,7 @@ from rdl_test_support import (
     COMPLETE_INTENT,
     COMPLETE_RESEARCH_EVIDENCE,
     COMPLETE_WORK,
+    assert_gate_details_compatible,
     complete_decision,
     complete_research_round,
     complete_review,
@@ -43,6 +44,7 @@ class CliNextTests(unittest.TestCase):
             self.assertEqual(result["round"], 2)
             self.assertEqual(result["next_action"], str(session_dir / "rounds" / "002" / "prompt.md"))
             self.assertNotIn("summary_needs_update", result["warnings"])
+            assert_gate_details_compatible(self, result["details"]["gate"])
             self.assertEqual(result["details"]["gate"]["summary"]["summary_status"], "up_to_date")
 
             state = store.read_json(session_dir / "state.json")

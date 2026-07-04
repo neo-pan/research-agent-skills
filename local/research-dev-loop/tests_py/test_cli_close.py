@@ -12,6 +12,7 @@ from rdl.session import SessionStore
 
 from rdl_test_support import (
     REPEATED_NEGATIVE_EVIDENCE,
+    assert_gate_details_compatible,
     complete_decision,
     complete_final_report,
     complete_research_round,
@@ -43,6 +44,7 @@ class CliCloseTests(unittest.TestCase):
                     self.assertEqual(result["round"], 1)
                     self.assertEqual(result["next_action"], f"closed-{outcome}")
                     self.assertNotIn("summary_needs_update", result["warnings"])
+                    assert_gate_details_compatible(self, result["details"]["gate"])
                     self.assertEqual(result["details"]["gate"]["summary"]["summary_status"], "up_to_date")
 
                     state = store.read_json(session_dir / "state.json")

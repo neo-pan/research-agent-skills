@@ -9,7 +9,7 @@ from rdl import integrity
 from rdl.cli import main
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_research_round, create_session
+from rdl_test_support import assert_gate_details_compatible, complete_research_round, create_session
 
 
 class CliHandoffTests(unittest.TestCase):
@@ -30,6 +30,7 @@ class CliHandoffTests(unittest.TestCase):
             self.assertEqual(result["details"]["last_decision"]["recommended_next_loop"], "none")
             self.assertIn("later work", result["details"]["known_evidence_gaps"])
             self.assertEqual(result["details"]["memory"]["memory_status"], "healthy")
+            assert_gate_details_compatible(self, result["details"]["gate"])
             self.assertEqual(result["details"]["gate"]["gate_status"], "needs_attention")
             self.assertEqual(result["details"]["gate"]["memory"]["memory_status"], "healthy")
             self.assertEqual(result["next_action"], "rdl doctor")
@@ -45,6 +46,7 @@ class CliHandoffTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(result["status"], "ok")
             self.assertEqual(result["details"]["handoff_status"], "needs_attention")
+            assert_gate_details_compatible(self, result["details"]["gate"])
             self.assertEqual(result["details"]["gate"]["gate_status"], "needs_attention")
             self.assertEqual(result["details"]["last_decision"]["decision"], "none recorded")
             self.assertEqual(result["details"]["memory"]["progress_gaps"], ["Active", "Blocked", "Deferred"])
