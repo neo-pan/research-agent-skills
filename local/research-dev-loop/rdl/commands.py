@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, gate, integrity, memory, memory_report, readiness, repair, session_memory_edit, summary, templates, transition
+from . import documents, gate, integrity, memory, memory_report, repair, session_memory_edit, summary, templates, transition
 from .model import Blocker, CommandResult, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -326,7 +326,7 @@ def _doctor() -> CommandResult:
     gate_report = gate.run(session, "doctor")
     blockers = gate_report.blockers
     warnings = gate_report.warnings
-    details = {"gate": gate_report.details}
+    details = _gate_details(gate_report)
     state = session.state
     if blockers:
         return _state_result(
@@ -347,6 +347,10 @@ def _doctor() -> CommandResult:
         next_action="rdl review",
         details=details,
     )
+
+
+def _gate_details(report: gate.GateReport) -> dict[str, object]:
+    return {"gate": report.details}
 
 
 def _repair() -> CommandResult:
@@ -798,6 +802,7 @@ def _handoff() -> CommandResult:
         return loaded
     session = loaded
     state = session.state
+    gate_report = gate.run(session, "handoff")
     prompt_context = memory.prompt_context(session)
     report, _summary_plan = memory_report.check(session)
     handoff_status = "ready" if report.memory_status == "healthy" else "needs_attention"
@@ -814,11 +819,13 @@ def _handoff() -> CommandResult:
         "latest_completed_decision": _latest_completed_decision_details(session),
         "memory": report.details(),
         "suggested_actions": suggested_actions,
+        "gate": gate_report.details,
     }
     return _state_result(
         "ok",
         "handoff",
         state,
+        warnings=gate_report.warnings,
         next_action="rdl doctor" if handoff_status == "ready" else _memory_next_action(report),
         details=details,
     )
@@ -901,18 +908,18 @@ def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: s
             blockers=(profile_blocker,),
             next_action=profile_blocker.next_action,
         )
-    prompt_context = memory.prompt_context(session)
-    warnings = memory.advisory_warnings(session, next_mode=next_mode, prompt_context_value=prompt_context)
 
-    blockers = tuple(readiness.check(session, "advance"))
+    gate_report = gate.run(session, "advance", next_mode=next_mode)
+    blockers = gate_report.blockers
     if blockers:
         return _state_result(
             "blocked",
             "next",
             state,
             blockers=blockers,
-            warnings=warnings,
+            warnings=gate_report.warnings,
             next_action="complete current round review and decision",
+            details=_gate_details(gate_report),
         )
 
     try:
@@ -923,8 +930,9 @@ def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: s
             "next",
             state,
             blockers=(exc.blocker,),
-            warnings=warnings,
+            warnings=gate_report.warnings,
             next_action="inspect existing next round",
+            details=_gate_details(gate_report),
         )
 
     refresh_error = context.refresh_after_mutation(result.phase, result.round)
@@ -939,8 +947,9 @@ def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: s
         round_number=result.round,
         mode=result.mode,
         profile=result.profile,
-        warnings=warnings,
+        warnings=gate_report.warnings,
         next_action=result.next_action,
+        details=_gate_details(gate_report),
     )
 
 
@@ -1103,28 +1112,18 @@ def _close(outcome: str | None) -> CommandResult:
 def _close_locked(context: _LockedContext, outcome: str) -> CommandResult:
     session = context.session
     state = context.state
-    blockers = list(readiness.check(session, "advance"))
-    blockers.extend(readiness.check(session, "close", outcome=outcome))
-
-    decision_file = session.round_dir() / "decision.md"
-    expected_decision = f"close-{outcome}"
-    if decision_file.is_file() and documents.field(decision_file, "Decision") != expected_decision:
-        blockers.append(
-            Blocker(
-                "invalid_close_decision",
-                f"{decision_file}#Decision",
-                f"Close outcome requires Decision: {expected_decision}.",
-                f"Run rdl decide {expected_decision} or update decision.md.",
-            )
-        )
+    gate_report = gate.run(session, "close", outcome=outcome)
+    blockers = gate_report.blockers
 
     if blockers:
         return _state_result(
             "blocked",
             "close",
             state,
-            blockers=tuple(blockers),
+            blockers=blockers,
+            warnings=gate_report.warnings,
             next_action="complete close records",
+            details=_gate_details(gate_report),
         )
 
     result = transition.close(session, outcome)
@@ -1138,7 +1137,9 @@ def _close_locked(context: _LockedContext, outcome: str) -> CommandResult:
         state,
         phase=result.phase,
         round_number=result.round,
+        warnings=gate_report.warnings,
         next_action=result.next_action,
+        details=_gate_details(gate_report),
     )
 
 
@@ -1248,14 +1249,17 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
             next_action="block",
         )
 
-    blockers = _guard_stop_readiness(session)
+    gate_report = _guard_stop_gate(session)
+    blockers = gate_report.blockers
     if blockers:
         return _state_result(
             "blocked",
             "guard-stop",
             state,
-            blockers=tuple(blockers),
+            blockers=blockers,
+            warnings=gate_report.warnings,
             next_action="block",
+            details=_gate_details(gate_report),
         )
 
     try:
@@ -1266,7 +1270,9 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
             "guard-stop",
             state,
             blockers=(exc.blocker,),
+            warnings=gate_report.warnings,
             next_action="block",
+            details=_gate_details(gate_report),
         )
 
     if (guard_session_id and guard_session_id != state.guard_session_id) or (guard_command_id and guard_command_id != state.last_guard_command_id):
@@ -1282,17 +1288,18 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
         state,
         phase=result.phase,
         round_number=result.round,
+        warnings=gate_report.warnings,
         next_action=result.next_action,
+        details=_gate_details(gate_report),
     )
 
 
-def _guard_stop_readiness(session: Session) -> list[Blocker]:
-    blockers = list(readiness.check(session, "guard-stop-advance"))
+def _guard_stop_gate(session: Session) -> gate.GateReport:
     decision = documents.field(session.round_dir() / "decision.md", "Decision")
     outcome = descriptor.close_outcome_for_decision(decision)
     if outcome:
-        blockers.extend(readiness.check(session, "guard-stop-close", outcome=outcome))
-    return blockers
+        return gate.run(session, "close", outcome=outcome)
+    return gate.run(session, "advance")
 
 
 def _run_locked_session(

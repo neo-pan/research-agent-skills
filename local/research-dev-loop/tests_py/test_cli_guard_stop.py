@@ -111,7 +111,10 @@ class CliGuardStopTests(unittest.TestCase):
 
             self.assertEqual(code, 2)
             self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["details"]["gate"]["gate_status"], "blocked")
             self.assertIn("missing_review", {blocker["code"] for blocker in result["blockers"]})
+            gate_codes = {finding["code"] for finding in result["details"]["gate"]["findings"]}
+            self.assertIn("missing_review", gate_codes)
             self.assertEqual(result["next_action"], "block")
             self.assertEqual(store.read_json(session_dir / "state.json")["round"], 1)
             self.assertFalse((session_dir / "rounds" / "002").exists())

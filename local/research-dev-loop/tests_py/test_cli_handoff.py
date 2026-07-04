@@ -30,6 +30,8 @@ class CliHandoffTests(unittest.TestCase):
             self.assertEqual(result["details"]["last_decision"]["recommended_next_loop"], "none")
             self.assertIn("later work", result["details"]["known_evidence_gaps"])
             self.assertEqual(result["details"]["memory"]["memory_status"], "healthy")
+            self.assertEqual(result["details"]["gate"]["gate_status"], "needs_attention")
+            self.assertEqual(result["details"]["gate"]["memory"]["memory_status"], "healthy")
             self.assertEqual(result["next_action"], "rdl doctor")
 
     def test_handoff_json_allows_incomplete_current_round_without_mutation(self):
@@ -43,6 +45,7 @@ class CliHandoffTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(result["status"], "ok")
             self.assertEqual(result["details"]["handoff_status"], "needs_attention")
+            self.assertEqual(result["details"]["gate"]["gate_status"], "needs_attention")
             self.assertEqual(result["details"]["last_decision"]["decision"], "none recorded")
             self.assertEqual(result["details"]["memory"]["progress_gaps"], ["Active", "Blocked", "Deferred"])
             self.assertEqual(result["next_action"], "rdl progress active|blocked|deferred|none")

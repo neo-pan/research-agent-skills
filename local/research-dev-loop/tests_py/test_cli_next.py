@@ -331,9 +331,12 @@ class CliNextTests(unittest.TestCase):
             result = json.loads(stdout.getvalue())
             self.assertEqual(result["status"], "blocked")
             self.assertEqual(result["action"], "next")
+            self.assertEqual(result["details"]["gate"]["gate_status"], "blocked")
             codes = {blocker["code"] for blocker in result["blockers"]}
             self.assertIn("missing_review", codes)
             self.assertIn("missing_decision", codes)
+            gate_codes = {finding["code"] for finding in result["details"]["gate"]["findings"]}
+            self.assertIn("missing_review", gate_codes)
             self.assertFalse((session_dir / "rounds" / "002").exists())
             self.assertEqual(store.read_json(session_dir / "state.json")["round"], 1)
 

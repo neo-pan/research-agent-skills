@@ -69,7 +69,10 @@ class CliCloseTests(unittest.TestCase):
 
             result = json.loads(stdout.getvalue())
             self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["details"]["gate"]["gate_status"], "blocked")
             self.assertIn("missing_final_report", {blocker["code"] for blocker in result["blockers"]})
+            gate_codes = {finding["code"] for finding in result["details"]["gate"]["findings"]}
+            self.assertIn("missing_final_report", gate_codes)
             self.assertEqual(result["next_action"], "complete close records")
             self.assertEqual(store.read_json(session_dir / "state.json")["status"], "active")
             self.assertNotIn("## Session Closed", (session_dir / "decision-ledger.md").read_text(encoding="utf-8"))
