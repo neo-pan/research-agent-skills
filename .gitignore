@@ -9,6 +9,9 @@ local-notes/
 # Local Humanize loop state.
 .humanize/
 
+# Local Research Development Loop session state.
+.rdl/
+
 # Generated symlinks created by scripts/link_selected_skills.sh.
 skills/*
 !skills/.gitkeep

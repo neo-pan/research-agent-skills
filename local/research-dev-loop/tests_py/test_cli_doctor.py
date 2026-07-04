@@ -28,6 +28,8 @@ class CliDoctorTests(unittest.TestCase):
             self.assertEqual(result["mode"], "research")
             self.assertEqual(result["round"], 1)
             self.assertEqual(result["next_action"], "rdl review")
+            self.assertIn("gate", result["details"])
+            self.assertEqual(result["details"]["gate"]["summary"]["summary_status"], "needs_update")
 
     def test_doctor_json_blocks_without_active_session(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -82,6 +84,8 @@ class CliDoctorTests(unittest.TestCase):
             codes = {blocker["code"] for blocker in result["blockers"]}
             self.assertIn("missing_review", codes)
             self.assertIn("missing_decision", codes)
+            self.assertIn("gate", result["details"])
+            self.assertEqual(result["details"]["gate"]["gate_status"], "blocked")
             blocker_files = {blocker["file"] for blocker in result["blockers"]}
             self.assertIn(str(root / ".rdl" / "sessions" / "r1" / "rounds" / "001" / "review.md"), blocker_files)
             self.assertIn(str(root / ".rdl" / "sessions" / "r1" / "rounds" / "001" / "decision.md"), blocker_files)

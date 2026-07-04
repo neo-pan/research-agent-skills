@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, integrity, memory, memory_report, readiness, repair, session_memory_edit, summary, templates, transition
+from . import documents, gate, integrity, memory, memory_report, readiness, repair, session_memory_edit, summary, templates, transition
 from .model import Blocker, CommandResult, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -323,8 +323,10 @@ def _doctor() -> CommandResult:
         return loaded
     session = loaded
 
-    blockers = tuple(readiness.check(session, "doctor-current"))
-    warnings = memory.advisory_warnings(session)
+    gate_report = gate.run(session, "doctor")
+    blockers = gate_report.blockers
+    warnings = gate_report.warnings
+    details = {"gate": gate_report.details}
     state = session.state
     if blockers:
         return _state_result(
@@ -334,6 +336,7 @@ def _doctor() -> CommandResult:
             blockers=blockers,
             warnings=warnings,
             next_action="complete missing RDL records",
+            details=details,
         )
 
     return _state_result(
@@ -342,6 +345,7 @@ def _doctor() -> CommandResult:
         state,
         warnings=warnings,
         next_action="rdl review",
+        details=details,
     )
 
 
