@@ -11,12 +11,16 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
 - Round profiles: `full-review`, `checkpoint`, and `build-update`.
 - Prompt carry-forward from top-level session memory and previous round records.
 - Deterministic session summaries with `rdl summarize --check|--write`.
+- Automatic deterministic managed summary refresh before successful `rdl next`
+  and `rdl close` transitions.
 - Session-memory diagnostics with `rdl memory --check|--write`.
+- Session-memory quality warnings for duplicate open questions.
 - Read-only takeover reports with `rdl handoff`.
 - Unified gate reports consumed by `rdl doctor`, `rdl next`, `rdl close`,
   `rdl handoff`, and `rdl guard-stop`.
 - Read-only artifact gate checks for local artifact path reachability, byte
-  size, and sha256 metadata when recorded in `artifact-manifest.json`.
+  size, sha256 metadata, and malformed optional integrity metadata when
+  recorded in `artifact-manifest.json`.
 - Explicit session-memory helpers with `rdl progress` and `rdl factors`.
 - Explicit artifact citations with `[artifact:ID]` plus manifest validation.
 - Optional `events.md` records for operational events that matter for recovery.

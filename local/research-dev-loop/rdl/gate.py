@@ -176,20 +176,32 @@ def _artifact_findings(report: artifacts.ArtifactReport) -> tuple[GateFinding, .
 
 
 def _memory_findings(report: memory_report.MemoryReport) -> tuple[GateFinding, ...]:
-    if report.memory_status == "healthy":
-        return ()
-    locations = [f"progress.md#{section}" for section in report.progress_gaps]
-    locations.extend(f"factors.md#{section}" for section in report.factor_gaps)
-    return (
+    findings = [
         GateFinding(
             "warning",
             "memory",
-            "session_memory_needs_attention",
-            ", ".join(locations) if locations else "session memory",
-            "Top-level session memory has gaps or stale deterministic summary rows.",
-            report.suggested_actions[0] if report.suggested_actions else "Run rdl memory --check.",
-        ),
-    )
+            warning.code,
+            warning.location,
+            warning.message,
+            warning.next_action,
+        )
+        for warning in report.quality_warnings
+    ]
+    locations = [f"progress.md#{section}" for section in report.progress_gaps]
+    locations.extend(f"factors.md#{section}" for section in report.factor_gaps)
+    if report.memory_status != "healthy":
+        findings.insert(
+            0,
+            GateFinding(
+                "warning",
+                "memory",
+                "session_memory_needs_attention",
+                ", ".join(locations) if locations else "session memory",
+                "Top-level session memory has gaps, stale deterministic summary rows, or quality warnings.",
+                report.suggested_actions[0] if report.suggested_actions else "Run rdl memory --check.",
+            ),
+        )
+    return tuple(findings)
 
 
 def _state_findings(session: Session) -> tuple[GateFinding, ...]:

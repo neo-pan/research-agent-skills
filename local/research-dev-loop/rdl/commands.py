@@ -580,6 +580,8 @@ def _memory_next_action(report: memory_report.MemoryReport) -> str:
         return "rdl progress active|blocked|deferred|none"
     if any(action.startswith("Record factor memory with rdl factors") for action in report.suggested_actions):
         return "rdl factors set|note"
+    if report.quality_warnings:
+        return report.quality_warnings[0].next_action
     if report.memory_status == "healthy":
         return "rdl doctor"
     return "update session memory manually"
@@ -922,6 +924,29 @@ def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: s
             details=_gate_details(gate_report),
         )
 
+    transition_blocker = _advance_transition_blocker(session)
+    if transition_blocker is not None:
+        return _state_result(
+            "blocked",
+            "next",
+            state,
+            blockers=(transition_blocker,),
+            warnings=gate_report.warnings,
+            next_action="inspect existing next round",
+            details=_gate_details(gate_report),
+        )
+
+    session, gate_report, refresh_result = _refresh_transition_summary(
+        context,
+        gate_report,
+        "next",
+        "advance",
+        next_mode=next_mode,
+        blocked_next_action="restore canonical progress.md tables",
+    )
+    if refresh_result is not None:
+        return refresh_result
+
     try:
         result = transition.advance(session, next_mode, next_profile)
     except transition.TransitionBlocked as exc:
@@ -1126,6 +1151,17 @@ def _close_locked(context: _LockedContext, outcome: str) -> CommandResult:
             details=_gate_details(gate_report),
         )
 
+    session, gate_report, refresh_result = _refresh_transition_summary(
+        context,
+        gate_report,
+        "close",
+        "close",
+        outcome=outcome,
+        blocked_next_action="restore canonical progress.md tables",
+    )
+    if refresh_result is not None:
+        return refresh_result
+
     result = transition.close(session, outcome)
     refresh_error = context.refresh_after_mutation(result.phase, result.round)
     if refresh_error is not None:
@@ -1141,6 +1177,58 @@ def _close_locked(context: _LockedContext, outcome: str) -> CommandResult:
         next_action=result.next_action,
         details=_gate_details(gate_report),
     )
+
+
+def _advance_transition_blocker(session: Session) -> Blocker | None:
+    next_round = session.state.round + 1
+    if session.round_dir(next_round).exists():
+        return Blocker(
+            "next_round_exists",
+            f"rounds/{next_round:03d}",
+            "Next round directory already exists.",
+            "Inspect the existing next round before advancing.",
+        )
+    return None
+
+
+def _refresh_transition_summary(
+    context: _LockedContext,
+    gate_report: gate.GateReport,
+    command_action: str,
+    gate_action: str,
+    *,
+    next_mode: str | None = None,
+    outcome: str | None = None,
+    blocked_next_action: str,
+) -> tuple[Session, gate.GateReport, CommandResult | None]:
+    session = context.session
+    state = context.state
+    summary_plan = summary.plan(session)
+    if summary_plan.blockers or summary_plan.total_rows == 0 or summary.progress_up_to_date(session, summary_plan):
+        return session, gate_report, None
+
+    blockers = summary.write(session, summary_plan)
+    if blockers:
+        return (
+            session,
+            gate_report,
+            _state_result(
+                "blocked",
+                command_action,
+                state,
+                blockers=blockers,
+                warnings=gate_report.warnings,
+                next_action=blocked_next_action,
+                details=_gate_details(gate_report),
+            ),
+        )
+
+    refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+    if refresh_error is not None:
+        return session, gate_report, refresh_error
+
+    refreshed = SessionStore.cwd().load_session(session.root)
+    return refreshed, gate.run(refreshed, gate_action, next_mode=next_mode, outcome=outcome), None
 
 
 def _abandon(reason_parts: Sequence[str]) -> CommandResult:

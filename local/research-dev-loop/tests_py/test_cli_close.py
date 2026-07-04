@@ -42,11 +42,17 @@ class CliCloseTests(unittest.TestCase):
                     self.assertEqual(result["phase"], "complete")
                     self.assertEqual(result["round"], 1)
                     self.assertEqual(result["next_action"], f"closed-{outcome}")
+                    self.assertNotIn("summary_needs_update", result["warnings"])
+                    self.assertEqual(result["details"]["gate"]["summary"]["summary_status"], "up_to_date")
 
                     state = store.read_json(session_dir / "state.json")
                     self.assertEqual(state["status"], f"closed-{outcome}")
                     self.assertEqual(state["phase"], "complete")
+                    progress = (session_dir / "progress.md").read_text(encoding="utf-8")
+                    self.assertIn("<!-- rdl:summary section=Completed start -->", progress)
+                    self.assertIn(f"| round-001 | close-{outcome} | fixture evidence | 001 |", progress)
                     ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
+                    self.assertIn("## Session Summary Refresh", ledger)
                     self.assertIn("## Session Closed", ledger)
                     self.assertIn(f"- Decision: close-{outcome}", ledger)
                     self.assertIn("- Evidence: fixture evidence", ledger)
@@ -55,6 +61,8 @@ class CliCloseTests(unittest.TestCase):
                     self.assertIn("- Next smallest step: continue same mode", ledger)
                     manifest = store.read_json(session_dir / "integrity.json")
                     self.assertIn("final-report.md", {entry["path"] for entry in manifest["entries"]})
+                    progress_entry = next(entry for entry in manifest["entries"] if entry["path"] == "progress.md")
+                    self.assertEqual(progress_entry["sha256"], integrity.file_sha256(session_dir / "progress.md"))
 
     def test_close_json_blocks_for_missing_final_report_without_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -158,6 +166,10 @@ class CliCloseTests(unittest.TestCase):
 
             stdout = StringIO()
             with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["memory", "--write", "--json"]), 0)
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
                 with patch("rdl.commands.integrity.refresh", side_effect=ValueError("refresh failed")):
                     self.assertEqual(main(["close", "positive", "--json"]), 1)
 
@@ -235,7 +247,8 @@ none
 
 ## Completed
 
-none
+| Item | Decision | Evidence | Round |
+|---|---|---|---|
 
 ## Blocked
 
@@ -248,17 +261,19 @@ none
 
 ## Open Questions
 
-| Question | Owner | Blocking | Resolution |
+| Question | Owner | Blocking? | Resolution |
 |---|---|---|---|
 | unresolved risk | team | yes | - |
 
 ## Directions Tried
 
-none
+| Direction | Rounds | Outcome | Why Not Repeat |
+|---|---|---|---|
 
 ## Staleness Watch
 
-none
+| Signal | Evidence | Response |
+|---|---|---|
 """
 
 

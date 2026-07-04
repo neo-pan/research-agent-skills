@@ -42,17 +42,24 @@ class CliNextTests(unittest.TestCase):
             self.assertEqual(result["phase"], "plan")
             self.assertEqual(result["round"], 2)
             self.assertEqual(result["next_action"], str(session_dir / "rounds" / "002" / "prompt.md"))
+            self.assertNotIn("summary_needs_update", result["warnings"])
+            self.assertEqual(result["details"]["gate"]["summary"]["summary_status"], "up_to_date")
 
             state = store.read_json(session_dir / "state.json")
             self.assertEqual(state["round"], 2)
             self.assertEqual(state["phase"], "plan")
             prompt = (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8")
             self.assertIn("Previous Decision: continue; closes claim; recommended next loop none", prompt)
+            progress = (session_dir / "progress.md").read_text(encoding="utf-8")
+            self.assertIn("<!-- rdl:summary section=Completed start -->", progress)
+            self.assertIn("| round-001 | continue | fixture evidence | 001 |", progress)
             ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
+            self.assertIn("## Session Summary Refresh", ledger)
             self.assertIn("## Round 1 Decision", ledger)
             self.assertIn("- Next round: 002", ledger)
             manifest = store.read_json(session_dir / "integrity.json")
             entries = {entry["path"]: entry for entry in manifest["entries"]}
+            self.assertEqual(entries["progress.md"]["sha256"], integrity.file_sha256(session_dir / "progress.md"))
             self.assertEqual(entries["rounds/002/prompt.md"]["policy"], "managed_prefix")
 
     def test_next_json_can_transition_to_build_mode(self):
@@ -210,8 +217,8 @@ class CliNextTests(unittest.TestCase):
                 self.assertEqual(main(["doctor", "--json"]), 2)
 
             result = json.loads(stdout.getvalue())
-            self.assertIn("empty_progress_memory_after_multiple_rounds", result["warnings"])
             self.assertIn("empty_factors_memory_after_first_round", result["warnings"])
+            self.assertIn("session_memory_needs_attention", result["warnings"])
 
     def test_doctor_and_next_warn_when_recent_rounds_have_no_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -499,6 +506,11 @@ class CliNextTests(unittest.TestCase):
                 encoding="utf-8",
             )
             integrity.refresh(SessionStore(root).active_session())
+            before = {
+                "progress": (session_dir / "progress.md").read_text(encoding="utf-8"),
+                "ledger": (session_dir / "decision-ledger.md").read_text(encoding="utf-8"),
+                "integrity": (session_dir / "integrity.json").read_text(encoding="utf-8"),
+            }
 
             stdout = StringIO()
             with change_dir(root), redirect_stdout(stdout):
@@ -509,12 +521,19 @@ class CliNextTests(unittest.TestCase):
             self.assertEqual(result["blockers"][0]["code"], "next_round_exists")
             self.assertIn("# Existing Prompt", sentinel.read_text(encoding="utf-8"))
             self.assertEqual(store.read_json(session_dir / "state.json")["round"], 1)
+            self.assertEqual((session_dir / "progress.md").read_text(encoding="utf-8"), before["progress"])
+            self.assertEqual((session_dir / "decision-ledger.md").read_text(encoding="utf-8"), before["ledger"])
+            self.assertEqual((session_dir / "integrity.json").read_text(encoding="utf-8"), before["integrity"])
 
     def test_next_json_errors_when_integrity_refresh_fails_after_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session_dir = create_session(root)
             complete_research_round(session_dir, "continue")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["memory", "--write", "--json"]), 0)
 
             stdout = StringIO()
             with change_dir(root), redirect_stdout(stdout):

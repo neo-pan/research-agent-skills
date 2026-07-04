@@ -92,6 +92,34 @@ class CliMemoryTests(unittest.TestCase):
             self.assertEqual(progress.count("| round-001 | continue | fixture evidence | 001 |"), 1)
             self.assertEqual(ledger.count("## Session Summary Refresh"), 1)
 
+    def test_memory_check_warns_for_duplicate_open_questions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_complete_memory_session(root)
+            progress_path = session_dir / "progress.md"
+            progress_path.write_text(
+                progress_path.read_text(encoding="utf-8").replace(
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n",
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n"
+                    "| Which evidence is missing? | team | yes | - |\n"
+                    "| which evidence is missing | team | yes | - |\n",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, result = run_cli(root, ["memory", "--check", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["memory_status"], "needs_attention")
+            self.assertEqual(result["details"]["progress_gaps"], [])
+            self.assertEqual(result["details"]["factor_gaps"], [])
+            quality_codes = {warning["code"] for warning in result["details"]["quality_warnings"]}
+            self.assertIn("duplicate_open_questions", quality_codes)
+            self.assertEqual(result["next_action"], "Merge duplicate open questions or mark one resolved.")
+
     def test_memory_write_blocks_for_noncanonical_progress_table_without_partial_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

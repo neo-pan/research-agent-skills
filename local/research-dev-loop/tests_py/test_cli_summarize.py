@@ -99,7 +99,7 @@ class CliSummarizeTests(unittest.TestCase):
             progress = (session_dir / "progress.md").read_text(encoding="utf-8")
             self.assertEqual(progress.count("| round-001 | continue | fixture evidence | 001 |"), 1)
             ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
-            self.assertEqual(ledger.count("## Session Summary Refresh"), 2)
+            self.assertEqual(ledger.count("## Session Summary Refresh"), 3)
 
     def test_summarize_round_limits_scanned_rounds(self):
         with tempfile.TemporaryDirectory() as tmp:

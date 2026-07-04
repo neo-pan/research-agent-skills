@@ -74,6 +74,34 @@ class GateTests(unittest.TestCase):
 
             self.assertNotIn("round_content_ahead_of_state_phase", report.warnings)
 
+    def test_gate_warns_for_duplicate_open_questions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_duplicate_questions")
+            complete_research_round(session_dir)
+            progress_path = session_dir / "progress.md"
+            progress_path.write_text(
+                progress_path.read_text(encoding="utf-8").replace(
+                    "## Open Questions\n\n",
+                    "## Open Questions\n\n"
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n"
+                    "| Which evidence is missing? | team | yes | - |\n"
+                    "| which evidence is missing | team | yes | - |\n\n",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("duplicate_open_questions", report.warnings)
+            findings = {finding["code"]: finding for finding in report.details["findings"]}
+            self.assertEqual(findings["duplicate_open_questions"]["category"], "memory")
+            quality_codes = {warning["code"] for warning in report.details["memory"]["quality_warnings"]}
+            self.assertIn("duplicate_open_questions", quality_codes)
+
     def test_close_gate_includes_advance_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -238,6 +266,40 @@ class GateTests(unittest.TestCase):
             self.assertNotIn("artifact_sha256_mismatch", {blocker.code for blocker in report.blockers})
             findings = {finding["code"]: finding for finding in report.details["findings"]}
             self.assertEqual(findings["duplicate_artifact_path_hashes"]["category"], "artifact")
+
+    def test_gate_warns_for_malformed_optional_artifact_integrity_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_artifact_metadata")
+            complete_research_round(session_dir)
+            artifact_path = root / "artifacts" / "metadata.log"
+            artifact_path.parent.mkdir()
+            artifact_path.write_text("actual evidence\n", encoding="utf-8")
+            _write_artifact_manifest(
+                session_dir,
+                [
+                    {
+                        "id": "EV-BAD-META",
+                        "kind": "log",
+                        "round": 1,
+                        "description": "bad metadata",
+                        "path": "artifacts/metadata.log",
+                        "size": "large",
+                        "sha256": "not-a-digest",
+                    }
+                ],
+            )
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("invalid_artifact_size_metadata", report.warnings)
+            self.assertIn("invalid_artifact_sha256_metadata", report.warnings)
+            self.assertNotIn("artifact_size_mismatch", {blocker.code for blocker in report.blockers})
+            self.assertNotIn("artifact_sha256_mismatch", {blocker.code for blocker in report.blockers})
+            findings = {finding["code"]: finding for finding in report.details["findings"]}
+            self.assertEqual(findings["invalid_artifact_size_metadata"]["category"], "artifact")
+            self.assertEqual(report.details["artifact"]["artifact_status"], "needs_attention")
 
 
 def _write_artifact_manifest(session_dir: Path, artifacts: list[dict[str, object]]) -> None:

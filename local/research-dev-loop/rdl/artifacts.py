@@ -91,6 +91,7 @@ def check(session: "Session") -> ArtifactReport:
         )
 
     findings: list[ArtifactFinding] = []
+    findings.extend(_metadata_findings(manifest["artifacts"]))
     missing_paths = {entry.raw_path for entry in entries if not entry.resolved_path.is_file()}
     for entry in entries:
         if entry.raw_path in missing_paths:
@@ -147,6 +148,38 @@ def check(session: "Session") -> ArtifactReport:
     else:
         status = "ok"
     return ArtifactReport(status, len(entries), remote_count, tuple(findings))
+
+
+def _metadata_findings(artifacts: list[Any]) -> list[ArtifactFinding]:
+    findings: list[ArtifactFinding] = []
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        raw_path = artifact.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        artifact_id = str(artifact.get("id") or "unknown")
+        if "size" in artifact and (not _strict_int(artifact.get("size")) or artifact["size"] < 0):
+            findings.append(
+                ArtifactFinding(
+                    "warning",
+                    "invalid_artifact_size_metadata",
+                    _location(artifact_id),
+                    f"Artifact {artifact_id} records size metadata that is not a non-negative integer.",
+                    "Update artifact-manifest.json with an integer byte size or remove the optional size field.",
+                )
+            )
+        if "sha256" in artifact and (not isinstance(artifact.get("sha256"), str) or not _DIGEST_RE.fullmatch(artifact["sha256"])):
+            findings.append(
+                ArtifactFinding(
+                    "warning",
+                    "invalid_artifact_sha256_metadata",
+                    _location(artifact_id),
+                    f"Artifact {artifact_id} records sha256 metadata that is not a lowercase 64-character hex digest.",
+                    "Update artifact-manifest.json with a valid sha256 digest or remove the optional sha256 field.",
+                )
+            )
+    return findings
 
 
 def _resolve_artifact_path(session: "Session", raw_path: str) -> Path:
