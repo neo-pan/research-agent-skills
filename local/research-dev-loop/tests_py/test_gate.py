@@ -102,6 +102,33 @@ class GateTests(unittest.TestCase):
             quality_codes = {warning["code"] for warning in report.details["memory"]["quality_warnings"]}
             self.assertIn("duplicate_open_questions", quality_codes)
 
+    def test_gate_exposes_memory_quality_warnings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_memory_quality")
+            complete_research_round(session_dir)
+            progress_path = session_dir / "progress.md"
+            progress_path.write_text(
+                progress_path.read_text(encoding="utf-8").replace(
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n",
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n"
+                    "| Which evidence is missing? | team | yes |\n",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("malformed_progress_table_row", report.warnings)
+            findings = {finding["code"]: finding for finding in report.details["findings"]}
+            self.assertEqual(findings["malformed_progress_table_row"]["category"], "memory")
+            quality_codes = {warning["code"] for warning in report.details["memory"]["quality_warnings"]}
+            self.assertIn("malformed_progress_table_row", quality_codes)
+
     def test_close_gate_includes_advance_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from . import documents, session_memory_edit, summary
+from .protocol import descriptor
 
 if TYPE_CHECKING:
     from .session import Session
@@ -90,7 +91,9 @@ def _factor_gaps(session: "Session") -> tuple[str, ...]:
 
 def _quality_warnings(session: "Session") -> tuple[MemoryQualityWarning, ...]:
     warnings: list[MemoryQualityWarning] = []
-    duplicates = _duplicate_open_questions(session.root / "progress.md")
+    progress_file = session.root / "progress.md"
+    warnings.extend(_malformed_progress_table_warnings(progress_file))
+    duplicates = _duplicate_open_questions(progress_file)
     if duplicates:
         warnings.append(
             MemoryQualityWarning(
@@ -100,6 +103,27 @@ def _quality_warnings(session: "Session") -> tuple[MemoryQualityWarning, ...]:
                 "Merge duplicate open questions or mark one resolved.",
             )
         )
+    return tuple(warnings)
+
+
+def _malformed_progress_table_warnings(progress_file) -> tuple[MemoryQualityWarning, ...]:
+    warnings: list[MemoryQualityWarning] = []
+    progress_spec = descriptor.document_spec("progress")
+    for section in progress_spec.required_sections if progress_spec is not None else ():
+        table = _table(documents.section(progress_file, section).content)
+        if not table.present:
+            continue
+        for row_index, row in enumerate(table.rows, start=1):
+            if len(row.cells) != len(table.headers):
+                warnings.append(
+                    MemoryQualityWarning(
+                        "malformed_progress_table_row",
+                        f"progress.md#{section} row {row_index}",
+                        f"{section} contains a table row with {len(row.cells)} cells, expected {len(table.headers)}.",
+                        "Rewrite the row with the canonical number of table cells.",
+                    )
+                )
+                break
     return tuple(warnings)
 
 
@@ -119,22 +143,49 @@ def _duplicate_open_questions(progress_file) -> tuple[str, ...]:
     return tuple(duplicates)
 
 
+@dataclass(frozen=True)
+class _TableRow:
+    cells: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _Table:
+    present: bool
+    headers: tuple[str, ...]
+    rows: tuple[_TableRow, ...]
+
+
 def _table_rows(markdown: str) -> list[dict[str, str]]:
+    table = _table(markdown)
+    if not table.headers:
+        return []
+    rows: list[dict[str, str]] = []
+    for row in table.rows:
+        if not any(cell.strip() for cell in row.cells):
+            continue
+        rows.append({table.headers[index]: row.cells[index].strip() if index < len(row.cells) else "" for index in range(len(table.headers))})
+    return rows
+
+
+def _table(markdown: str) -> _Table:
     lines = [line.strip() for line in markdown.splitlines() if line.strip().startswith("|")]
     if len(lines) < 2:
-        return []
-    headers = [_normalize_header(cell) for cell in _split_row(lines[0])]
-    rows: list[dict[str, str]] = []
-    for line in lines[2:]:
-        cells = _split_row(line)
-        if not any(cell.strip() for cell in cells):
+        return _Table(False, (), ())
+    headers = tuple(_normalize_header(cell) for cell in _split_row(lines[0]))
+    rows: list[_TableRow] = []
+    for line in lines[1:]:
+        if _table_separator(line):
             continue
-        rows.append({headers[index]: cells[index].strip() if index < len(cells) else "" for index in range(len(headers))})
-    return rows
+        rows.append(_TableRow(tuple(_split_row(line))))
+    return _Table(True, headers, tuple(rows))
 
 
 def _split_row(line: str) -> list[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _table_separator(line: str) -> bool:
+    return bool(re.fullmatch(r"\|[ \t:|-]+\|[ \t|:-]*", line.strip()))
 
 
 def _normalize_header(value: str) -> str:

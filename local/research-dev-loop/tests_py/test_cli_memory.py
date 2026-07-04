@@ -120,6 +120,52 @@ class CliMemoryTests(unittest.TestCase):
             self.assertIn("duplicate_open_questions", quality_codes)
             self.assertEqual(result["next_action"], "Merge duplicate open questions or mark one resolved.")
 
+    def test_memory_check_warns_for_malformed_progress_table_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_complete_memory_session(root)
+            progress_path = session_dir / "progress.md"
+            progress_path.write_text(
+                progress_path.read_text(encoding="utf-8").replace(
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n",
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n"
+                    "| Is the evidence complete? | team | yes |\n",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, result = run_cli(root, ["memory", "--check", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["memory_status"], "needs_attention")
+            quality_codes = {warning["code"] for warning in result["details"]["quality_warnings"]}
+            self.assertIn("malformed_progress_table_row", quality_codes)
+
+    def test_memory_check_does_not_make_semantic_staleness_judgments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_complete_memory_session(root)
+            progress_path = session_dir / "progress.md"
+            progress_path.write_text(
+                progress_path.read_text(encoding="utf-8").replace(
+                    "| no active nonblocking items | research | none | no | - |",
+                    "| fixture | research | follow-up capability | no | after review completed |",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, result = run_cli(root, ["memory", "--check", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["memory_status"], "healthy")
+            quality_codes = {warning["code"] for warning in result["details"]["quality_warnings"]}
+            self.assertNotIn("active_item_already_completed", quality_codes)
+            self.assertNotIn("active_review_trigger_elapsed", quality_codes)
+
     def test_memory_write_blocks_for_noncanonical_progress_table_without_partial_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

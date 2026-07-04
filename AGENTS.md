@@ -64,3 +64,22 @@ submodule pointer updates.
   support the skill.
 - Prefer review-only skills for gates; implementation should happen in a
   separate step unless the user explicitly asks otherwise.
+
+## RDL Design Principle
+
+- Keep deterministic RDL gates limited to protocol, schema, local artifact
+  integrity, and managed-summary facts that can be verified without judging
+  research meaning.
+- Do not encode semantic judgments as ad hoc parser rules. Questions such as
+  whether evidence is decision-grade, an active item is truly stale, a review
+  trigger has semantically occurred, session memory faithfully represents
+  research state, or a claim overreaches belong in semantic review.
+- Treat independent subagents, `phase-review`, manual review, and project
+  reviewers as adapters behind the semantic review gate. Record the adapter and
+  findings in `review.md` or gate report details; do not add extra user-facing
+  ceremony when the normal `rdl review`, `rdl doctor`, `rdl next`, and
+  `rdl close` flow can carry the result.
+- Preserve single-writer discipline for canonical RDL files. Subagents may
+  inspect context and produce findings, but the main agent or user remains
+  responsible for accepting judgment-heavy changes to `decision.md`,
+  `progress.md`, `factors.md`, and final reports.

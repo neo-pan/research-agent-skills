@@ -14,7 +14,8 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
 - Automatic deterministic managed summary refresh before successful `rdl next`
   and `rdl close` transitions.
 - Session-memory diagnostics with `rdl memory --check|--write`.
-- Session-memory quality warnings for duplicate open questions.
+- Session-memory quality warnings for duplicate open questions and malformed
+  progress tables.
 - Read-only takeover reports with `rdl handoff`.
 - Unified gate reports consumed by `rdl doctor`, `rdl next`, `rdl close`,
   `rdl handoff`, and `rdl guard-stop`.

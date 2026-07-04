@@ -85,10 +85,19 @@ checks, RDL Python tests, and repository prerequisite checks.
   session has run for multiple rounds. Use `rdl memory --write` only to refresh
   deterministic managed summary blocks; still update active, blocked, deferred,
   and factor records manually when they require judgment.
+- Keep deterministic gates limited to protocol, schema, local artifact
+  integrity, and managed-summary facts. Do not encode semantic judgments such as
+  whether evidence is decision-grade, an active item is truly stale, or a claim
+  overreaches as ad hoc parser rules.
 - In every `full-review` round, record whether the round produced fresh evidence
   and whether the current direction is becoming stale. In lightweight rounds,
   create `review.md` only when there is real review value; if it exists, it must
   be complete and aligned with `decision.md`.
+- For phase gates, close decisions, and substantial `full-review` rounds, prefer
+  an independent review adapter such as a subagent, `phase-review`, or a
+  project-provided reviewer. Record the adapter in `Review Mode` and capture its
+  findings in `review.md`; the caller should still interact through the normal
+  `rdl review`, `rdl doctor`, `rdl next`, and `rdl close` flow.
 - When staleness appears, continue only with an explicit stall response, or
   change direction with prior directions checked.
 - Index artifacts in `artifact-manifest.json`; do not copy project artifacts.
