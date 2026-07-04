@@ -15,6 +15,8 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
 - Read-only takeover reports with `rdl handoff`.
 - Unified gate reports consumed by `rdl doctor`, `rdl next`, `rdl close`,
   `rdl handoff`, and `rdl guard-stop`.
+- Read-only artifact gate checks for local artifact path reachability, byte
+  size, and sha256 metadata when recorded in `artifact-manifest.json`.
 - Explicit session-memory helpers with `rdl progress` and `rdl factors`.
 - Explicit artifact citations with `[artifact:ID]` plus manifest validation.
 - Optional `events.md` records for operational events that matter for recovery.

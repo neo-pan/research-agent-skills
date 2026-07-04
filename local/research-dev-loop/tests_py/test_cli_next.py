@@ -269,6 +269,8 @@ class CliNextTests(unittest.TestCase):
             (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
             (round_two / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
             (round_two / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+            (root / "artifacts").mkdir()
+            (root / "artifacts" / "recent.log").write_text("recent evidence\n", encoding="utf-8")
             (session_dir / "artifact-manifest.json").write_text(
                 json.dumps(
                     {
@@ -454,6 +456,8 @@ class CliNextTests(unittest.TestCase):
                 "| EV-OK | log | artifacts/ok.log | claim | fixture |\n",
                 encoding="utf-8",
             )
+            (root / "artifacts").mkdir()
+            (root / "artifacts" / "ok.log").write_text("fixture evidence artifact\n", encoding="utf-8")
             (session_dir / "artifact-manifest.json").write_text(
                 json.dumps(
                     {

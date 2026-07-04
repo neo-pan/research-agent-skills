@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from . import documents, memory, memory_report, readiness, summary
+from . import artifacts, documents, memory, memory_report, readiness, summary
 from .model import Blocker, RoundProfile, SessionPhase
 from .protocol import descriptor
 from .session import Session
@@ -58,6 +58,8 @@ def run(session: Session, action: str, *, next_mode: str | None = None, outcome:
     )
 
     session_memory_report, summary_plan = memory_report.check(session)
+    artifact_report = artifacts.check(session)
+    findings.extend(_artifact_findings(artifact_report))
     findings.extend(_summary_findings(session, summary_plan))
     findings.extend(_memory_findings(session_memory_report))
     findings.extend(_state_findings(session))
@@ -75,6 +77,7 @@ def run(session: Session, action: str, *, next_mode: str | None = None, outcome:
             "gate_status": status,
             "findings": [finding.as_dict() for finding in findings],
             "memory": session_memory_report.details(),
+            "artifact": artifact_report.details(),
             "summary": summary_plan.details(
                 "up_to_date" if summary.progress_up_to_date(session, summary_plan) else "needs_update"
             ),
@@ -156,6 +159,20 @@ def _summary_findings(session: Session, summary_plan: summary.SummaryPlan) -> tu
             ),
         )
     return ()
+
+
+def _artifact_findings(report: artifacts.ArtifactReport) -> tuple[GateFinding, ...]:
+    return tuple(
+        GateFinding(
+            finding.severity,
+            "artifact",
+            finding.code,
+            finding.location,
+            finding.message,
+            finding.next_action,
+        )
+        for finding in report.findings
+    )
 
 
 def _memory_findings(report: memory_report.MemoryReport) -> tuple[GateFinding, ...]:

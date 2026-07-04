@@ -66,6 +66,7 @@ class MigratedShellE2ETests(unittest.TestCase):
             (round_two / "decision.md").write_text(complete_decision("close-positive", "claim"), encoding="utf-8")
             (round_two / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
             (round_two / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+            write_artifact_file(root, "artifacts/check.log", "fixture close evidence\n")
             (session_dir / "artifact-manifest.json").write_text(artifact_manifest("E1"), encoding="utf-8")
             (session_dir / "final-report.md").write_text(complete_final_report("positive"), encoding="utf-8")
             integrity.refresh(SessionStore(root).active_session())
@@ -372,6 +373,7 @@ def close_ready_session(root: Path, session_id: str) -> Path:
     round_dir = session_dir / "rounds" / "001"
     (round_dir / "review.md").write_text(complete_review("close-positive"), encoding="utf-8")
     (round_dir / "decision.md").write_text(complete_decision("close-positive", "claim"), encoding="utf-8")
+    write_artifact_file(root, "artifacts/check.log", "fixture close evidence\n")
     (session_dir / "artifact-manifest.json").write_text(artifact_manifest("E1"), encoding="utf-8")
     (session_dir / "final-report.md").write_text(complete_final_report("positive"), encoding="utf-8")
     integrity.refresh(SessionStore(root).active_session())
@@ -406,7 +408,18 @@ def artifact_record(artifact_id: str, round_number: int, description: str) -> di
 
 
 def write_artifact_manifest(session_dir: Path, records: tuple[dict, ...]) -> None:
+    root = session_dir.parents[2]
+    for record in records:
+        path = record.get("path")
+        if isinstance(path, str) and path:
+            write_artifact_file(root, path, f"{record.get('id', 'artifact')} evidence\n")
     (session_dir / "artifact-manifest.json").write_text(json.dumps({"artifacts": list(records)}, indent=2) + "\n", encoding="utf-8")
+
+
+def write_artifact_file(root: Path, relative_path: str, content: str) -> None:
+    path = root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def research_evidence(artifact_id: str) -> str:
