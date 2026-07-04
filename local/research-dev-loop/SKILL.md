@@ -89,15 +89,28 @@ checks, RDL Python tests, and repository prerequisite checks.
   integrity, and managed-summary facts. Do not encode semantic judgments such as
   whether evidence is decision-grade, an active item is truly stale, or a claim
   overreaches as ad hoc parser rules.
+- Treat semantic review as part of the default gate contract for `full-review`,
+  close, phase-gate, and repeated-direction risk cases. Semantic findings should
+  be produced by an adapter and surfaced through normal `rdl review`,
+  `rdl doctor`, `rdl next`, and `rdl close` flows, not as a separate remembered
+  ceremony.
+- Use independent subagents as clean-context semantic review adapters when they
+  are available. Give them RDL records, relevant artifacts, deterministic gate
+  findings, and verification evidence; do not rely on the main conversation
+  history as review context.
+- Keep canonical RDL files single-writer. Subagents and other review adapters
+  may inspect context and produce findings, but the main agent or user must
+  decide which judgment-heavy changes to record in `review.md`, `decision.md`,
+  `progress.md`, and `factors.md`.
 - In every `full-review` round, record whether the round produced fresh evidence
   and whether the current direction is becoming stale. In lightweight rounds,
   create `review.md` only when there is real review value; if it exists, it must
   be complete and aligned with `decision.md`.
-- For phase gates, close decisions, and substantial `full-review` rounds, prefer
-  an independent review adapter such as a subagent, `phase-review`, or a
-  project-provided reviewer. Record the adapter in `Review Mode` and capture its
-  findings in `review.md`; the caller should still interact through the normal
-  `rdl review`, `rdl doctor`, `rdl next`, and `rdl close` flow.
+- For phase gates, close decisions, and substantial `full-review` rounds, record
+  the semantic review adapter in `Review Mode` and capture its findings in
+  `review.md`. The adapter may be a subagent, `phase-review`, manual review, or
+  a project-provided reviewer; lack of subagent tooling should fall back to a
+  recorded manual adapter rather than making RDL unusable.
 - When staleness appears, continue only with an explicit stall response, or
   change direction with prior directions checked.
 - Index artifacts in `artifact-manifest.json`; do not copy project artifacts.
