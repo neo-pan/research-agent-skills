@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, gate, gate_reports, integrity, memory, memory_report, repair, session_memory_edit, summary, templates, transition
+from . import documents, gate, gate_reports, integrity, memory, memory_report, repair, review_pack, session_memory_edit, summary, templates, transition
 from .model import Blocker, CommandResult, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -39,6 +39,7 @@ class CommandIntent:
     impact: str | None = None
     section: str | None = None
     value: str | None = None
+    review_pack: bool = False
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,7 @@ def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "guard-stop":
         return _guard_stop(intent.guard_session_id, intent.guard_command_id)
     if intent.command == "review":
-        return _review()
+        return _review(intent.review_pack)
     if intent.command == "decide":
         return _decide(intent.decision_type)
     raise ValueError(f"unsupported command: {intent.command!r}")
@@ -985,8 +986,30 @@ def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: s
     )
 
 
-def _review() -> CommandResult:
+def _review(pack: bool = False) -> CommandResult:
+    if pack:
+        return _review_pack()
     return _run_locked_session("review", _review_locked)
+
+
+def _review_pack() -> CommandResult:
+    loaded = _active_session_result("review")
+    if isinstance(loaded, CommandResult):
+        return loaded
+    session = loaded
+    gate_report = gate.run(session, "doctor")
+    pack = review_pack.build(session, "review", gate_report)
+    return _state_result(
+        "ok",
+        "review",
+        session.state,
+        warnings=gate_report.warnings,
+        next_action="send details.review_pack to the reviewer agent",
+        details={
+            "review_pack": pack.as_dict(),
+            "gate": gate_report.details,
+        },
+    )
 
 
 def _review_locked(context: _LockedContext) -> CommandResult:

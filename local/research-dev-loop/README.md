@@ -21,6 +21,9 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
   `rdl handoff`, and `rdl guard-stop`.
 - Semantic review findings surfaced through the unified gate with a first
   read-only `review.md` adapter and clean RDL context pack.
+- Agent-facing semantic review packs with `rdl review --pack --json`, including
+  reviewer instructions, supplied RDL records, deterministic findings, artifact
+  facts, finding schema, and review-only semantic signals.
 - Round-local `gate-report.json` and `gate.md` audit artifacts written before
   successful `rdl next`, `rdl close`, and `rdl guard-stop` transitions.
 - Read-only artifact gate checks for local artifact path reachability, byte
@@ -40,14 +43,19 @@ protect research judgment: evidence sufficiency, overclaim risk, stale
 directions, handoff faithfulness, and whether open or active items still
 represent the true state.
 
-Semantic review sits behind a gate adapter seam, not behind extra user-facing
-ceremony. The first adapter reads completed `review.md` records; later adapters
-may include an independent subagent, `phase-review`, or a project-provided
-reviewer. Adapters receive a clean RDL context pack with session records,
-relevant artifacts, deterministic gate findings, and verification evidence,
-rather than inheriting the main conversation history. Adapter findings are
-recorded through normal review and gate-report surfaces; adapters must not
-directly mutate canonical RDL files or advance the session.
+Semantic review is agent-native first. `rdl review --pack --json` exposes the
+clean context a reviewer agent needs without conversation history. The default
+gate consumes completed `review.md` records after the main agent or user records
+accepted findings. Later adapters may include an independent subagent,
+`phase-review`, or a project-provided reviewer, but adapter mechanics should not
+come before the agent-facing review contract. Reviewers must not directly mutate
+canonical RDL files or advance the session.
+
+Deterministic parser checks should stay limited to protocol, schema, managed
+summary, state consistency, and local artifact facts. Signals such as repeated
+next steps or missing recent artifact records are exposed to reviewer agents in
+the review pack; they are not default gate warnings by themselves because their
+research meaning requires judgment.
 
 ## Dogfood Takeover Workflow
 

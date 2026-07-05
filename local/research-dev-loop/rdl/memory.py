@@ -70,12 +70,42 @@ def advisory_warnings(
     next_loop = documents.field(session.round_dir() / "decision.md", "Recommended next loop")
     if _meaningful(next_loop) and next_loop != "none" and next_loop != target_mode:
         warnings.append("recommended_next_loop_differs_from_next_mode")
-    if _next_smallest_step_repeated(session):
-        warnings.append("unchanged_next_smallest_step_across_rounds")
-    if _no_recent_artifacts_after_multiple_rounds(session):
-        warnings.append("no_recent_artifacts_after_multiple_rounds")
 
     return tuple(dict.fromkeys(warnings))
+
+
+def agent_review_signals(session: "Session") -> tuple[dict[str, str], ...]:
+    """Return deterministic hints for semantic review, not gate policy."""
+
+    signals: list[dict[str, str]] = []
+    if _next_smallest_step_repeated(session):
+        signals.append(
+            _review_signal(
+                "unchanged_next_smallest_step_across_rounds",
+                "rounds",
+                "The current next smallest step matches the previous round.",
+                "Ask the reviewer whether this is justified continuation or stale direction reuse.",
+            )
+        )
+    if _no_recent_artifacts_after_multiple_rounds(session):
+        signals.append(
+            _review_signal(
+                "no_recent_artifacts_after_multiple_rounds",
+                "artifact-manifest.json",
+                "The recent completed rounds do not have recorded artifact entries.",
+                "Ask the reviewer whether the evidence trail is sufficient for the current decision.",
+            )
+        )
+    return tuple(signals)
+
+
+def _review_signal(code: str, location: str, message: str, review_prompt: str) -> dict[str, str]:
+    return {
+        "code": code,
+        "location": location,
+        "message": message,
+        "review_prompt": review_prompt,
+    }
 
 
 def _known_evidence_gaps(decision_file: Path, evidence_file: Path) -> str:

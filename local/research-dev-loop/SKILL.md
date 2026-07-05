@@ -22,6 +22,7 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl start research mission.md --js
 PYTHONPATH=local/research-dev-loop python3 -m rdl start build plan.md --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl status --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl memory --check --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --json
@@ -89,11 +90,15 @@ checks, RDL Python tests, and repository prerequisite checks.
   integrity, and managed-summary facts. Do not encode semantic judgments such as
   whether evidence is decision-grade, an active item is truly stale, or a claim
   overreaches as ad hoc parser rules.
+- Use `rdl review --pack --json` to produce a clean context pack for a reviewer
+  agent. The pack includes RDL records, artifact manifest facts, deterministic
+  findings, reviewer instructions, a finding schema, and semantic signals that
+  require judgment. It must not create or modify `review.md`.
 - Treat semantic review as part of the default gate contract for `full-review`,
-  close, phase-gate, and repeated-direction risk cases. Semantic findings should
-  be produced by an adapter and surfaced through normal `rdl review`,
-  `rdl doctor`, `rdl next`, and `rdl close` flows, not as a separate remembered
-  ceremony.
+  close, and phase-gate cases. Semantic findings should be produced from the
+  review pack or a completed adapter review and surfaced through normal
+  `rdl review`, `rdl doctor`, `rdl next`, and `rdl close` flows, not as a
+  separate remembered ceremony.
 - The first semantic adapter is read-only over completed `review.md` records.
   It surfaces the adapter, reviewed artifacts, staleness/evidence risk, and
   review-blocking findings through `details["gate"]["semantic"]`.
@@ -104,6 +109,10 @@ checks, RDL Python tests, and repository prerequisite checks.
   are available. Give them RDL records, relevant artifacts, deterministic gate
   findings, and verification evidence; do not rely on the main conversation
   history as review context.
+- Treat exact repeated next steps and missing recent artifact entries as
+  semantic review signals, not as standalone deterministic gate warnings. A
+  reviewer agent should judge whether they are harmless continuation, stale
+  direction reuse, or insufficient evidence capture.
 - Keep canonical RDL files single-writer. Subagents and other review adapters
   may inspect context and produce findings, but the main agent or user must
   decide which judgment-heavy changes to record in `review.md`, `decision.md`,

@@ -169,8 +169,7 @@ def _semantic_review_required(session: Session, action: str, deterministic_gate_
         return True
     if session.state.profile == RoundProfile.FULL_REVIEW:
         return True
-    warnings = set(getattr(deterministic_gate_report, "warnings", ()))
-    return "unchanged_next_smallest_step_across_rounds" in warnings
+    return False
 
 
 def _fatal_gate_setup_blocked(deterministic_gate_report: Any) -> bool:

@@ -45,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     status.set_defaults(command="status")
 
     review = subparsers.add_parser("review", help="prepare or validate the current RDL review")
+    review.add_argument("--pack", dest="review_pack", action="store_true")
     review.add_argument("--json", action="store_true")
     review.set_defaults(command="review")
 
@@ -177,6 +178,7 @@ def _command_intent(args: argparse.Namespace) -> CommandIntent:
         impact=getattr(args, "impact", None),
         section=getattr(args, "section", None),
         value=getattr(args, "value", None),
+        review_pack=getattr(args, "review_pack", False),
     )
 
 

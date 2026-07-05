@@ -258,7 +258,7 @@ class GateTests(unittest.TestCase):
             self.assertFalse(report.details["semantic"]["required"])
             self.assertNotIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
 
-    def test_repeated_next_step_requires_semantic_review_for_lightweight_profile(self):
+    def test_repeated_next_step_does_not_become_lightweight_gate_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session_dir = create_session(root, "gate_semantic_repeated_checkpoint", profile="checkpoint")
@@ -270,9 +270,9 @@ class GateTests(unittest.TestCase):
 
             report = gate.run(session, "doctor")
 
-            self.assertIn("unchanged_next_smallest_step_across_rounds", report.warnings)
-            self.assertTrue(report.details["semantic"]["required"])
-            self.assertIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
+            self.assertNotIn("unchanged_next_smallest_step_across_rounds", report.warnings)
+            self.assertFalse(report.details["semantic"]["required"])
+            self.assertNotIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
 
     def test_semantic_review_staleness_risk_warns_without_parser_rewrite(self):
         with tempfile.TemporaryDirectory() as tmp:

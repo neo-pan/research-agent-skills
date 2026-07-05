@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import store
+from . import memory, store
 from .session import Session
 
 
@@ -38,6 +38,9 @@ class ReviewPack:
     round: int
     mode: str
     profile: str
+    reviewer_task: dict[str, Any]
+    finding_schema: dict[str, Any]
+    agent_review_signals: tuple[dict[str, str], ...]
     records: tuple[dict[str, str], ...]
     artifact_manifest: dict[str, Any] | None
     deterministic_findings: tuple[dict[str, str], ...]
@@ -49,6 +52,9 @@ class ReviewPack:
             "round": self.round,
             "mode": self.mode,
             "profile": self.profile,
+            "reviewer_task": self.reviewer_task,
+            "finding_schema": self.finding_schema,
+            "agent_review_signals": list(self.agent_review_signals),
             "records": list(self.records),
             "artifact_manifest": self.artifact_manifest,
             "deterministic_findings": list(self.deterministic_findings),
@@ -61,6 +67,7 @@ class ReviewPack:
             "round": self.round,
             "mode": self.mode,
             "profile": self.profile,
+            "agent_review_signal_codes": [signal["code"] for signal in self.agent_review_signals],
             "record_paths": [record["path"] for record in self.records],
             "artifact_count": _artifact_count(self.artifact_manifest),
             "deterministic_finding_codes": [finding["code"] for finding in self.deterministic_findings],
@@ -81,6 +88,9 @@ def build(session: Session, action: str, deterministic_gate_report: Any) -> Revi
         round=session.state.round,
         mode=str(session.state.mode),
         profile=str(session.state.profile),
+        reviewer_task=_reviewer_task(),
+        finding_schema=_finding_schema(),
+        agent_review_signals=memory.agent_review_signals(session),
         records=tuple(records),
         artifact_manifest=_artifact_manifest(session.root / "artifact-manifest.json"),
         deterministic_findings=tuple(
@@ -89,6 +99,34 @@ def build(session: Session, action: str, deterministic_gate_report: Any) -> Revi
             if finding.get("category") != "semantic"
         ),
     )
+
+
+def _reviewer_task() -> dict[str, Any]:
+    return {
+        "role": "independent semantic reviewer",
+        "instructions": [
+            "Use only the supplied RDL records, artifact manifest facts, deterministic findings, and cited evidence.",
+            "Do not rely on main-agent conversation history.",
+            "Do not edit canonical RDL files or advance the session.",
+            "Return structured findings for the main agent or user to record in review.md.",
+        ],
+        "questions": [
+            "Does the evidence support the claim or capability decision?",
+            "Are there overclaim risks or missing decision-grade evidence?",
+            "Is the current direction becoming stale or repeating without useful fresh evidence?",
+            "Does top-level session memory faithfully preserve handoff state?",
+            "Do active items, blockers, deferred items, and open questions still represent the true state?",
+        ],
+    }
+
+
+def _finding_schema() -> dict[str, Any]:
+    return {
+        "required_fields": ["severity", "category", "location", "claim", "required_resolution", "source"],
+        "severity": ["blocking", "warning", "note"],
+        "category": ["evidence", "overclaim", "staleness", "handoff", "memory", "artifact", "decision"],
+        "source": ["manual", "checklist", "phase-review", "subagent", "project-adapter"],
+    }
 
 
 def _record_paths(session: Session) -> tuple[str, ...]:

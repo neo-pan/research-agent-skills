@@ -10,7 +10,7 @@ from rdl import integrity, store
 from rdl.cli import main
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_decision, complete_review, create_session
+from rdl_test_support import complete_decision, complete_research_round, complete_review, create_session, set_current_round
 
 
 class CliReviewDecideTests(unittest.TestCase):
@@ -59,6 +59,28 @@ class CliReviewDecideTests(unittest.TestCase):
             self.assertEqual(result["status"], "blocked")
             self.assertIn("missing_review_field", {blocker["code"] for blocker in result["blockers"]})
             self.assertEqual(result["next_action"], "complete review.md")
+
+    def test_review_pack_json_outputs_agent_context_without_creating_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_cli", profile="checkpoint")
+            complete_research_round(session_dir)
+            round_two = set_current_round(session_dir, 2)
+            (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            review_file = round_two / "review.md"
+
+            code, result = run_cli(root, ["review", "--pack", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "ok")
+            self.assertFalse(review_file.exists())
+            details = result["details"]
+            self.assertIn("review_pack", details)
+            self.assertIn("gate", details)
+            pack = details["review_pack"]
+            self.assertIn("reviewer_task", pack)
+            self.assertIn("finding_schema", pack)
+            self.assertIn("unchanged_next_smallest_step_across_rounds", {signal["code"] for signal in pack["agent_review_signals"]})
 
     def test_review_json_errors_when_integrity_refresh_fails_after_creation(self):
         with tempfile.TemporaryDirectory() as tmp:
