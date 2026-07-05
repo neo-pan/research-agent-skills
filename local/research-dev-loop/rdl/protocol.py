@@ -58,6 +58,8 @@ ROUND_FILES = (
     "interpretation.md",
     "review.md",
     "decision.md",
+    "gate-report.json",
+    "gate.md",
 )
 
 MODE_SPECS = {
@@ -323,6 +325,8 @@ class ProtocolDescriptor:
             return "cli_owned"
         if path == "decision-ledger.md":
             return "append_only"
+        if self.round_path_known(path) and (path.endswith("/gate-report.json") or path.endswith("/gate.md")):
+            return "cli_owned"
         if self.round_path_known(path) and path.endswith("/prompt.md"):
             return "managed_prefix"
         return "human_owned"

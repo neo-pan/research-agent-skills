@@ -83,6 +83,9 @@ class CliGuardStopTests(unittest.TestCase):
                     self.assertEqual(state["last_guard_command_id"], "cmd-1")
                     self.assertFalse((session_dir / "rounds" / "002").exists())
                     self.assertIn("## Session Closed", (session_dir / "decision-ledger.md").read_text(encoding="utf-8"))
+                    gate_report = store.read_json(session_dir / "rounds" / "001" / "gate-report.json")
+                    self.assertEqual(gate_report["action"], "close")
+                    self.assertIn("Action: close", (session_dir / "rounds" / "001" / "gate.md").read_text(encoding="utf-8"))
 
     def test_guard_stop_json_advances_non_close_decision_and_records_guard_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -103,6 +106,9 @@ class CliGuardStopTests(unittest.TestCase):
             self.assertEqual(state["guard_session_id"], "guard_next")
             self.assertEqual(state["last_guard_command_id"], "cmd-2")
             self.assertTrue((session_dir / "rounds" / "002" / "prompt.md").is_file())
+            gate_report = store.read_json(session_dir / "rounds" / "001" / "gate-report.json")
+            self.assertEqual(gate_report["action"], "advance")
+            self.assertIn("Action: advance", (session_dir / "rounds" / "001" / "gate.md").read_text(encoding="utf-8"))
 
     def test_guard_stop_json_blocks_advance_readiness_without_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -149,6 +155,28 @@ class CliGuardStopTests(unittest.TestCase):
             self.assertEqual(result["action"], "guard-stop")
             self.assertEqual(result["blockers"][0]["code"], "integrity_refresh_failed")
             self.assertTrue((session_dir / "rounds" / "002" / "prompt.md").is_file())
+
+    def test_guard_stop_json_errors_when_gate_report_write_fails_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = continue_ready_session(root, "guard_gate_report_error")
+
+            with patch("rdl.commands.gate_reports.write", side_effect=OSError("disk full")):
+                code, result = run_guard_stop(
+                    root,
+                    ["guard-stop", "--guard-session-id", "guard_gate_report_error", "--guard-command-id", "cmd-1", "--json"],
+                )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["action"], "guard-stop")
+            self.assertEqual(result["blockers"][0]["code"], "gate_report_write_failed")
+            state = store.read_json(session_dir / "state.json")
+            self.assertEqual(state["round"], 1)
+            self.assertEqual(state["phase"], "plan")
+            self.assertIsNone(state["guard_session_id"])
+            self.assertIsNone(state["last_guard_command_id"])
+            self.assertFalse((session_dir / "rounds" / "002").exists())
 
 
 def run_guard_stop(root: Path, argv: list[str]) -> tuple[int, dict]:

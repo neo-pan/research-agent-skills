@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, gate, integrity, memory, memory_report, repair, session_memory_edit, summary, templates, transition
+from . import documents, gate, gate_reports, integrity, memory, memory_report, repair, session_memory_edit, summary, templates, transition
 from .model import Blocker, CommandResult, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -947,9 +947,16 @@ def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: s
     if refresh_result is not None:
         return refresh_result
 
+    persist_error = _write_gate_report(context, gate_report, "persist gate report before advancing")
+    if persist_error is not None:
+        return persist_error
+
     try:
         result = transition.advance(session, next_mode, next_profile)
     except transition.TransitionBlocked as exc:
+        refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+        if refresh_error is not None:
+            return refresh_error
         return _state_result(
             "blocked",
             "next",
@@ -1162,6 +1169,10 @@ def _close_locked(context: _LockedContext, outcome: str) -> CommandResult:
     if refresh_result is not None:
         return refresh_result
 
+    persist_error = _write_gate_report(context, gate_report, "persist gate report before closing")
+    if persist_error is not None:
+        return persist_error
+
     result = transition.close(session, outcome)
     refresh_error = context.refresh_after_mutation(result.phase, result.round)
     if refresh_error is not None:
@@ -1350,9 +1361,16 @@ def _guard_stop_locked(session: Session, guard_session_id: str | None, guard_com
             details=_gate_details(gate_report),
         )
 
+    persist_error = _write_gate_report_for_session("guard-stop", session, state, gate_report, "persist gate report before guard transition")
+    if persist_error is not None:
+        return persist_error
+
     try:
         result = transition.from_decision(session)
     except transition.TransitionBlocked as exc:
+        refresh_error = _refresh_after_mutation("guard-stop", session, state, str(state.phase), state.round)
+        if refresh_error is not None:
+            return refresh_error
         return _state_result(
             "blocked",
             "guard-stop",
@@ -1388,6 +1406,38 @@ def _guard_stop_gate(session: Session) -> gate.GateReport:
     if outcome:
         return gate.run(session, "close", outcome=outcome)
     return gate.run(session, "advance")
+
+
+def _write_gate_report(context: _LockedContext, report: gate.GateReport, next_action: str) -> CommandResult | None:
+    return _write_gate_report_for_session(context.action, context.session, context.state, report, next_action)
+
+
+def _write_gate_report_for_session(
+    action: str,
+    session: Session,
+    state: SessionState,
+    report: gate.GateReport,
+    next_action: str,
+) -> CommandResult | None:
+    try:
+        gate_reports.write(session, report)
+    except Exception as exc:
+        blocker = Blocker(
+            "gate_report_write_failed",
+            str(session.round_dir()),
+            f"Gate report write failed: {exc}",
+            "Inspect round-local gate report files and retry.",
+        )
+        return _state_result(
+            "error",
+            action,
+            state,
+            blockers=(blocker,),
+            warnings=report.warnings,
+            next_action=next_action,
+            details=_gate_details(report),
+        )
+    return None
 
 
 def _run_locked_session(

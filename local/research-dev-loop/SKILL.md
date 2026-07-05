@@ -94,6 +94,12 @@ checks, RDL Python tests, and repository prerequisite checks.
   be produced by an adapter and surfaced through normal `rdl review`,
   `rdl doctor`, `rdl next`, and `rdl close` flows, not as a separate remembered
   ceremony.
+- The first semantic adapter is read-only over completed `review.md` records.
+  It surfaces the adapter, reviewed artifacts, staleness/evidence risk, and
+  review-blocking findings through `details["gate"]["semantic"]`.
+- Successful `rdl next`, `rdl close`, and `rdl guard-stop` transitions write
+  round-local `gate-report.json` and `gate.md` audit artifacts for the gate that
+  allowed the transition. `rdl doctor` and `rdl handoff` remain read-only.
 - Use independent subagents as clean-context semantic review adapters when they
   are available. Give them RDL records, relevant artifacts, deterministic gate
   findings, and verification evidence; do not rely on the main conversation

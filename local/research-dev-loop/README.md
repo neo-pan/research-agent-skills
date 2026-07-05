@@ -19,6 +19,10 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
 - Read-only takeover reports with `rdl handoff`.
 - Unified gate reports consumed by `rdl doctor`, `rdl next`, `rdl close`,
   `rdl handoff`, and `rdl guard-stop`.
+- Semantic review findings surfaced through the unified gate with a first
+  read-only `review.md` adapter and clean RDL context pack.
+- Round-local `gate-report.json` and `gate.md` audit artifacts written before
+  successful `rdl next`, `rdl close`, and `rdl guard-stop` transitions.
 - Read-only artifact gate checks for local artifact path reachability, byte
   size, sha256 metadata, and malformed optional integrity metadata when
   recorded in `artifact-manifest.json`.
@@ -36,14 +40,14 @@ protect research judgment: evidence sufficiency, overclaim risk, stale
 directions, handoff faithfulness, and whether open or active items still
 represent the true state.
 
-Semantic review should sit behind a gate adapter seam, not behind extra
-user-facing ceremony. Adapters may include an independent subagent, manual
-review, `phase-review`, or a project-provided reviewer. Subagent adapters should
-receive a clean RDL context pack with session records, relevant artifacts,
-deterministic gate findings, and verification evidence, rather than inheriting
-the main conversation history. Adapter findings should be recorded through the
-normal review and gate-report surfaces; adapters must not directly mutate
-canonical RDL files or advance the session.
+Semantic review sits behind a gate adapter seam, not behind extra user-facing
+ceremony. The first adapter reads completed `review.md` records; later adapters
+may include an independent subagent, `phase-review`, or a project-provided
+reviewer. Adapters receive a clean RDL context pack with session records,
+relevant artifacts, deterministic gate findings, and verification evidence,
+rather than inheriting the main conversation history. Adapter findings are
+recorded through normal review and gate-report surfaces; adapters must not
+directly mutate canonical RDL files or advance the session.
 
 ## Dogfood Takeover Workflow
 
@@ -75,6 +79,7 @@ first.
 - RDL ownership of external review tools or project-specific reviewers.
   Semantic review belongs behind the gate adapter seam and must have a manual
   fallback.
+- Automatic invocation of subagent or project-specific semantic reviewers.
 - Legacy broad artifact-token citation detection.
 
 These items remain deferred because they require judgment, can overwrite user

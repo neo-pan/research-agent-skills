@@ -62,9 +62,16 @@ class CliCloseTests(unittest.TestCase):
                     self.assertIn("- Remaining unknown: later work", ledger)
                     self.assertIn("- Next smallest step: continue same mode", ledger)
                     manifest = store.read_json(session_dir / "integrity.json")
-                    self.assertIn("final-report.md", {entry["path"] for entry in manifest["entries"]})
+                    entries = {entry["path"]: entry for entry in manifest["entries"]}
+                    self.assertIn("final-report.md", entries)
+                    self.assertEqual(entries["rounds/001/gate-report.json"]["policy"], "cli_owned")
+                    self.assertEqual(entries["rounds/001/gate.md"]["policy"], "cli_owned")
                     progress_entry = next(entry for entry in manifest["entries"] if entry["path"] == "progress.md")
                     self.assertEqual(progress_entry["sha256"], integrity.file_sha256(session_dir / "progress.md"))
+                    gate_report = store.read_json(session_dir / "rounds" / "001" / "gate-report.json")
+                    self.assertEqual(gate_report["action"], "close")
+                    self.assertEqual(gate_report["details"]["semantic"]["adapter"], "manual")
+                    self.assertIn(f"Action: close", (session_dir / "rounds" / "001" / "gate.md").read_text(encoding="utf-8"))
 
     def test_close_json_blocks_for_missing_final_report_without_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,6 +187,24 @@ class CliCloseTests(unittest.TestCase):
             self.assertEqual(result["action"], "close")
             self.assertEqual(result["blockers"][0]["code"], "integrity_refresh_failed")
             self.assertEqual(store.read_json(session_dir / "state.json")["status"], "closed-positive")
+
+    def test_close_json_errors_when_gate_report_write_fails_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "positive")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout), patch("rdl.commands.gate_reports.write", side_effect=OSError("disk full")):
+                self.assertEqual(main(["close", "positive", "--json"]), 1)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["action"], "close")
+            self.assertEqual(result["blockers"][0]["code"], "gate_report_write_failed")
+            state = store.read_json(session_dir / "state.json")
+            self.assertEqual(state["status"], "active")
+            self.assertEqual(state["phase"], "plan")
+            self.assertNotIn("## Session Closed", (session_dir / "decision-ledger.md").read_text(encoding="utf-8"))
 
     def test_close_invalid_outcome_returns_structured_error(self):
         stdout = StringIO()

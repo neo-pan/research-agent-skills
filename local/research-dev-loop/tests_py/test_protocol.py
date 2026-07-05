@@ -40,6 +40,8 @@ class ProtocolDescriptorTests(unittest.TestCase):
                 "interpretation.md",
                 "review.md",
                 "decision.md",
+                "gate-report.json",
+                "gate.md",
             ),
         )
         self.assertEqual(

@@ -8,7 +8,7 @@ from rdl import gate
 from rdl import integrity
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_decision, complete_research_round, create_session
+from rdl_test_support import complete_decision, complete_final_report, complete_research_round, create_session
 
 
 class GateTests(unittest.TestCase):
@@ -167,6 +167,89 @@ class GateTests(unittest.TestCase):
 
             self.assertEqual(report.status, "blocked")
             self.assertIn("invalid_close_decision", {blocker.code for blocker in report.blockers})
+
+    def test_full_review_gate_blocks_missing_semantic_review_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "gate_semantic_missing")
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
+            self.assertEqual(report.details["semantic"]["semantic_status"], "blocked")
+            self.assertTrue(report.details["semantic"]["required"])
+
+    def test_gate_includes_recorded_semantic_review_without_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_recorded")
+            complete_research_round(session_dir)
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            semantic = report.details["semantic"]
+            self.assertEqual(semantic["semantic_status"], "ok")
+            self.assertEqual(semantic["adapter"], "manual")
+            self.assertEqual(semantic["reviewed_artifacts"], ["prompt", "evidence", "decision"])
+            findings = {finding["code"]: finding for finding in report.details["findings"]}
+            self.assertEqual(findings["semantic_review_recorded"]["category"], "semantic")
+            self.assertEqual(findings["semantic_review_recorded"]["severity"], "note")
+            self.assertNotIn("semantic_review_recorded", report.warnings)
+
+    def test_lightweight_gate_does_not_require_semantic_review_without_review_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "gate_semantic_checkpoint", profile="checkpoint")
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertFalse(report.details["semantic"]["required"])
+            self.assertNotIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
+
+    def test_semantic_review_staleness_risk_warns_without_parser_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_stale")
+            complete_research_round(session_dir)
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(
+                review_file.read_text(encoding="utf-8").replace("Fresh Evidence: yes", "Fresh Evidence: no"),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("semantic_review_staleness_risk", report.warnings)
+            findings = {finding["code"]: finding for finding in report.details["findings"]}
+            self.assertEqual(findings["semantic_review_staleness_risk"]["category"], "semantic")
+
+    def test_close_inconclusive_allows_semantic_evidence_gap_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_inconclusive")
+            complete_research_round(session_dir, decision="close-inconclusive")
+            (session_dir / "final-report.md").write_text(complete_final_report("inconclusive"), encoding="utf-8")
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(
+                review_file.read_text(encoding="utf-8")
+                .replace("Verdict: PASS", "Verdict: INCONCLUSIVE")
+                .replace("Blocking Evidence Gaps: none", "Blocking Evidence Gaps: missing decisive baseline"),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "close", outcome="inconclusive")
+
+            self.assertNotIn("semantic_review_evidence_gaps", {blocker.code for blocker in report.blockers})
+            self.assertIn("semantic_review_evidence_gaps", report.warnings)
+            findings = {finding["code"]: finding for finding in report.details["findings"]}
+            self.assertEqual(findings["semantic_review_evidence_gaps"]["severity"], "warning")
 
     def test_gate_blocks_for_missing_local_artifact_path(self):
         with tempfile.TemporaryDirectory() as tmp:

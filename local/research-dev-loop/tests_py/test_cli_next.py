@@ -62,7 +62,15 @@ class CliNextTests(unittest.TestCase):
             manifest = store.read_json(session_dir / "integrity.json")
             entries = {entry["path"]: entry for entry in manifest["entries"]}
             self.assertEqual(entries["progress.md"]["sha256"], integrity.file_sha256(session_dir / "progress.md"))
+            self.assertEqual(entries["rounds/001/gate-report.json"]["policy"], "cli_owned")
+            self.assertEqual(entries["rounds/001/gate.md"]["policy"], "cli_owned")
             self.assertEqual(entries["rounds/002/prompt.md"]["policy"], "managed_prefix")
+            gate_report = store.read_json(session_dir / "rounds" / "001" / "gate-report.json")
+            self.assertEqual(gate_report["action"], "advance")
+            self.assertEqual(gate_report["status"], "needs_attention")
+            self.assertEqual(gate_report["details"]["semantic"]["adapter"], "manual")
+            self.assertIn("semantic_review_recorded", {finding["code"] for finding in gate_report["details"]["findings"]})
+            self.assertIn("Status: needs_attention", (session_dir / "rounds" / "001" / "gate.md").read_text(encoding="utf-8"))
 
     def test_next_json_can_transition_to_build_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -167,6 +175,22 @@ class CliNextTests(unittest.TestCase):
             self.assertEqual(result["mode"], "research")
             self.assertIn("recommended_next_loop_differs_from_next_mode", result["warnings"])
             self.assertIn("Mode: research", (session_dir / "rounds" / "002" / "prompt.md").read_text(encoding="utf-8"))
+
+    def test_next_json_errors_when_gate_report_write_fails_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "next_gate_report_error")
+            complete_research_round(session_dir, "continue")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout), patch("rdl.commands.gate_reports.write", side_effect=OSError("disk full")):
+                self.assertEqual(main(["next", "--json"]), 1)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "gate_report_write_failed")
+            self.assertEqual(store.read_json(session_dir / "state.json")["round"], 1)
+            self.assertFalse((session_dir / "rounds" / "002").exists())
 
     def test_next_json_rejects_invalid_mode_without_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:

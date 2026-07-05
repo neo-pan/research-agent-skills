@@ -1,0 +1,199 @@
+"""Semantic review adapter seam for RDL gate reports."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from . import documents, review_pack
+from .model import RoundProfile
+from .session import Session
+
+
+NON_BLOCKING_GAP_VALUES = {"", "-", "none", "no", "n/a", "not applicable", "none recorded"}
+
+
+@dataclass(frozen=True)
+class SemanticFinding:
+    severity: str
+    code: str
+    location: str
+    message: str
+    next_action: str
+    source: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "severity": self.severity,
+            "category": "semantic",
+            "code": self.code,
+            "location": self.location,
+            "message": self.message,
+            "next_action": self.next_action,
+            "source": self.source,
+        }
+
+
+@dataclass(frozen=True)
+class SemanticReviewReport:
+    status: str
+    adapter: str
+    required: bool
+    reviewed_artifacts: tuple[str, ...]
+    findings: tuple[SemanticFinding, ...]
+    review_pack: review_pack.ReviewPack
+
+    def details(self) -> dict[str, Any]:
+        return {
+            "semantic_status": self.status,
+            "adapter": self.adapter,
+            "required": self.required,
+            "reviewed_artifacts": list(self.reviewed_artifacts),
+            "findings": [finding.as_dict() for finding in self.findings],
+            "review_pack": self.review_pack.summary(),
+        }
+
+
+def run(session: Session, action: str, deterministic_gate_report: Any) -> SemanticReviewReport:
+    """Run the first semantic adapter: a read-only adapter over review.md."""
+
+    pack = review_pack.build(session, action, deterministic_gate_report)
+    required = _semantic_review_required(session, action, deterministic_gate_report)
+    review_file = session.round_dir() / "review.md"
+    adapter = documents.field(review_file, "Review Mode") if review_file.is_file() else "none"
+    findings: list[SemanticFinding] = []
+
+    if required and not review_file.is_file():
+        findings.append(
+            SemanticFinding(
+                "blocking",
+                "missing_semantic_review",
+                str(review_file),
+                "A semantic review result is required for this gate.",
+                "Run rdl review and record the review adapter and findings.",
+                "review-md",
+            )
+        )
+        return _report(required, adapter, (), findings, pack)
+
+    review_blockers = documents.validate("review", review_file) if review_file.is_file() else []
+    if required and review_blockers:
+        findings.append(
+            SemanticFinding(
+                "blocking",
+                "invalid_semantic_review_record",
+                str(review_file),
+                "review.md is present but is not a complete semantic review record.",
+                "Complete review.md before using this gate.",
+                "review-md",
+            )
+        )
+        return _report(required, adapter, (), findings, pack)
+
+    if not review_file.is_file() or review_blockers:
+        return _report(required, adapter, (), findings, pack)
+
+    artifacts = _split_field(documents.field(review_file, "Artifacts Reviewed"))
+    decision = documents.field(session.round_dir() / "decision.md", "Decision")
+    verdict = documents.field(review_file, "Verdict")
+    gaps = documents.field(review_file, "Blocking Evidence Gaps")
+    fresh_evidence = documents.field(review_file, "Fresh Evidence")
+    staleness = documents.field(review_file, "Staleness Signal")
+    reuse_risk = documents.field(review_file, "Direction Reuse Risk")
+
+    findings.append(
+        SemanticFinding(
+            "note",
+            "semantic_review_recorded",
+            str(review_file),
+            f"Semantic review is recorded using the {adapter} adapter.",
+            "Use the recorded review findings when deciding the next RDL action.",
+            adapter,
+        )
+    )
+    if verdict == "BLOCKED":
+        findings.append(
+            SemanticFinding(
+                "blocking",
+                "semantic_review_blocked",
+                f"{review_file}#Verdict",
+                "The semantic review verdict is BLOCKED.",
+                "Resolve blocking review findings before advancing.",
+                adapter,
+            )
+        )
+    elif verdict == "INCONCLUSIVE":
+        findings.append(
+            SemanticFinding(
+                "warning",
+                "semantic_review_inconclusive",
+                f"{review_file}#Verdict",
+                "The semantic review verdict is INCONCLUSIVE.",
+                "Close inconclusive or add enough evidence for a non-inconclusive decision.",
+                adapter,
+            )
+        )
+    if _blocking_gaps(gaps):
+        severity = "warning" if decision == "close-inconclusive" else "blocking"
+        findings.append(
+            SemanticFinding(
+                severity,
+                "semantic_review_evidence_gaps",
+                f"{review_file}#Blocking Evidence Gaps",
+                "The semantic review records blocking evidence gaps.",
+                "Resolve or explicitly close inconclusive before advancing.",
+                adapter,
+            )
+        )
+    if fresh_evidence in {"mixed", "no"} or staleness in {"possible", "repeated"} or reuse_risk == "high":
+        findings.append(
+            SemanticFinding(
+                "warning",
+                "semantic_review_staleness_risk",
+                str(review_file),
+                "The semantic review records weak fresh evidence, staleness, or high direction reuse risk.",
+                "Record a stall response, change direction, or close the session if the risk is decision-relevant.",
+                adapter,
+            )
+        )
+
+    return _report(required, adapter, artifacts, findings, pack)
+
+
+def _semantic_review_required(session: Session, action: str, deterministic_gate_report: Any) -> bool:
+    if _fatal_gate_setup_blocked(deterministic_gate_report):
+        return False
+    if action == "handoff":
+        return False
+    if action == "close":
+        return True
+    if session.state.profile == RoundProfile.FULL_REVIEW:
+        return True
+    warnings = set(getattr(deterministic_gate_report, "warnings", ()))
+    return "unchanged_next_smallest_step_across_rounds" in warnings
+
+
+def _fatal_gate_setup_blocked(deterministic_gate_report: Any) -> bool:
+    fatal_codes = {"invalid_gate_action", "missing_close_outcome", "invalid_close_outcome"}
+    return any(blocker.code in fatal_codes for blocker in getattr(deterministic_gate_report, "blockers", ()))
+
+
+def _report(
+    required: bool,
+    adapter: str,
+    artifacts: tuple[str, ...],
+    findings: list[SemanticFinding],
+    pack: review_pack.ReviewPack,
+) -> SemanticReviewReport:
+    status = "blocked" if any(finding.severity == "blocking" for finding in findings) else "needs_attention" if any(
+        finding.severity == "warning" for finding in findings
+    ) else "ok"
+    return SemanticReviewReport(status, adapter, required, artifacts, tuple(findings), pack)
+
+
+def _split_field(value: str) -> tuple[str, ...]:
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
+def _blocking_gaps(value: str) -> bool:
+    return value.strip().lower() not in NON_BLOCKING_GAP_VALUES

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from . import artifacts, documents, memory, memory_report, readiness, summary
+from . import artifacts, documents, memory, memory_report, readiness, semantic_review, summary
 from .model import Blocker, RoundProfile, SessionPhase
 from .protocol import descriptor
 from .session import Session
@@ -19,6 +19,7 @@ class GateFinding:
     location: str
     message: str
     next_action: str
+    source: str = "deterministic"
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -28,6 +29,7 @@ class GateFinding:
             "location": self.location,
             "message": self.message,
             "next_action": self.next_action,
+            "source": self.source,
         }
 
     def as_blocker(self) -> Blocker:
@@ -64,25 +66,62 @@ def run(session: Session, action: str, *, next_mode: str | None = None, outcome:
     findings.extend(_memory_findings(session_memory_report))
     findings.extend(_state_findings(session))
 
+    deterministic_report = _build_report(
+        session,
+        action,
+        tuple(findings),
+        advisory_warnings,
+        session_memory_report,
+        artifact_report,
+        summary_plan,
+    )
+    semantic_report = semantic_review.run(session, action, deterministic_report)
+    findings.extend(_semantic_findings(semantic_report))
+    return _build_report(
+        session,
+        action,
+        tuple(findings),
+        advisory_warnings,
+        session_memory_report,
+        artifact_report,
+        summary_plan,
+        semantic_report=semantic_report,
+    )
+
+
+def _build_report(
+    session: Session,
+    action: str,
+    findings: tuple[GateFinding, ...],
+    advisory_warnings: tuple[str, ...],
+    session_memory_report: memory_report.MemoryReport,
+    artifact_report: artifacts.ArtifactReport,
+    summary_plan: summary.SummaryPlan,
+    *,
+    semantic_report: semantic_review.SemanticReviewReport | None = None,
+) -> GateReport:
     warning_codes = tuple(finding.code for finding in findings if finding.severity == "warning")
     blockers = tuple(finding.as_blocker() for finding in findings if finding.severity == "blocking")
     status = "blocked" if blockers else "needs_attention" if warning_codes or advisory_warnings else "ok"
+    details: dict[str, Any] = {
+        "gate_status": status,
+        "findings": [finding.as_dict() for finding in findings],
+        "memory": session_memory_report.details(),
+        "artifact": artifact_report.details(),
+        "summary": summary_plan.details(
+            "up_to_date" if summary.progress_up_to_date(session, summary_plan) else "needs_update"
+        ),
+        "advisory_warnings": list(advisory_warnings),
+    }
+    if semantic_report is not None:
+        details["semantic"] = semantic_report.details()
     return GateReport(
         action=action,
         status=status,
-        findings=tuple(findings),
+        findings=findings,
         blockers=blockers,
         warnings=tuple(dict.fromkeys((*advisory_warnings, *warning_codes))),
-        details={
-            "gate_status": status,
-            "findings": [finding.as_dict() for finding in findings],
-            "memory": session_memory_report.details(),
-            "artifact": artifact_report.details(),
-            "summary": summary_plan.details(
-                "up_to_date" if summary.progress_up_to_date(session, summary_plan) else "needs_update"
-            ),
-            "advisory_warnings": list(advisory_warnings),
-        },
+        details=details,
     )
 
 
@@ -202,6 +241,21 @@ def _memory_findings(report: memory_report.MemoryReport) -> tuple[GateFinding, .
             ),
         )
     return tuple(findings)
+
+
+def _semantic_findings(report: semantic_review.SemanticReviewReport) -> tuple[GateFinding, ...]:
+    return tuple(
+        GateFinding(
+            finding.severity,
+            "semantic",
+            finding.code,
+            finding.location,
+            finding.message,
+            finding.next_action,
+            finding.source,
+        )
+        for finding in report.findings
+    )
 
 
 def _state_findings(session: Session) -> tuple[GateFinding, ...]:

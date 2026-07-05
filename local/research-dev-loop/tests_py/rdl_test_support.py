@@ -17,6 +17,7 @@ def assert_gate_details_compatible(
         "memory",
         "artifact",
         "summary",
+        "semantic",
         "advisory_warnings",
     }
     testcase.assertTrue(expected_top_keys.issubset(gate_details.keys()), gate_details)
@@ -95,6 +96,25 @@ def assert_gate_details_compatible(
     testcase.assertIsInstance(summary["rounds_scanned"], int)
     testcase.assertIsInstance(summary["progress_updates"], dict)
     testcase.assertIsInstance(summary["factor_gaps"], list)
+
+    semantic = gate_details["semantic"]
+    testcase.assertTrue(
+        {
+            "semantic_status",
+            "adapter",
+            "required",
+            "reviewed_artifacts",
+            "findings",
+            "review_pack",
+        }.issubset(semantic.keys()),
+        semantic,
+    )
+    testcase.assertIn(semantic["semantic_status"], {"ok", "needs_attention", "blocked"})
+    testcase.assertIsInstance(semantic["adapter"], str)
+    testcase.assertIsInstance(semantic["required"], bool)
+    testcase.assertIsInstance(semantic["reviewed_artifacts"], list)
+    testcase.assertIsInstance(semantic["findings"], list)
+    testcase.assertIsInstance(semantic["review_pack"], dict)
 
 
 def create_session(root: Path, session_id: str = "r1", mode: str = "research", profile: str = "full-review") -> Path:
