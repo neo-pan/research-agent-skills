@@ -6,9 +6,10 @@ from pathlib import Path
 
 from rdl import gate
 from rdl import integrity
+from rdl.protocol import descriptor
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_decision, complete_final_report, complete_research_round, create_session, set_current_round
+from rdl_test_support import complete_decision, complete_final_report, complete_research_round, complete_review, create_session, set_current_round
 
 
 class GateTests(unittest.TestCase):
@@ -197,6 +198,28 @@ class GateTests(unittest.TestCase):
             self.assertEqual(findings["semantic_review_recorded"]["category"], "semantic")
             self.assertEqual(findings["semantic_review_recorded"]["severity"], "note")
             self.assertNotIn("semantic_review_recorded", report.warnings)
+
+    def test_semantic_gate_surfaces_each_protocol_review_adapter(self):
+        for adapter in descriptor.allowed_values("review-mode"):
+            with self.subTest(adapter=adapter), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_dir = create_session(root, f"gate_semantic_{adapter}")
+                complete_research_round(session_dir)
+                review_file = session_dir / "rounds" / "001" / "review.md"
+                review_file.write_text(complete_review("continue").replace("Review Mode: manual", f"Review Mode: {adapter}"), encoding="utf-8")
+                integrity.refresh(SessionStore(root).active_session())
+                session = SessionStore(root).active_session()
+
+                report = gate.run(session, "doctor")
+
+                self.assertFalse(report.blockers)
+                semantic = report.details["semantic"]
+                self.assertTrue(semantic["required"])
+                self.assertEqual(semantic["semantic_status"], "ok")
+                self.assertEqual(semantic["adapter"], adapter)
+                findings = {finding["code"]: finding for finding in semantic["findings"]}
+                self.assertEqual(findings["semantic_review_recorded"]["source"], adapter)
+                self.assertEqual(semantic["reviewed_artifacts"], ["prompt", "evidence", "decision"])
 
     def test_lightweight_gate_does_not_require_semantic_review_without_review_record(self):
         with tempfile.TemporaryDirectory() as tmp:
