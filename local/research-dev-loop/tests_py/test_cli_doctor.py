@@ -7,7 +7,7 @@ from pathlib import Path
 
 from rdl.cli import main
 
-from rdl_test_support import complete_final_report, complete_research_round, create_session
+from rdl_test_support import assert_gate_details_compatible, complete_final_report, complete_research_round, create_session
 
 
 class CliDoctorTests(unittest.TestCase):
@@ -29,6 +29,7 @@ class CliDoctorTests(unittest.TestCase):
             self.assertEqual(result["round"], 1)
             self.assertEqual(result["next_action"], "rdl review")
             self.assertIn("gate", result["details"])
+            assert_gate_details_compatible(self, result["details"]["gate"])
             self.assertEqual(result["details"]["gate"]["summary"]["summary_status"], "needs_update")
 
     def test_doctor_json_blocks_without_active_session(self):

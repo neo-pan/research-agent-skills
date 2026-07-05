@@ -8,7 +8,7 @@ from rdl import gate
 from rdl import integrity
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_decision, complete_final_report, complete_research_round, create_session
+from rdl_test_support import complete_decision, complete_final_report, complete_research_round, create_session, set_current_round
 
 
 class GateTests(unittest.TestCase):
@@ -208,6 +208,48 @@ class GateTests(unittest.TestCase):
 
             self.assertFalse(report.details["semantic"]["required"])
             self.assertNotIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
+
+    def test_close_gate_requires_semantic_review_even_for_lightweight_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_close_checkpoint", profile="checkpoint")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "decision.md").write_text(complete_decision("close-positive", "claim"), encoding="utf-8")
+            (session_dir / "final-report.md").write_text(complete_final_report("positive"), encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "close", outcome="positive")
+
+            self.assertTrue(report.details["semantic"]["required"])
+            self.assertIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
+
+    def test_handoff_gate_does_not_require_semantic_review_for_full_review_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "gate_semantic_handoff")
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "handoff")
+
+            self.assertFalse(report.details["semantic"]["required"])
+            self.assertNotIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
+
+    def test_repeated_next_step_requires_semantic_review_for_lightweight_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_repeated_checkpoint", profile="checkpoint")
+            complete_research_round(session_dir, "continue")
+            round_two = set_current_round(session_dir, 2)
+            (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("unchanged_next_smallest_step_across_rounds", report.warnings)
+            self.assertTrue(report.details["semantic"]["required"])
+            self.assertIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
 
     def test_semantic_review_staleness_risk_warns_without_parser_rewrite(self):
         with tempfile.TemporaryDirectory() as tmp:
