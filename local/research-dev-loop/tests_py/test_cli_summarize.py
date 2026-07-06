@@ -77,6 +77,46 @@ class CliSummarizeTests(unittest.TestCase):
             self.assertIn("fixture prior directions checked", context.directions_tried)
             self.assertIn("possible in round 002", context.staleness_watch)
 
+    def test_summarize_write_keeps_wrapped_missing_evidence_as_one_question(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_two_round_session(root)
+            evidence_file = session_dir / "rounds" / "002" / "evidence.md"
+            evidence_file.write_text(
+                evidence_file.read_text(encoding="utf-8").replace(
+                    "Need a schema inspection.",
+                    "Need a schema inspection\nacross wrapped lines.",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, _result = run_cli(root, ["summarize", "--write", "--json"])
+
+            self.assertEqual(code, 0)
+            progress = (session_dir / "progress.md").read_text(encoding="utf-8")
+            self.assertIn("| Need a schema inspection across wrapped lines. | unassigned | unknown | - |", progress)
+            self.assertNotIn("| across wrapped lines. | unassigned | unknown | - |", progress)
+
+    def test_prompt_context_ignores_empty_managed_summary_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "summary_markers")
+            progress_file = session_dir / "progress.md"
+            progress_file.write_text(
+                progress_file.read_text(encoding="utf-8").replace(
+                    "## Staleness Watch\n\n| Signal | Evidence | Response |\n|---|---|---|\n",
+                    "## Staleness Watch\n\n| Signal | Evidence | Response |\n|---|---|---|\n\n"
+                    "<!-- rdl:summary section=Staleness Watch start -->\n"
+                    "<!-- rdl:summary section=Staleness Watch end -->\n",
+                ),
+                encoding="utf-8",
+            )
+
+            context = prompt_context(SessionStore(root).active_session())
+
+            self.assertEqual(context.staleness_watch, "none recorded")
+
     def test_summarize_check_is_up_to_date_after_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

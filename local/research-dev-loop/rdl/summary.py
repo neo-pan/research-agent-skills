@@ -226,10 +226,31 @@ def _field(path: Path, name: str) -> str:
 
 def _content_lines(text: str) -> list[str]:
     values: list[str] = []
+    paragraph: list[str] = []
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            values.append(" ".join(paragraph))
+            paragraph.clear()
+
     for line in text.splitlines():
-        stripped = line.strip().lstrip("-").strip()
-        if _meaningful(stripped) and not stripped.startswith("|"):
-            values.append(stripped)
+        stripped = line.strip()
+        if not stripped:
+            flush_paragraph()
+            continue
+        if stripped.startswith("|") or _managed_comment(stripped):
+            flush_paragraph()
+            continue
+        bullet = stripped.startswith(("-", "*"))
+        cleaned = stripped.lstrip("-*").strip()
+        if not _meaningful(cleaned):
+            continue
+        if bullet:
+            flush_paragraph()
+            values.append(cleaned)
+        else:
+            paragraph.append(cleaned)
+    flush_paragraph()
     return values
 
 
@@ -259,6 +280,11 @@ def _dedupe_rows(values) -> list[str]:
 
 def _clean_cell(value: str) -> str:
     return " ".join(value.replace("|", "/").strip().split())
+
+
+def _managed_comment(value: str) -> bool:
+    stripped = value.strip()
+    return stripped.startswith("<!--") and stripped.endswith("-->")
 
 
 def _meaningful(value: str) -> bool:

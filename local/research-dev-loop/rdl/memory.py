@@ -171,7 +171,7 @@ def _non_table_lines(markdown: str) -> list[str]:
     result: list[str] = []
     for line in markdown.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("|") or stripped.startswith("#"):
+        if not stripped or stripped.startswith("|") or stripped.startswith("#") or _managed_comment(stripped):
             continue
         if _meaningful(stripped):
             result.append(stripped.lstrip("-").strip())
@@ -198,6 +198,11 @@ def _table_cells(row: str) -> list[str]:
 
 def _table_separator(row: str) -> bool:
     return bool(re.fullmatch(r"\|[ \t:|-]+\|[ \t|:-]*", row.strip()))
+
+
+def _managed_comment(value: str) -> bool:
+    stripped = value.strip()
+    return stripped.startswith("<!--") and stripped.endswith("-->")
 
 
 def _progress_memory_empty(path: Path) -> bool:
