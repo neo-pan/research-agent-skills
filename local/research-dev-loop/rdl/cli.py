@@ -46,6 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     review = subparsers.add_parser("review", help="prepare or validate the current RDL review")
     review.add_argument("--pack", dest="review_pack", action="store_true")
+    review.add_argument("--session-id")
+    review.add_argument("--session-path")
     review.add_argument("--json", action="store_true")
     review.set_defaults(command="review")
 
@@ -81,6 +83,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(command="doctor")
 
     handoff = subparsers.add_parser("handoff", help="print a compact RDL session handoff report")
+    handoff.add_argument("--session-id")
+    handoff.add_argument("--session-path")
     handoff.add_argument("--json", action="store_true")
     handoff.set_defaults(command="handoff")
 
@@ -158,6 +162,7 @@ def _command_intent(args: argparse.Namespace) -> CommandIntent:
         profile=getattr(args, "profile", None),
         mission_file=getattr(args, "mission_file", None),
         session_id=getattr(args, "session_id", None),
+        session_path=getattr(args, "session_path", None),
         decision_type=getattr(args, "decision_type", None),
         guard_session_id=getattr(args, "guard_session_id", None),
         guard_command_id=getattr(args, "guard_command_id", None),
@@ -220,6 +225,7 @@ def _missing_value_option(argv: Sequence[str]) -> str:
     for index, token in enumerate(argv):
         if token in {
             "--session-id",
+            "--session-path",
             "--guard-session-id",
             "--guard-command-id",
             "--mode",

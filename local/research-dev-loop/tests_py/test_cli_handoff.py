@@ -5,7 +5,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from rdl import integrity
+from rdl import integrity, store
 from rdl.cli import main
 from rdl.session import SessionStore
 
@@ -123,6 +123,35 @@ No deferred items.
             self.assertEqual(result["details"]["latest_completed_decision"]["closes"], "claim")
             self.assertEqual(snapshot(session_dir), before)
 
+    def test_handoff_json_can_read_specified_session_without_changing_active_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected_dir = create_complete_handoff_session(root)
+            mark_inactive(selected_dir)
+            active_dir = create_session(root, "handoff_active")
+            before_selected = snapshot(selected_dir)
+            before_active = snapshot(active_dir)
+
+            code, result = run_cli_json(root, ["handoff", "--session-id", "handoff_complete", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["session_id"], "handoff_complete")
+            self.assertEqual(result["details"]["current_focus"], "- fixture active claim")
+            self.assertEqual(SessionStore(root).active_session().state.session_id, "handoff_active")
+            self.assertEqual(snapshot(selected_dir), before_selected)
+            self.assertEqual(snapshot(active_dir), before_active)
+
+    def test_handoff_json_reports_missing_specified_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "handoff_active")
+
+            code, result = run_cli_json(root, ["handoff", "--session-id", "missing-session", "--json"])
+
+            self.assertEqual(code, 2)
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["blockers"][0]["code"], "missing_session")
+
     def test_handoff_blocks_without_active_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, result = run_cli_json(Path(tmp), ["handoff", "--json"])
@@ -227,8 +256,18 @@ none
     return session_dir
 
 
+def mark_inactive(session_dir: Path) -> None:
+    state_path = session_dir / "state.json"
+    state = store.read_json(state_path)
+    state["status"] = "abandoned"
+    state["phase"] = "complete"
+    store.write_json_atomic(state_path, state)
+    integrity.refresh(SessionStore(session_dir.parents[2]).load_session(session_dir))
+
+
 def snapshot(session_dir: Path) -> dict[str, str]:
     return {
+        "state": (session_dir / "state.json").read_text(encoding="utf-8"),
         "progress": (session_dir / "progress.md").read_text(encoding="utf-8"),
         "ledger": (session_dir / "decision-ledger.md").read_text(encoding="utf-8"),
         "integrity": (session_dir / "integrity.json").read_text(encoding="utf-8"),

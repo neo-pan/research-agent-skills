@@ -83,6 +83,52 @@ class CliReviewDecideTests(unittest.TestCase):
             self.assertIn("unchanged_next_smallest_step_across_rounds", {signal["code"] for signal in pack["agent_review_signals"]})
             self.assertIn("rounds/001/evidence.md", {record["path"] for record in pack["records"]})
 
+    def test_review_pack_json_can_read_specified_session_path_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected_dir = create_session(root, "review_pack_selected", profile="checkpoint")
+            complete_research_round(selected_dir)
+            round_two = set_current_round(selected_dir, 2)
+            (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            mark_inactive(root, selected_dir)
+            active_dir = create_session(root, "review_pack_active")
+            review_file = round_two / "review.md"
+            before_selected = snapshot(selected_dir)
+            before_active = snapshot(active_dir)
+
+            code, result = run_cli(root, ["review", "--pack", "--session-path", str(selected_dir), "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["session_id"], "review_pack_selected")
+            self.assertFalse(review_file.exists())
+            pack = result["details"]["review_pack"]
+            self.assertIn("rounds/001/evidence.md", {record["path"] for record in pack["records"]})
+            self.assertEqual(SessionStore(root).active_session().state.session_id, "review_pack_active")
+            self.assertEqual(snapshot(selected_dir), before_selected)
+            self.assertEqual(snapshot(active_dir), before_active)
+
+    def test_review_json_rejects_session_selector_without_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "review_selector")
+
+            code, result = run_cli(root, ["review", "--session-id", "review_selector", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "session_selector_requires_pack")
+
+    def test_review_pack_json_rejects_ambiguous_session_selector(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_selector")
+
+            code, result = run_cli(root, ["review", "--pack", "--session-id", "review_selector", "--session-path", str(session_dir), "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "ambiguous_session_selector")
+
     def test_review_json_errors_when_integrity_refresh_fails_after_creation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -226,6 +272,23 @@ def run_cli(root: Path, argv: list[str]) -> tuple[int, dict]:
     with change_dir(root), redirect_stdout(stdout), redirect_stderr(StringIO()):
         code = main(argv)
     return code, json.loads(stdout.getvalue())
+
+
+def mark_inactive(root: Path, session_dir: Path) -> None:
+    state_path = session_dir / "state.json"
+    state = store.read_json(state_path)
+    state["status"] = "abandoned"
+    state["phase"] = "complete"
+    store.write_json_atomic(state_path, state)
+    integrity.refresh(SessionStore(root).load_session(session_dir))
+
+
+def snapshot(session_dir: Path) -> dict[str, str]:
+    return {
+        "state": (session_dir / "state.json").read_text(encoding="utf-8"),
+        "integrity": (session_dir / "integrity.json").read_text(encoding="utf-8"),
+        "review_exists": str((session_dir / "rounds" / "002" / "review.md").exists()),
+    }
 
 
 class change_dir:

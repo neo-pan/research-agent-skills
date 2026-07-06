@@ -19,6 +19,7 @@ class CommandIntent:
     profile: str | None = None
     mission_file: str | None = None
     session_id: str | None = None
+    session_path: str | None = None
     decision_type: str | None = None
     guard_session_id: str | None = None
     guard_command_id: str | None = None
@@ -56,7 +57,7 @@ def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "doctor":
         return _doctor()
     if intent.command == "handoff":
-        return _handoff()
+        return _handoff(intent.session_id, intent.session_path)
     if intent.command == "summarize":
         return _summarize(intent.summarize_mode, intent.summarize_round)
     if intent.command == "memory":
@@ -80,7 +81,7 @@ def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "guard-stop":
         return _guard_stop(intent.guard_session_id, intent.guard_command_id)
     if intent.command == "review":
-        return _review(intent.review_pack)
+        return _review(intent.review_pack, intent.session_id, intent.session_path)
     if intent.command == "decide":
         return _decide(intent.decision_type)
     raise ValueError(f"unsupported command: {intent.command!r}")
@@ -798,8 +799,8 @@ def _none_progress_cells(section: str, reason: str, state: SessionState) -> tupl
     return ("no-deferred-items", reason, "-")
 
 
-def _handoff() -> CommandResult:
-    loaded = _active_session_result("handoff")
+def _handoff(session_id: str | None = None, session_path: str | None = None) -> CommandResult:
+    loaded = _selected_session_result("handoff", session_id, session_path)
     if isinstance(loaded, CommandResult):
         return loaded
     session = loaded
@@ -985,14 +986,28 @@ def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: s
     )
 
 
-def _review(pack: bool = False) -> CommandResult:
+def _review(pack: bool = False, session_id: str | None = None, session_path: str | None = None) -> CommandResult:
+    if (session_id or session_path) and not pack:
+        blocker = Blocker(
+            "session_selector_requires_pack",
+            "",
+            "review session selectors are only supported with --pack.",
+            "Use rdl review --pack --session-id <id> --json.",
+        )
+        return CommandResult(
+            status="error",
+            action="review",
+            blockers=(blocker,),
+            missing=_missing_from_blockers((blocker,)),
+            next_action=blocker.next_action,
+        )
     if pack:
-        return _review_pack()
+        return _review_pack(session_id, session_path)
     return _run_locked_session("review", _review_locked)
 
 
-def _review_pack() -> CommandResult:
-    loaded = _active_session_result("review")
+def _review_pack(session_id: str | None = None, session_path: str | None = None) -> CommandResult:
+    loaded = _selected_session_result("review", session_id, session_path)
     if isinstance(loaded, CommandResult):
         return loaded
     session = loaded
@@ -1573,6 +1588,88 @@ def _active_session_result(action: str, audit: bool = True) -> Session | Command
             action,
             state,
             blockers=audit.blockers,
+            next_action="complete missing RDL records",
+        )
+
+    return session
+
+
+def _selected_session_result(action: str, session_id: str | None, session_path: str | None, audit: bool = True) -> Session | CommandResult:
+    if session_id and session_path:
+        blocker = Blocker(
+            "ambiguous_session_selector",
+            "",
+            "Pass either --session-id or --session-path, not both.",
+            "Choose one RDL session selector.",
+        )
+        return CommandResult(
+            status="error",
+            action=action,
+            blockers=(blocker,),
+            missing=_missing_from_blockers((blocker,)),
+            next_action=blocker.next_action,
+        )
+    if not session_id and not session_path:
+        return _active_session_result(action, audit)
+
+    store_obj = SessionStore.cwd()
+    if session_id:
+        if not valid_session_id(session_id):
+            blocker = Blocker(
+                "invalid_session_id",
+                "--session-id",
+                "Session id contains unsupported characters.",
+                "Use a session id containing only letters, numbers, dots, underscores, or hyphens.",
+            )
+            return CommandResult(
+                status="error",
+                action=action,
+                blockers=(blocker,),
+                missing=_missing_from_blockers((blocker,)),
+                next_action=blocker.next_action,
+            )
+        session_dir = store_obj.sessions_root / session_id
+    else:
+        session_dir = Path(str(session_path))
+        if not session_dir.is_absolute():
+            session_dir = Path.cwd() / session_dir
+
+    if not session_dir.is_dir():
+        blocker = Blocker(
+            "missing_session",
+            str(session_dir),
+            "RDL session not found.",
+            "Pass an existing .rdl/sessions/<session-id> path or session id.",
+        )
+        return CommandResult(
+            status="blocked",
+            action=action,
+            blockers=(blocker,),
+            missing=_missing_from_blockers((blocker,)),
+            next_action=blocker.next_action,
+        )
+
+    session = store_obj.load_session(session_dir)
+    if not audit:
+        return session
+
+    audit_result = session.audit()
+    state = session.state
+    if audit_result.errors:
+        return _state_result(
+            "error",
+            action,
+            state,
+            blockers=audit_result.errors,
+            next_action="repair RDL session metadata",
+            round_number=state.round if state.round > 0 else 0,
+        )
+    if audit_result.blockers:
+        return _state_result(
+            "blocked",
+            action,
+            state,
+            blockers=audit_result.blockers,
             next_action="complete missing RDL records",
         )
 
