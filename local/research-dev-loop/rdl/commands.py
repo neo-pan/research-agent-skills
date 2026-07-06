@@ -618,9 +618,9 @@ def _progress_locked(context: _LockedContext, intent: CommandIntent) -> CommandR
         section = "Active"
         cells = (
             intent.item or "",
-            intent.mode or "",
+            intent.mode or str(state.mode),
             intent.text or "",
-            intent.blocking or "",
+            intent.blocking or "no",
             intent.trigger or "",
         )
     elif action == "blocked":
@@ -657,7 +657,7 @@ def _progress_locked(context: _LockedContext, intent: CommandIntent) -> CommandR
 
 
 def _factors(intent: CommandIntent) -> CommandResult:
-    action = intent.factor_action or ""
+    action = intent.factor_action or "set"
     if action not in {"set", "note"}:
         blocker = Blocker(
             "invalid_factor_action",
@@ -681,7 +681,8 @@ def _factors(intent: CommandIntent) -> CommandResult:
 
 def _factors_locked(context: _LockedContext, intent: CommandIntent) -> CommandResult:
     state = context.state
-    if intent.factor_action == "set":
+    action = intent.factor_action or "set"
+    if action == "set":
         edit_result, blockers = session_memory_edit.set_factor(context.session.root, intent.section or "", intent.value or "")
     else:
         edit_result, blockers = session_memory_edit.append_factor_note(context.session.root, intent.section or "", intent.value or "")
@@ -713,9 +714,7 @@ def _progress_argument_blockers(intent: CommandIntent) -> list[Blocker]:
         blockers = _required_memory_values(
             (
                 (intent.item, "--item"),
-                (intent.mode, "--mode"),
                 (intent.text, "--text"),
-                (intent.blocking, "--blocking"),
                 (intent.trigger, "--trigger"),
             )
         )
@@ -1132,21 +1131,7 @@ def _decide_locked(context: _LockedContext, decision_type: str) -> CommandResult
 
 
 def _close(outcome: str | None) -> CommandResult:
-    if not outcome:
-        blocker = Blocker(
-            "missing_close_outcome",
-            "",
-            "close requires positive, negative, or inconclusive.",
-            "rdl close positive",
-        )
-        return CommandResult(
-            status="error",
-            action="close",
-            missing=_missing_from_blockers((blocker,)),
-            blockers=(blocker,),
-            next_action="rdl close positive",
-        )
-    if not descriptor.value_allowed("close-outcome", outcome):
+    if outcome is not None and not descriptor.value_allowed("close-outcome", outcome):
         blocker = Blocker(
             "invalid_close_outcome",
             "",
@@ -1160,6 +1145,16 @@ def _close(outcome: str | None) -> CommandResult:
             blockers=(blocker,),
             next_action="Use rdl close positive, negative, or inconclusive.",
         )
+
+    if outcome is None:
+        loaded = _active_session_result("close", audit=False)
+        if isinstance(loaded, CommandResult):
+            if loaded.blockers and loaded.blockers[0].code == "no_active_session":
+                return _missing_close_outcome_result()
+            return loaded
+        outcome = descriptor.close_outcome_for_decision(documents.field(loaded.round_dir() / "decision.md", "Decision"))
+        if not outcome:
+            return _missing_close_outcome_result()
 
     return _run_locked_session("close", lambda context: _close_locked(context, outcome))
 
@@ -1210,6 +1205,22 @@ def _close_locked(context: _LockedContext, outcome: str) -> CommandResult:
         warnings=gate_report.warnings,
         next_action=result.next_action,
         details=_gate_details(gate_report),
+    )
+
+
+def _missing_close_outcome_result() -> CommandResult:
+    blocker = Blocker(
+        "missing_close_outcome",
+        "",
+        "close requires positive, negative, or inconclusive unless decision.md records a close decision.",
+        "Run rdl decide close-positive or pass rdl close positive.",
+    )
+    return CommandResult(
+        status="error",
+        action="close",
+        missing=_missing_from_blockers((blocker,)),
+        blockers=(blocker,),
+        next_action=blocker.next_action,
     )
 
 

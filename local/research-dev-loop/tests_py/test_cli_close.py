@@ -155,6 +155,19 @@ class CliCloseTests(unittest.TestCase):
             self.assertEqual(result["next_action"], "closed-inconclusive")
             self.assertEqual(store.read_json(session_dir / "state.json")["status"], "closed-inconclusive")
 
+    def test_close_json_infers_outcome_from_current_close_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "positive")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["close", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["next_action"], "closed-positive")
+            self.assertEqual(store.read_json(session_dir / "state.json")["status"], "closed-positive")
+
     def test_close_json_blocks_unacknowledged_repeated_negative_evidence_after_prior_continue(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

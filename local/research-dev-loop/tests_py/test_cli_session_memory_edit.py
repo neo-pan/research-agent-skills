@@ -47,6 +47,31 @@ class CliSessionMemoryEditTests(unittest.TestCase):
             self.assertNotIn("Active", memory_result["details"]["progress_gaps"])
             self.assertEqual(_integrity_sha(session_dir, "progress.md"), integrity.file_sha256(session_dir / "progress.md"))
 
+    def test_progress_active_defaults_to_session_mode_and_nonblocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "progress_active_defaults")
+
+            code, result = run_cli_json(
+                root,
+                [
+                    "progress",
+                    "active",
+                    "--item",
+                    "parser",
+                    "--text",
+                    "raw parser capability",
+                    "--trigger",
+                    "sample coverage review",
+                    "--json",
+                ],
+            )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["updated_section"], "Active")
+            progress = (session_dir / "progress.md").read_text(encoding="utf-8")
+            self.assertIn("| parser | research | raw parser capability | no | sample coverage review |", progress)
+
     def test_progress_blocked_deferred_and_none_append_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -122,6 +147,21 @@ class CliSessionMemoryEditTests(unittest.TestCase):
             self.assertEqual(memory_code, 0)
             self.assertNotIn("Dataset or Workload", memory_result["details"]["factor_gaps"])
             self.assertEqual(_integrity_sha(session_dir, "factors.md"), integrity.file_sha256(session_dir / "factors.md"))
+
+    def test_factors_defaults_to_set_when_action_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "factors_default_set")
+
+            code, result = run_cli_json(
+                root,
+                ["factors", "--section", "Dataset or Workload", "--value", "fixture QA workload", "--json"],
+            )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["write_mode"], "set")
+            factors = (session_dir / "factors.md").read_text(encoding="utf-8")
+            self.assertIn("## Dataset or Workload\n\nfixture QA workload\n", factors)
 
     def test_progress_rejects_invalid_arguments_without_partial_write(self):
         with tempfile.TemporaryDirectory() as tmp:

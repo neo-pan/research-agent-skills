@@ -26,8 +26,8 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl memory --check --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl progress active --item parser --mode build --text "raw parser capability" --blocking no --trigger "sample coverage review" --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl factors set --section "Dataset or Workload" --value "current workload slice" --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl progress active --item parser --text "raw parser capability" --trigger "sample coverage review" --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl factors --section "Dataset or Workload" --value "current workload slice" --json
 ```
 
 ## Requirements
@@ -55,6 +55,9 @@ checks, RDL Python tests, and repository prerequisite checks.
 - Use `rdl next --mode build` or `rdl next --mode research` when the next round
   should change loop type. `Recommended next loop` records intent, but does not
   by itself switch mode.
+- `rdl close` can infer `positive`, `negative`, or `inconclusive` from a
+  current `Decision: close-*` record. Pass an explicit outcome only when the
+  close decision is not already recorded or when checking a specific outcome.
 - Use `--profile full-review` for phase gates, go/no-go decisions, and closing
   rounds. Use `--profile checkpoint` for compact evidence+decision checkpoints.
   Use `--profile build-update` only in build mode for compact capability work
@@ -79,9 +82,13 @@ checks, RDL Python tests, and repository prerequisite checks.
   round changes completed work, active claims or capabilities, blockers, open
   questions, directions tried, datasets, workloads, baselines, metrics,
   validators, prompts, backends, hardware, or nondeterminism.
-- Use `rdl progress active|blocked|deferred|none` and
-  `rdl factors set|note` to explicitly maintain top-level session memory
+- Use `rdl progress active|blocked|deferred|none` and `rdl factors` to
+  explicitly maintain top-level session memory
   without hand-editing Markdown tables.
+- `rdl progress active` defaults to the current session mode and
+  `--blocking no`; pass `--mode` or `--blocking yes` only when they differ.
+- `rdl factors --section ... --value ...` defaults to `set`; use
+  `rdl factors note` to append a factor note instead of replacing the section.
 - Use `rdl memory --check` when `doctor` reports weak session memory or a
   session has run for multiple rounds. Use `rdl memory --write` only to refresh
   deterministic managed summary blocks; still update active, blocked, deferred,

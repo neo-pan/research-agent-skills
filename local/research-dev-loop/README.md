@@ -30,6 +30,11 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
   size, sha256 metadata, and malformed optional integrity metadata when
   recorded in `artifact-manifest.json`.
 - Explicit session-memory helpers with `rdl progress` and `rdl factors`.
+- Common memory helper defaults: `rdl progress active` uses the current session
+  mode and non-blocking status unless overridden; `rdl factors` defaults to
+  `set` when a section and value are supplied.
+- `rdl close` can infer the close outcome from a current `Decision: close-*`
+  record.
 - Explicit artifact citations with `[artifact:ID]` plus manifest validation.
 - Optional `events.md` records for operational events that matter for recovery.
 - A read-only external takeover gate with `scripts/rdl_dogfood_audit.sh`.
