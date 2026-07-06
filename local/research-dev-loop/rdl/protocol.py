@@ -236,7 +236,6 @@ READINESS_PLANS = {
         "close-evidence-discipline",
         "progress-close-readiness",
         "artifact-citations",
-        "repeated-negative-evidence",
     ),
     "guard-stop-close": (
         "full-review-close-profile",
@@ -244,7 +243,6 @@ READINESS_PLANS = {
         "close-evidence-discipline",
         "progress-close-readiness",
         "artifact-citations",
-        "repeated-negative-evidence",
     ),
 }
 

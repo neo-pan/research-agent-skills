@@ -219,27 +219,12 @@ class ReadinessTests(unittest.TestCase):
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
             self.assertIn("incomplete_deferred_items", codes)
 
-    def test_repeated_negative_evidence_after_prior_continue_requires_acknowledgement(self):
+    def test_repeated_negative_evidence_after_prior_continue_is_not_readiness_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = repeated_negative_session(Path(tmp), acknowledged=False)
 
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
-            self.assertIn("unacknowledged_repeated_negative_evidence", codes)
-
-    def test_repeated_negative_evidence_acknowledgement_in_decision_or_progress_allows_close(self):
-        for acknowledged_in in ("decision", "progress"):
-            with self.subTest(acknowledged_in=acknowledged_in):
-                with tempfile.TemporaryDirectory() as tmp:
-                    session_dir = repeated_negative_session(Path(tmp), acknowledged=False)
-                    if acknowledged_in == "decision":
-                        decision_file = session_dir / "rounds" / "002" / "decision.md"
-                        decision_file.write_text(decision_file.read_text(encoding="utf-8") + "\nRepeated negative evidence acknowledged.\n", encoding="utf-8")
-                    else:
-                        progress_file = session_dir / "progress.md"
-                        progress_file.write_text(progress_file.read_text(encoding="utf-8") + "\ncontinue justified after repeated failure.\n", encoding="utf-8")
-
-                    codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
-                    self.assertNotIn("unacknowledged_repeated_negative_evidence", codes)
+            self.assertNotIn("unacknowledged_repeated_negative_evidence", codes)
 
     def test_advance_blocks_blocked_review_verdict(self):
         with tempfile.TemporaryDirectory() as tmp:

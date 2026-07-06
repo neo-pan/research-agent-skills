@@ -96,6 +96,15 @@ def agent_review_signals(session: "Session") -> tuple[dict[str, str], ...]:
                 "Ask the reviewer whether the evidence trail is sufficient for the current decision.",
             )
         )
+    if _repeated_negative_evidence_after_continue(session):
+        signals.append(
+            _review_signal(
+                "repeated_negative_evidence_after_continue",
+                f"rounds/{session.state.round:03d}/evidence.md#Repeated Negative Evidence",
+                "The current round records repeated negative evidence after a prior continue decision.",
+                "Ask the reviewer whether the decision sufficiently responds to repeated negative evidence.",
+            )
+        )
     return tuple(signals)
 
 
@@ -268,6 +277,11 @@ def _no_recent_artifacts_after_multiple_rounds(session: "Session") -> bool:
     return True
 
 
+def _repeated_negative_evidence_after_continue(session: "Session") -> bool:
+    repeated_section = documents.section(session.round_dir() / "evidence.md", "Repeated Negative Evidence")
+    return _meaningful(repeated_section.content) and _prior_continue_decision_exists(session)
+
+
 def _recent_completed_rounds(session: "Session", *, limit: int) -> tuple[int, ...]:
     rounds: list[int] = []
     for round_number in range(session.state.round, 0, -1):
@@ -277,6 +291,14 @@ def _recent_completed_rounds(session: "Session", *, limit: int) -> tuple[int, ..
         if len(rounds) == limit:
             break
     return tuple(rounds)
+
+
+def _prior_continue_decision_exists(session: "Session") -> bool:
+    for round_number in range(1, session.state.round):
+        decision_file = session.round_dir(round_number) / "decision.md"
+        if decision_file.is_file() and documents.field(decision_file, "Decision") == "continue":
+            return True
+    return False
 
 
 def _all_none(values: tuple[str, ...]) -> bool:

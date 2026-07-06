@@ -168,18 +168,20 @@ class CliCloseTests(unittest.TestCase):
             self.assertEqual(result["next_action"], "closed-positive")
             self.assertEqual(store.read_json(session_dir / "state.json")["status"], "closed-positive")
 
-    def test_close_json_blocks_unacknowledged_repeated_negative_evidence_after_prior_continue(self):
+    def test_close_json_surfaces_repeated_negative_evidence_as_review_signal(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session_dir = repeated_negative_close_session(root, acknowledged=False)
 
             stdout = StringIO()
             with change_dir(root), redirect_stdout(stdout):
-                self.assertEqual(main(["close", "negative", "--json"]), 2)
+                self.assertEqual(main(["close", "negative", "--json"]), 0)
 
             result = json.loads(stdout.getvalue())
-            self.assertIn("unacknowledged_repeated_negative_evidence", {blocker["code"] for blocker in result["blockers"]})
-            self.assertEqual(store.read_json(session_dir / "state.json")["status"], "active")
+            self.assertNotIn("unacknowledged_repeated_negative_evidence", {blocker["code"] for blocker in result["blockers"]})
+            signal_codes = set(result["details"]["gate"]["semantic"]["review_pack"]["agent_review_signal_codes"])
+            self.assertIn("repeated_negative_evidence_after_continue", signal_codes)
+            self.assertEqual(store.read_json(session_dir / "state.json")["status"], "closed-negative")
 
     def test_close_json_errors_when_integrity_refresh_fails_after_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:

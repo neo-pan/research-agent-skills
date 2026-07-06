@@ -6,7 +6,16 @@ from types import SimpleNamespace
 from rdl import review_pack
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_decision, complete_research_round, complete_review, create_session, set_current_round, write_json
+from rdl_test_support import (
+    COMPLETE_INTERPRETATION,
+    REPEATED_NEGATIVE_EVIDENCE,
+    complete_decision,
+    complete_research_round,
+    complete_review,
+    create_session,
+    set_current_round,
+    write_json,
+)
 
 
 class ReviewPackTests(unittest.TestCase):
@@ -163,6 +172,27 @@ class ReviewPackTests(unittest.TestCase):
             self.assertNotIn("rounds/001/evidence.md", record_paths)
             self.assertIn("rounds/002/evidence.md", record_paths)
             self.assertIn("rounds/003/evidence.md", record_paths)
+
+    def test_repeated_negative_evidence_after_continue_is_agent_review_signal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_repeated_negative")
+            complete_research_round(session_dir, "continue")
+            round_two = set_current_round(session_dir, 2)
+            (round_two / "evidence.md").write_text(REPEATED_NEGATIVE_EVIDENCE, encoding="utf-8")
+            (round_two / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+            (round_two / "review.md").write_text(complete_review("close-negative"), encoding="utf-8")
+            (round_two / "decision.md").write_text(complete_decision("close-negative", "claim"), encoding="utf-8")
+            session = SessionStore(root).active_session()
+            deterministic_report = SimpleNamespace(details={"findings": []})
+
+            pack = review_pack.build(session, "review", deterministic_report)
+
+            self.assertIn(
+                "repeated_negative_evidence_after_continue",
+                {signal["code"] for signal in pack.agent_review_signals},
+            )
+            self.assertEqual(pack.deterministic_findings, ())
 
 
 def _complete_prior_round(session_dir: Path, round_number: int) -> None:

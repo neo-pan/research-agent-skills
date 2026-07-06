@@ -61,8 +61,6 @@ def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocke
         return _validate_close_evidence_discipline(round_dir)
     if rule == "progress-close-readiness":
         return _validate_progress_close_readiness(session.root, outcome)
-    if rule == "repeated-negative-evidence":
-        return _validate_repeated_negative_evidence(session, round_dir)
     if rule == "close-if-decision":
         decision = documents.field(round_dir / "decision.md", "Decision")
         close_outcome = descriptor.close_outcome_for_decision(decision)
@@ -370,25 +368,6 @@ def _validate_progress_close_readiness(session_dir: Path, outcome: str | None) -
     return blockers
 
 
-def _validate_repeated_negative_evidence(session: Session, round_dir: Path) -> list[Blocker]:
-    evidence_file = round_dir / "evidence.md"
-    repeated_section = documents.section(evidence_file, "Repeated Negative Evidence")
-    if not _meaningful(repeated_section.content):
-        return []
-    if not _prior_continue_decision_exists(session):
-        return []
-    if _repeated_negative_acknowledged(round_dir / "decision.md", session.root / "progress.md"):
-        return []
-    return [
-        Blocker(
-            "unacknowledged_repeated_negative_evidence",
-            f"rounds/{session.state.round:03d}/evidence.md#Repeated Negative Evidence",
-            "Repeated negative evidence must be acknowledged after a prior continue decision.",
-            "Acknowledge repeated negative evidence in decision.md or progress.md.",
-        )
-    ]
-
-
 def _validate_artifact_citations(session_dir: Path, round_dir: Path) -> list[Blocker]:
     manifest_file = session_dir / "artifact-manifest.json"
     if not manifest_file.is_file():
@@ -470,19 +449,3 @@ def _table_separator(row: str) -> bool:
 def _meaningful(value: str) -> bool:
     stripped = value.strip()
     return bool(stripped and stripped.lower() not in {"-", "...", "tbd", "todo", "n/a"} and re.search(r"[A-Za-z0-9]", stripped))
-
-
-def _prior_continue_decision_exists(session: Session) -> bool:
-    for round_number in range(1, session.state.round):
-        decision_file = session.round_dir(round_number) / "decision.md"
-        if decision_file.is_file() and documents.field(decision_file, "Decision") == "continue":
-            return True
-    return False
-
-
-def _repeated_negative_acknowledged(decision_file: Path, progress_file: Path) -> bool:
-    pattern = re.compile(r"repeated negative|repeated failure|continue justified", re.IGNORECASE)
-    for path in (decision_file, progress_file):
-        if path.is_file() and pattern.search(store.read_text(path)):
-            return True
-    return False
