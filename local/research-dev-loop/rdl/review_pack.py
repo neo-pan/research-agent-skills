@@ -150,6 +150,9 @@ def _record_paths(session: Session) -> tuple[str, ...]:
     for round_number in _prior_completed_rounds(session, limit=PRIOR_ROUND_WINDOW):
         prior_round_prefix = f"rounds/{round_number:03d}"
         paths.extend(f"{prior_round_prefix}/{name}" for name in PRIOR_ROUND_RECORDS)
+    for round_number in _cited_artifact_rounds(session):
+        cited_round_prefix = f"rounds/{round_number:03d}"
+        paths.extend(f"{cited_round_prefix}/{name}" for name in PRIOR_ROUND_RECORDS)
     return tuple(dict.fromkeys(paths))
 
 
@@ -166,6 +169,80 @@ def _prior_completed_rounds(session: Session, *, limit: int) -> tuple[int, ...]:
 def _round_completed(round_dir: Path) -> bool:
     decision = documents.field(round_dir / "decision.md", "Decision")
     return _meaningful(decision)
+
+
+def _cited_artifact_rounds(session: Session) -> tuple[int, ...]:
+    manifest = _artifact_manifest(session.root / "artifact-manifest.json")
+    if not manifest:
+        return ()
+    artifact_ids = _current_cited_artifact_ids(session)
+    if not artifact_ids:
+        return ()
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return ()
+
+    rounds = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or artifact.get("id") not in artifact_ids:
+            continue
+        round_number = artifact.get("round")
+        if isinstance(round_number, int) and not isinstance(round_number, bool) and 1 <= round_number < session.state.round:
+            rounds.add(round_number)
+    return tuple(sorted(rounds))
+
+
+def _current_cited_artifact_ids(session: Session) -> set[str]:
+    artifact_ids: set[str] = set()
+    for path in _current_citation_sources(session):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        artifact_ids.update(documents.extract_artifact_ids(text))
+        if path.name == "evidence.md":
+            artifact_ids.update(_evidence_artifact_table_ids(documents.section(path, "Evidence Artifacts").content))
+    return artifact_ids
+
+
+def _current_citation_sources(session: Session) -> tuple[Path, ...]:
+    round_dir = session.round_dir()
+    return (
+        round_dir / "decision.md",
+        round_dir / "evidence.md",
+        round_dir / "review.md",
+        session.root / "final-report.md",
+    )
+
+
+def _evidence_artifact_table_ids(markdown: str) -> set[str]:
+    artifact_ids: set[str] = set()
+    for row in _table_rows(markdown):
+        artifact_id = row.get("id", "")
+        if _meaningful(artifact_id):
+            artifact_ids.add(artifact_id)
+    return artifact_ids
+
+
+def _table_rows(markdown: str) -> list[dict[str, str]]:
+    rows = [line.strip() for line in markdown.splitlines() if line.strip().startswith("|") and line.strip().endswith("|")]
+    if not rows:
+        return []
+    header = _table_cells(rows[0])
+    result: list[dict[str, str]] = []
+    for row in rows[1:]:
+        if _table_separator(row):
+            continue
+        cells = _table_cells(row)
+        result.append({header[index].strip().lower(): cells[index].strip() if index < len(cells) else "" for index in range(len(header))})
+    return result
+
+
+def _table_cells(row: str) -> list[str]:
+    return [cell.strip() for cell in row.strip().strip("|").split("|")]
+
+
+def _table_separator(row: str) -> bool:
+    return all(character in "| :-\t" for character in row.strip())
 
 
 def _record(path: Path, relative: str) -> dict[str, str]:

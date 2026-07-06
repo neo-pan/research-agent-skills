@@ -22,7 +22,8 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
 - Semantic review findings surfaced through the unified gate with a first
   read-only `review.md` adapter and clean RDL context pack.
 - Agent-facing semantic review packs with `rdl review --pack --json`, including
-  reviewer instructions, supplied RDL records, deterministic findings, artifact
+  reviewer instructions, supplied RDL records, bounded prior-round context,
+  cited artifact-producing round context, deterministic findings, artifact
   facts, finding schema, and review-only semantic signals.
 - Round-local `gate-report.json` and `gate.md` audit artifacts written before
   successful `rdl next`, `rdl close`, and `rdl guard-stop` transitions.
