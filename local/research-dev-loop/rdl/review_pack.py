@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import memory, store
+from . import documents, memory, store
 from .session import Session
 
+
+PRIOR_ROUND_WINDOW = 2
 
 ROUND_RECORDS = (
     "prompt.md",
@@ -28,6 +30,14 @@ SESSION_RECORDS = (
     "factors.md",
     "decision-ledger.md",
     "artifact-manifest.json",
+)
+
+PRIOR_ROUND_RECORDS = (
+    "evidence.md",
+    "interpretation.md",
+    "review.md",
+    "decision.md",
+    "events.md",
 )
 
 
@@ -137,7 +147,25 @@ def _record_paths(session: Session) -> tuple[str, ...]:
     paths.extend(path for path in SESSION_RECORDS if path != "mission.md")
     round_prefix = f"rounds/{session.state.round:03d}"
     paths.extend(f"{round_prefix}/{name}" for name in ROUND_RECORDS)
+    for round_number in _prior_completed_rounds(session, limit=PRIOR_ROUND_WINDOW):
+        prior_round_prefix = f"rounds/{round_number:03d}"
+        paths.extend(f"{prior_round_prefix}/{name}" for name in PRIOR_ROUND_RECORDS)
     return tuple(dict.fromkeys(paths))
+
+
+def _prior_completed_rounds(session: Session, *, limit: int) -> tuple[int, ...]:
+    rounds = []
+    for round_number in range(session.state.round - 1, 0, -1):
+        if _round_completed(session.round_dir(round_number)):
+            rounds.append(round_number)
+        if len(rounds) == limit:
+            break
+    return tuple(reversed(rounds))
+
+
+def _round_completed(round_dir: Path) -> bool:
+    decision = documents.field(round_dir / "decision.md", "Decision")
+    return _meaningful(decision)
 
 
 def _record(path: Path, relative: str) -> dict[str, str]:
@@ -164,3 +192,8 @@ def _artifact_count(manifest: dict[str, Any] | None) -> int:
         return 0
     artifacts = manifest.get("artifacts")
     return len(artifacts) if isinstance(artifacts, list) else 0
+
+
+def _meaningful(value: str) -> bool:
+    normalized = value.strip().lower()
+    return bool(normalized and normalized not in {"-", "...", "tbd", "todo", "n/a", "not applicable", "none recorded"})
