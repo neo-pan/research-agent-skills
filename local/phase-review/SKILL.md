@@ -1,6 +1,6 @@
 ---
 name: phase-review
-description: Manual independent review gate for research engineering plans, implementation phases, evidence, and final readiness. Use only when explicitly invoked.
+description: Manual independent review gate for research engineering plans, implementation phases, evidence, and final readiness.
 disable-model-invocation: true
 ---
 
@@ -37,6 +37,8 @@ report the tooling blocker instead of completing the review in the main agent.
      decision being gated.
    - Ask for clarification only when the target cannot be inferred without high
      risk of reviewing the wrong artifact.
+   - Completion check: target type, boundary, reviewed artifacts, unreviewed
+     artifacts, assumed phase goal, and gated decision are explicit.
 
 2. Gather only target-relevant context.
    - Implementation: original request or plan, claimed completion summary,
@@ -49,6 +51,8 @@ report the tooling blocker instead of completing the review in the main agent.
      vs observed result, controls, and the decision it supports.
    - Final gate: final diff, original scope, verification summary, known
      deferrals, generated or local-only files, and merge or release constraints.
+   - Completion check: every artifact needed for the chosen target type has
+     been read or listed as not reviewed.
 
 3. Delegate to a subagent.
    - Spawn a review-only Codex subagent.
@@ -60,6 +64,8 @@ report the tooling blocker instead of completing the review in the main agent.
      context to avoid passing through false positives.
    - If the subagent cannot be created, return `BLOCKED` with the tooling
      blocker and do not continue the review in the main agent.
+   - Completion check: subagent findings have been received, or the review has
+     stopped with a tooling blocker.
 
    Suggested subagent prompt:
 
@@ -98,6 +104,8 @@ report the tooling blocker instead of completing the review in the main agent.
    - **Compatibility discipline**: no redundant legacy fallback, unused
      compatibility path, defensive branch, migration shim, or permissive parsing
      unless justified by a real supported input or existing contract.
+   - Completion check: every applicable gate has been applied to the chosen
+     target and boundary.
 
 5. Classify findings.
    - **Blocking**: violates the plan, breaks correctness, hides a material test
@@ -107,12 +115,16 @@ report the tooling blocker instead of completing the review in the main agent.
      does not affect this phase's acceptance or decision.
    - **Out of scope**: unrelated improvements, style preferences, broad
      rewrites, or new requirements.
+   - Completion check: each finding is classified as blocking, non-blocking, or
+     out of scope.
 
 6. Return findings only.
    - Do not fix issues inside this review.
    - If blocking fixes are needed, return `BLOCKED` and the required changes.
    - If the user wants fixes, they should start a separate implementation step
      or explicitly ask to continue after the review.
+   - Completion check: the response starts with findings and uses exactly one
+     verdict: `PASS`, `PASS_WITH_NOTES`, or `BLOCKED`.
 
 ## Rubric
 

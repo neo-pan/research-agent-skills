@@ -136,8 +136,7 @@ checks, RDL Python tests, and repository prerequisite checks.
   be complete and aligned with `decision.md`.
 - For phase gates, close decisions, and substantial `full-review` rounds, record
   the semantic review adapter in `Review Mode` and capture its findings in
-  `review.md`. Use a subagent review by default. If subagent tooling cannot be
-  used, stop and report the blocker; do not record a manual adapter.
+  `review.md`.
 - When staleness appears, continue only with an explicit stall response, or
   change direction with prior directions checked.
 - Index artifacts in `artifact-manifest.json`; do not copy project artifacts.
