@@ -93,11 +93,13 @@ The current selected upstream skills are:
 - `codebase-design`
 - `improve-codebase-architecture`
 - `diagnosing-bugs`
+- `setup-matt-pocock-skills`
 - `tdd`
 - `to-prd`
 - `to-issues`
 - `prototype`
 - `grill-me`
+- `grilling`
 - `handoff`
 - `writing-great-skills`
 
