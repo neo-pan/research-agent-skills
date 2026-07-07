@@ -16,6 +16,8 @@ tooling blocker instead of continuing in the main agent.
 RDL remains a file protocol and CLI, not a runtime supervisor. Do not change RDL
 core commands, protocol files, or Python implementation as part of this
 workflow.
+For RDL CLI and protocol details, use `research-dev-loop` as the source of
+truth.
 
 ## Round Lifecycle
 

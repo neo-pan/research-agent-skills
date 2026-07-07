@@ -13,6 +13,9 @@ records research state under `.rdl/sessions/<session-id>/` and indexes external
 artifacts by reference. It does not own project source files, git state, CI
 state, experiment queues, benchmark runners, or deployment state.
 
+For user-invoked multi-round orchestration, use `rdl-orchestrator`; keep this
+skill focused on the RDL protocol and CLI.
+
 ## CLI
 
 Run the Python module from a project repository:
