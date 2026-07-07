@@ -55,13 +55,13 @@ class _LockedContext:
 
 def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "doctor":
-        return _doctor()
+        return _doctor(intent.session_id, intent.session_path)
     if intent.command == "handoff":
         return _handoff(intent.session_id, intent.session_path)
     if intent.command == "summarize":
-        return _summarize(intent.summarize_mode, intent.summarize_round)
+        return _summarize(intent.summarize_mode, intent.summarize_round, intent.session_id, intent.session_path)
     if intent.command == "memory":
-        return _memory(intent.memory_mode)
+        return _memory(intent.memory_mode, intent.session_id, intent.session_path)
     if intent.command == "progress":
         return _progress(intent)
     if intent.command == "factors":
@@ -319,8 +319,8 @@ def _state_result(
     )
 
 
-def _doctor() -> CommandResult:
-    loaded = _active_session_result("doctor")
+def _doctor(session_id: str | None = None, session_path: str | None = None) -> CommandResult:
+    loaded = _selected_session_result("doctor", session_id, session_path)
     if isinstance(loaded, CommandResult):
         return loaded
     session = loaded
@@ -353,6 +353,22 @@ def _doctor() -> CommandResult:
 
 def _gate_details(report: gate.GateReport) -> dict[str, object]:
     return {"gate": report.details}
+
+
+def _selector_requires_check(action: str) -> CommandResult:
+    blocker = Blocker(
+        "session_selector_requires_check",
+        "",
+        f"{action} session selectors are only supported in check mode.",
+        f"Use rdl {action} --check with a session selector, or run write mode on the active session.",
+    )
+    return CommandResult(
+        status="error",
+        action=action,
+        blockers=(blocker,),
+        missing=_missing_from_blockers((blocker,)),
+        next_action=blocker.next_action,
+    )
 
 
 def _repair() -> CommandResult:
@@ -412,7 +428,7 @@ def _repair() -> CommandResult:
     )
 
 
-def _summarize(mode: str | None, through_round: int | None) -> CommandResult:
+def _summarize(mode: str | None, through_round: int | None, session_id: str | None = None, session_path: str | None = None) -> CommandResult:
     summarize_mode = mode or "check"
     if summarize_mode not in {"check", "write"}:
         blocker = Blocker(
@@ -427,10 +443,12 @@ def _summarize(mode: str | None, through_round: int | None) -> CommandResult:
             blockers=(blocker,),
             next_action="Use rdl summarize --check or rdl summarize --write.",
         )
+    if summarize_mode == "write" and (session_id or session_path):
+        return _selector_requires_check("summarize")
     if summarize_mode == "write":
         return _run_locked_session("summarize", lambda context: _summarize_write_locked(context, through_round))
 
-    loaded = _active_session_result("summarize")
+    loaded = _selected_session_result("summarize", session_id, session_path)
     if isinstance(loaded, CommandResult):
         return loaded
     state = loaded.state
@@ -492,7 +510,7 @@ def _summarize_write_locked(context: _LockedContext, through_round: int | None) 
     )
 
 
-def _memory(mode: str | None) -> CommandResult:
+def _memory(mode: str | None, session_id: str | None = None, session_path: str | None = None) -> CommandResult:
     memory_mode = mode or "check"
     if memory_mode not in {"check", "write"}:
         blocker = Blocker(
@@ -507,10 +525,12 @@ def _memory(mode: str | None) -> CommandResult:
             blockers=(blocker,),
             next_action=blocker.next_action,
         )
+    if memory_mode == "write" and (session_id or session_path):
+        return _selector_requires_check("memory")
     if memory_mode == "write":
         return _run_locked_session("memory", _memory_write_locked)
 
-    loaded = _active_session_result("memory")
+    loaded = _selected_session_result("memory", session_id, session_path)
     if isinstance(loaded, CommandResult):
         return loaded
     state = loaded.state

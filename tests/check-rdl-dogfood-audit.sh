@@ -67,6 +67,27 @@ create_session(Path(sys.argv[1]), "audit_incomplete")
 PY
 }
 
+mark_session_inactive() {
+  local project_root="$1"
+  local session_id="$2"
+  PYTHONPATH="${RDL_ENV}" python3 - "${project_root}" "${session_id}" <<'PY'
+from pathlib import Path
+import sys
+
+from rdl import integrity, store
+from rdl.session import SessionStore
+
+root = Path(sys.argv[1])
+session_dir = root / ".rdl" / "sessions" / sys.argv[2]
+state_path = session_dir / "state.json"
+state = store.read_json(state_path)
+state["status"] = "abandoned"
+state["phase"] = "complete"
+store.write_json_atomic(state_path, state)
+integrity.refresh(SessionStore(root).load_session(session_dir))
+PY
+}
+
 assert_complete_session_passes() {
   local project_root="${tmp_dir}/healthy-project"
   mkdir -p "${project_root}"
@@ -97,6 +118,40 @@ assert_complete_session_passes() {
     || fail "healthy audit output should report healthy memory"
   if grep -q "${project_root}" "${tmp_dir}/healthy.out"; then
     fail "audit output must not include the external project absolute path"
+  fi
+}
+
+assert_specified_session_path_passes_without_active_session() {
+  local project_root="${tmp_dir}/specified-project"
+  local session_path
+  mkdir -p "${project_root}"
+  create_complete_session "${project_root}"
+
+  run_rdl "${project_root}" memory --write
+  run_rdl "${project_root}" progress active \
+    --item coverage \
+    --text "fixture current focus" \
+    --trigger "next fixture review"
+  run_rdl "${project_root}" progress none --section Blocked --reason "no current blockers"
+  run_rdl "${project_root}" progress none --section Deferred --reason "no deferred work"
+  set_all_factors "${project_root}"
+  mark_session_inactive "${project_root}" audit_healthy
+  session_path="${project_root}/.rdl/sessions/audit_healthy"
+
+  if ! "${AUDIT}" --session-path "${session_path}" "${project_root}" >"${tmp_dir}/specified.out" 2>"${tmp_dir}/specified.err"; then
+    cat "${tmp_dir}/specified.out" >&2
+    cat "${tmp_dir}/specified.err" >&2
+    fail "specified inactive RDL session should pass dogfood audit"
+  fi
+
+  grep -q "Audit: PASS" "${tmp_dir}/specified.out" \
+    || fail "specified audit output should report PASS"
+  grep -q "review --pack: ok" "${tmp_dir}/specified.out" \
+    || fail "specified audit output should include review pack"
+  grep -q "session: audit_healthy" "${tmp_dir}/specified.out" \
+    || fail "specified audit output should report the selected session"
+  if grep -q "${project_root}" "${tmp_dir}/specified.out"; then
+    fail "specified audit output must not include the external project absolute path"
   fi
 }
 
@@ -141,6 +196,18 @@ assert_non_directory_fails() {
 
   grep -q "project root is not a directory" "${tmp_dir}/bad.err" \
     || fail "non-directory audit should explain the parameter error"
+}
+
+assert_ambiguous_selector_fails() {
+  local project_root="${tmp_dir}/ambiguous-project"
+  mkdir -p "${project_root}"
+
+  if "${AUDIT}" --session-id one --session-path "${project_root}/.rdl/sessions/one" "${project_root}" >"${tmp_dir}/ambiguous.out" 2>"${tmp_dir}/ambiguous.err"; then
+    fail "ambiguous session selector audit should fail"
+  fi
+
+  grep -q "pass either --session-id or --session-path, not both" "${tmp_dir}/ambiguous.err" \
+    || fail "ambiguous selector audit should explain the parameter error"
 }
 
 assert_invalid_json_reports_sanitized_stderr() {
@@ -204,9 +271,11 @@ SH
 }
 
 assert_complete_session_passes
+assert_specified_session_path_passes_without_active_session
 assert_incomplete_session_fails
 assert_empty_project_fails
 assert_non_directory_fails
+assert_ambiguous_selector_fails
 assert_invalid_json_reports_sanitized_stderr
 
 echo "RDL dogfood audit ok"

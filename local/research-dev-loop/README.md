@@ -16,7 +16,8 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
 - Session-memory diagnostics with `rdl memory --check|--write`.
 - Session-memory quality warnings for duplicate open questions and malformed
   progress tables.
-- Read-only takeover reports with `rdl handoff`.
+- Read-only takeover reports with `rdl handoff`, including specified-session
+  selectors for historical or closed sessions.
 - Unified gate reports consumed by `rdl doctor`, `rdl next`, `rdl close`,
   `rdl handoff`, and `rdl guard-stop`.
 - Semantic review findings surfaced through the unified gate with a first
@@ -38,7 +39,9 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
   record.
 - Explicit artifact citations with `[artifact:ID]` plus manifest validation.
 - Optional `events.md` records for operational events that matter for recovery.
-- A read-only external takeover gate with `scripts/rdl_dogfood_audit.sh`.
+- A read-only external takeover gate with `scripts/rdl_dogfood_audit.sh`,
+  including `--session-id` and `--session-path` for historical or closed
+  sessions.
 
 ## Design Direction
 
@@ -70,6 +73,13 @@ active RDL session:
 
 ```bash
 ./scripts/rdl_dogfood_audit.sh <project-root>
+```
+
+Run the same read-only audit against a specified historical or closed session:
+
+```bash
+./scripts/rdl_dogfood_audit.sh --session-id <id> <project-root>
+./scripts/rdl_dogfood_audit.sh --session-path <path> <project-root>
 ```
 
 If the audit fails, repair only the reported gaps:

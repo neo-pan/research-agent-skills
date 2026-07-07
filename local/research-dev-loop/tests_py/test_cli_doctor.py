@@ -5,7 +5,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from rdl import integrity, store
 from rdl.cli import main
+from rdl.session import SessionStore
 
 from rdl_test_support import assert_gate_details_compatible, complete_final_report, complete_research_round, create_session
 
@@ -41,6 +43,23 @@ class CliDoctorTests(unittest.TestCase):
             result = json.loads(stdout.getvalue())
             self.assertEqual(result["status"], "blocked")
             self.assertEqual(result["blockers"][0]["code"], "no_active_session")
+
+    def test_doctor_json_reads_specified_inactive_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "doctor_inactive")
+            complete_research_round(session_dir)
+            mark_closed(session_dir)
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--session-id", "doctor_inactive", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["session_id"], "doctor_inactive")
+            self.assertEqual(result["phase"], "complete")
+            self.assertIn("gate", result["details"])
 
     def test_doctor_json_errors_for_bad_state(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -128,6 +147,15 @@ class change_dir:
         import os
 
         os.chdir(self.previous)
+
+
+def mark_closed(session_dir: Path) -> None:
+    state_path = session_dir / "state.json"
+    state = store.read_json(state_path)
+    state["status"] = "closed-positive"
+    state["phase"] = "complete"
+    store.write_json_atomic(state_path, state)
+    integrity.refresh(SessionStore(session_dir.parents[2]).load_session(session_dir))
 
 
 if __name__ == "__main__":

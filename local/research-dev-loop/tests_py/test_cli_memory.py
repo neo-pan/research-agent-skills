@@ -197,6 +197,32 @@ class CliMemoryTests(unittest.TestCase):
             self.assertEqual(result["status"], "blocked")
             self.assertIn("no_active_session", {blocker["code"] for blocker in result["blockers"]})
 
+    def test_memory_check_reads_specified_inactive_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_complete_memory_session(root)
+            mark_closed(session_dir)
+            before = snapshot(session_dir)
+
+            code, result = run_cli(root, ["memory", "--check", "--session-id", "memory_complete", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["session_id"], "memory_complete")
+            self.assertEqual(result["details"]["memory_status"], "healthy")
+            self.assertEqual(snapshot(session_dir), before)
+
+    def test_memory_write_rejects_specified_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_complete_memory_session(root)
+            before = snapshot(session_dir)
+
+            code, result = run_cli(root, ["memory", "--write", "--session-path", str(session_dir), "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["blockers"][0]["code"], "session_selector_requires_check")
+            self.assertEqual(snapshot(session_dir), before)
+
     def test_memory_parser_rejects_mutually_exclusive_modes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -291,6 +317,15 @@ def snapshot(session_dir: Path) -> dict[str, str]:
         "ledger": (session_dir / "decision-ledger.md").read_text(encoding="utf-8"),
         "integrity": (session_dir / "integrity.json").read_text(encoding="utf-8"),
     }
+
+
+def mark_closed(session_dir: Path) -> None:
+    state_path = session_dir / "state.json"
+    state = store.read_json(state_path)
+    state["status"] = "closed-positive"
+    state["phase"] = "complete"
+    store.write_json_atomic(state_path, state)
+    integrity.refresh(SessionStore(session_dir.parents[2]).load_session(session_dir))
 
 
 def run_cli(root: Path, argv: list[str]) -> tuple[int, dict]:

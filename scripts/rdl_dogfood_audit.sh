@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/rdl_dogfood_audit.sh <project-root>
+Usage: scripts/rdl_dogfood_audit.sh [--session-id <id> | --session-path <path>] <project-root>
 
 Run a read-only RDL dogfood takeover audit against an external project root.
 EOF
@@ -16,17 +16,83 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-if [[ "$#" -ne 1 ]]; then
+SESSION_ID=""
+SESSION_PATH=""
+PROJECT_ROOT_INPUT=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --session-id)
+      if [[ -z "${2:-}" ]]; then
+        echo "error: --session-id requires a value" >&2
+        exit 1
+      fi
+      SESSION_ID="$2"
+      shift 2
+      ;;
+    --session-path)
+      if [[ -z "${2:-}" ]]; then
+        echo "error: --session-path requires a value" >&2
+        exit 1
+      fi
+      SESSION_PATH="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "error: unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [[ -n "${PROJECT_ROOT_INPUT}" ]]; then
+        echo "error: expected exactly one project root" >&2
+        usage >&2
+        exit 1
+      fi
+      PROJECT_ROOT_INPUT="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ "$#" -gt 0 ]]; then
+  if [[ -n "${PROJECT_ROOT_INPUT}" ]]; then
+    echo "error: expected exactly one project root" >&2
+    usage >&2
+    exit 1
+  fi
+  PROJECT_ROOT_INPUT="$1"
+  shift
+fi
+
+if [[ "$#" -gt 0 ]]; then
+  echo "error: expected exactly one project root" >&2
   usage >&2
   exit 1
 fi
 
-PROJECT_ROOT_INPUT="$1"
+if [[ -z "${PROJECT_ROOT_INPUT}" ]]; then
+  usage >&2
+  exit 1
+fi
+
+if [[ -n "${SESSION_ID}" && -n "${SESSION_PATH}" ]]; then
+  echo "error: pass either --session-id or --session-path, not both" >&2
+  exit 1
+fi
+
 if [[ ! -d "${PROJECT_ROOT_INPUT}" ]]; then
   echo "error: project root is not a directory" >&2
   exit 1
 fi
 PROJECT_ROOT="$(cd "${PROJECT_ROOT_INPUT}" && pwd)"
+if [[ -n "${SESSION_PATH}" && "${SESSION_PATH}" != /* ]]; then
+  SESSION_PATH="${PROJECT_ROOT}/${SESSION_PATH}"
+fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "error: python3 is required" >&2
@@ -35,6 +101,13 @@ fi
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
+
+selector_args=()
+if [[ -n "${SESSION_ID}" ]]; then
+  selector_args=(--session-id "${SESSION_ID}")
+elif [[ -n "${SESSION_PATH}" ]]; then
+  selector_args=(--session-path "${SESSION_PATH}")
+fi
 
 run_rdl_json() {
   local name="$1"
@@ -51,12 +124,13 @@ run_rdl_json() {
   printf '%s\n' "${status}" >"${tmp_dir}/${name}.status"
 }
 
-run_rdl_json handoff handoff
-run_rdl_json memory memory --check
-run_rdl_json summarize summarize --check
-run_rdl_json doctor doctor
+run_rdl_json handoff handoff "${selector_args[@]}"
+run_rdl_json memory memory --check "${selector_args[@]}"
+run_rdl_json summarize summarize --check "${selector_args[@]}"
+run_rdl_json doctor doctor "${selector_args[@]}"
+run_rdl_json review_pack review --pack "${selector_args[@]}"
 
-python3 - "${tmp_dir}" "${PROJECT_ROOT}" "${ROOT_DIR}" <<'PY'
+python3 - "${tmp_dir}" "${PROJECT_ROOT}" "${ROOT_DIR}" "${SESSION_PATH}" <<'PY'
 from __future__ import annotations
 
 import json
@@ -71,12 +145,13 @@ COMMANDS = (
     ("memory", "memory --check"),
     ("summarize", "summarize --check"),
     ("doctor", "doctor"),
+    ("review_pack", "review --pack"),
 )
 
 
 def main() -> int:
     tmp_dir = Path(sys.argv[1])
-    scrub_paths = tuple(path for path in sys.argv[2:4] if path)
+    scrub_paths = tuple(path for path in sys.argv[2:5] if path)
     failed = False
     results: dict[str, dict[str, Any]] = {}
 
@@ -130,6 +205,11 @@ def _print_command(label: str, code: int, result: dict[str, Any]) -> bool:
         print(f"  factor_gaps: {_join(details.get('factor_gaps'))}")
     elif label == "summarize --check":
         print(f"  summary_status: {details.get('summary_status', 'unknown')}")
+    elif label == "review --pack":
+        pack = _dict(details.get("review_pack"))
+        print(f"  record_count: {len(_list(pack.get('records')))}")
+        artifact_manifest = _dict(pack.get("artifact_manifest"))
+        print(f"  artifact_count: {len(_list(artifact_manifest.get('artifacts')))}")
 
     warnings = _list(result.get("warnings"))
     if warnings:
@@ -150,6 +230,7 @@ def _strict_health_failed(results: dict[str, dict[str, Any]]) -> bool:
     memory = _dict(results["memory"].get("details"))
     summarize = _dict(results["summarize"].get("details"))
     doctor = results["doctor"]
+    review_pack = results["review_pack"]
 
     return any(
         (
@@ -157,6 +238,7 @@ def _strict_health_failed(results: dict[str, dict[str, Any]]) -> bool:
             memory.get("memory_status") != "healthy",
             summarize.get("summary_status") != "up_to_date",
             doctor.get("status") != "ok",
+            review_pack.get("status") != "ok",
         )
     )
 

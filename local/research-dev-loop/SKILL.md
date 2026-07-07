@@ -22,7 +22,9 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl start research mission.md --js
 PYTHONPATH=local/research-dev-loop python3 -m rdl start build plan.md --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl status --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --session-id <id> --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --session-path <path> --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl memory --check --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --json
@@ -75,6 +77,8 @@ checks, RDL Python tests, and repository prerequisite checks.
   conversation memory for claims, evidence, open questions, or next steps.
 - Use `rdl handoff` or `rdl handoff --json` as the first read-only status
   surface when taking over an existing long-running session.
+- Use `--session-id` or `--session-path` with read-only check surfaces when
+  auditing a historical or closed session instead of the active session.
 - At the start of a round, read `mission.md`, `progress.md`, `factors.md`,
   `decision-ledger.md`, and the previous round's decision/evidence records when
   they exist.

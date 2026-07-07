@@ -79,6 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
     close.set_defaults(command="close")
 
     doctor = subparsers.add_parser("doctor", help="inspect the active RDL session")
+    doctor.add_argument("--session-id")
+    doctor.add_argument("--session-path")
     doctor.add_argument("--json", action="store_true")
     doctor.set_defaults(command="doctor")
 
@@ -93,6 +95,8 @@ def build_parser() -> argparse.ArgumentParser:
     summarize_mode.add_argument("--check", dest="summarize_mode", action="store_const", const="check")
     summarize_mode.add_argument("--write", dest="summarize_mode", action="store_const", const="write")
     summarize.add_argument("--round", dest="summarize_round", type=int)
+    summarize.add_argument("--session-id")
+    summarize.add_argument("--session-path")
     summarize.add_argument("--json", action="store_true")
     summarize.set_defaults(command="summarize", summarize_mode="check")
 
@@ -100,6 +104,8 @@ def build_parser() -> argparse.ArgumentParser:
     memory_mode = memory.add_mutually_exclusive_group()
     memory_mode.add_argument("--check", dest="memory_mode", action="store_const", const="check")
     memory_mode.add_argument("--write", dest="memory_mode", action="store_const", const="write")
+    memory.add_argument("--session-id")
+    memory.add_argument("--session-path")
     memory.add_argument("--json", action="store_true")
     memory.set_defaults(command="memory", memory_mode="check")
 
