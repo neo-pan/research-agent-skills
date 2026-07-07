@@ -109,3 +109,5 @@ The current local skills are:
   implementation phases, evidence, and final readiness.
 - `research-dev-loop` - lightweight evidence-backed Research Development Loop
   scaffold and CLI for research session records.
+- `rdl-orchestrator` - manual RDL-backed orchestration workflow with dedicated
+  writer and reviewer subagents.

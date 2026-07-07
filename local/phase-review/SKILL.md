@@ -11,9 +11,9 @@ do not edit files, implement fixes, broaden scope, or introduce new
 requirements.
 
 Infer the smallest review target that satisfies the user's invocation, state the
-boundary explicitly, then prefer an independent review-only Codex subagent when
-available. If subagent tooling is unavailable or prohibited, perform the same
-review locally and state the fallback reason.
+boundary explicitly, then spawn an independent review-only Codex subagent. If a
+subagent cannot be created under the active tool policy or runtime, stop and
+report the tooling blocker instead of completing the review in the main agent.
 
 ## Review Targets
 
@@ -50,14 +50,16 @@ review locally and state the fallback reason.
    - Final gate: final diff, original scope, verification summary, known
      deferrals, generated or local-only files, and merge or release constraints.
 
-3. Delegate when available.
-   - Spawn a review-only Codex subagent when subagent tooling is available.
+3. Delegate to a subagent.
+   - Spawn a review-only Codex subagent.
    - Tell the subagent not to edit files, run destructive commands, broaden the
      task, or introduce new requirements.
    - Include the inferred target, explicit boundary, relevant artifacts, and the
      rubric below.
    - Treat subagent findings as review input, not automatic truth; verify enough
      context to avoid passing through false positives.
+   - If the subagent cannot be created, return `BLOCKED` with the tooling
+     blocker and do not continue the review in the main agent.
 
    Suggested subagent prompt:
 
@@ -191,7 +193,7 @@ Minimality / Compatibility:
 Verification / Evidence:
 - Checks or evidence reviewed:
 - Checks or evidence still needed:
-- Fallback reason, if no subagent review:
+- Subagent review status:
 ```
 
 Use `location` as `file:line` for code or file-backed plans, and as a plan
@@ -202,4 +204,3 @@ Use `PASS` only when the target satisfies the requested boundary and no blocking
 findings remain. Use `PASS_WITH_NOTES` when only non-blocking notes remain. Use
 `BLOCKED` when required work, correctness, verification, feasibility, evidence,
 or complexity issues must be fixed before continuing.
-
