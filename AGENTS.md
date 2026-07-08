@@ -83,3 +83,20 @@ submodule pointer updates.
   inspect context and produce findings, but the main agent or user remains
   responsible for accepting judgment-heavy changes to `decision.md`,
   `progress.md`, `factors.md`, and final reports.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked as local markdown under `.scratch/`. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the default mattpocock/skills label vocabulary. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Domain documentation uses a single-context layout with root `CONTEXT.md` and
+`docs/adr/`. See `docs/agents/domain.md`.
