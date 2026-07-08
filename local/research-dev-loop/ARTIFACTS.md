@@ -1,0 +1,14 @@
+# Artifacts And Events
+
+Index artifacts in `artifact-manifest.json`; do not copy project artifacts into
+RDL. Cite artifacts explicitly as `[artifact:ID]` in evidence and decisions.
+
+Use optional round-local `events.md` for operational events that matter for
+recovery but are not decision-grade evidence: command timeouts, partial
+transfers, retries, cache or working-directory requirements, and environment
+notes.
+
+Keep `evidence.md` focused on evidence that changes a claim or capability
+decision.
+
+Keep markdown templates as the protocol surface.
