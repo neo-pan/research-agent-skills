@@ -207,8 +207,8 @@ class GateTests(unittest.TestCase):
             review_file = session_dir / "rounds" / "001" / "review.md"
             review_file.write_text(
                 complete_review("continue").replace(
-                    "- none",
-                    "- warning | overclaim | rounds/001/decision.md | claim scope may be too broad | keep the decision scoped",
+                    "none\n\n## Accepted Corrections and Resolutions",
+                    "- warning | overclaim | rounds/001/decision.md | claim scope may be too broad | keep the decision scoped\n\n## Accepted Corrections and Resolutions",
                 ),
                 encoding="utf-8",
             )
@@ -308,7 +308,7 @@ class GateTests(unittest.TestCase):
             self.assertFalse(report.details["semantic"]["required"])
             self.assertNotIn("missing_semantic_review", {blocker.code for blocker in report.blockers})
 
-    def test_semantic_review_staleness_risk_warns_without_parser_rewrite(self):
+    def test_semantic_review_staleness_risk_blocks_stale_continue_without_response(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session_dir = create_session(root, "gate_semantic_stale")
@@ -324,8 +324,94 @@ class GateTests(unittest.TestCase):
             report = gate.run(session, "doctor")
 
             self.assertIn("semantic_review_staleness_risk", report.warnings)
+            self.assertIn("semantic_review_missing_stall_response", {blocker.code for blocker in report.blockers})
             findings = {finding["code"]: finding for finding in report.details["findings"]}
             self.assertEqual(findings["semantic_review_staleness_risk"]["category"], "semantic")
+            self.assertEqual(findings["semantic_review_missing_stall_response"]["category"], "semantic")
+
+    def test_semantic_review_staleness_risk_warns_with_stall_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_stale_response")
+            complete_research_round(session_dir)
+            round_dir = session_dir / "rounds" / "001"
+            review_file = round_dir / "review.md"
+            decision_file = round_dir / "decision.md"
+            review_file.write_text(
+                review_file.read_text(encoding="utf-8").replace("Fresh Evidence: yes", "Fresh Evidence: no"),
+                encoding="utf-8",
+            )
+            decision_file.write_text(
+                decision_file.read_text(encoding="utf-8").replace(
+                    "Stall response: no staleness signal",
+                    "Stall response: continuing once to verify the negative result against a fresh baseline",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("semantic_review_staleness_risk", report.warnings)
+            self.assertNotIn("semantic_review_missing_stall_response", {blocker.code for blocker in report.blockers})
+
+    def test_semantic_review_blocks_review_verdict_and_evidence_gaps(self):
+        cases = (
+            ("Verdict: PASS", "Verdict: BLOCKED", "semantic_review_blocked"),
+            ("Verdict: PASS", "Verdict: INCONCLUSIVE", "semantic_review_inconclusive"),
+            ("Blocking Evidence Gaps: none", "Blocking Evidence Gaps: missing baseline", "semantic_review_evidence_gaps"),
+        )
+        for old, new, expected_code in cases:
+            with self.subTest(expected_code=expected_code), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_dir = create_session(root, f"gate_{expected_code}")
+                complete_research_round(session_dir)
+                review_file = session_dir / "rounds" / "001" / "review.md"
+                review_file.write_text(review_file.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+                integrity.refresh(SessionStore(root).active_session())
+                session = SessionStore(root).active_session()
+
+                report = gate.run(session, "doctor")
+
+                self.assertIn(expected_code, {blocker.code for blocker in report.blockers})
+                findings = {finding["code"]: finding for finding in report.details["findings"]}
+                self.assertEqual(findings[expected_code]["category"], "semantic")
+
+    def test_semantic_review_blocks_recommended_decision_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_decision_mismatch")
+            complete_research_round(session_dir)
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(
+                review_file.read_text(encoding="utf-8").replace("Recommended Decision: continue", "Recommended Decision: pivot"),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("semantic_review_decision_mismatch", {blocker.code for blocker in report.blockers})
+            findings = {finding["code"]: finding for finding in report.details["findings"]}
+            self.assertEqual(findings["semantic_review_decision_mismatch"]["category"], "semantic")
+
+    def test_lightweight_valid_review_is_consumed_by_semantic_adapter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_lightweight_review_consumed", profile="checkpoint")
+            round_dir = session_dir / "rounds" / "001"
+            (round_dir / "evidence.md").write_text("# Evidence\n\nCheckpoint evidence.\n", encoding="utf-8")
+            (round_dir / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+            (round_dir / "review.md").write_text(complete_review("continue").replace("Verdict: PASS", "Verdict: BLOCKED"), encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertFalse(report.details["semantic"]["required"])
+            self.assertIn("semantic_review_blocked", {blocker.code for blocker in report.blockers})
 
     def test_close_inconclusive_allows_semantic_evidence_gap_warning(self):
         with tempfile.TemporaryDirectory() as tmp:

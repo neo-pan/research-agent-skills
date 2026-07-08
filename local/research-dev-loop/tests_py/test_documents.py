@@ -94,7 +94,7 @@ class DocumentTests(unittest.TestCase):
             self.assertIn("missing_review_field", codes)
 
     def test_review_validation_blocks_malformed_structured_findings(self):
-        malformed = COMPLETE_REVIEW.replace("- none", "- urgent | vibes | nowhere | vague")
+        malformed = COMPLETE_REVIEW.replace("none\n\n## Accepted Corrections and Resolutions", "- urgent | vibes | nowhere | vague\n\n## Accepted Corrections and Resolutions")
         with markdown(malformed) as path:
             codes = {blocker.code for blocker in documents.validate("review", path)}
             self.assertIn("invalid_review_finding", codes)
@@ -217,7 +217,7 @@ Recommended Decision: continue
 
 ## Returned Review Findings
 
-- none
+none
 
 ## Accepted Corrections and Resolutions
 

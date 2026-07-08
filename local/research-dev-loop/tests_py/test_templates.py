@@ -89,6 +89,12 @@ class TemplateTests(unittest.TestCase):
             self.assertTrue(destination.is_file())
             self.assertIn("Reviewer:", destination.read_text(encoding="utf-8"))
 
+    def test_review_template_defaults_returned_findings_to_none(self):
+        text = templates.template_path("review.md").read_text(encoding="utf-8")
+
+        self.assertIn("## Returned Review Findings\n\nnone\n", text)
+        self.assertNotIn("- severity | category | location | claim | required_resolution", text)
+
     def test_initialize_session_files_uses_protocol_template_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

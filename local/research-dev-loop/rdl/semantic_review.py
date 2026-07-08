@@ -10,7 +10,7 @@ from .model import RoundProfile
 from .session import Session
 
 
-NON_BLOCKING_GAP_VALUES = {"", "-", "none", "no", "n/a", "not applicable", "none recorded"}
+NON_BLOCKING_GAP_VALUES = {"", "-", "none", "no", "no blocking gaps", "no blocking evidence gaps", "n/a", "not applicable", "none recorded"}
 
 
 @dataclass(frozen=True)
@@ -102,6 +102,10 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
     fresh_evidence = documents.field(review_file, "Fresh Evidence")
     staleness = documents.field(review_file, "Staleness Signal")
     reuse_risk = documents.field(review_file, "Direction Reuse Risk")
+    recommended = documents.field(review_file, "Recommended Decision")
+    decision_file = session.round_dir() / "decision.md"
+    direction_changed = documents.field(decision_file, "Direction changed")
+    stall_response = documents.field(decision_file, "Stall response")
     recorded_findings = _recorded_findings(review_file, adapter)
 
     findings.append(
@@ -125,10 +129,10 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
                 adapter,
             )
         )
-    elif verdict == "INCONCLUSIVE":
+    elif verdict == "INCONCLUSIVE" and decision != "close-inconclusive":
         findings.append(
             SemanticFinding(
-                "warning",
+                "blocking",
                 "semantic_review_inconclusive",
                 f"{review_file}#Verdict",
                 "The semantic review verdict is INCONCLUSIVE.",
@@ -148,7 +152,18 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
                 adapter,
             )
         )
-    if fresh_evidence in {"mixed", "no"} or staleness in {"possible", "repeated"} or reuse_risk == "high":
+    if _meaningful(recommended) and _meaningful(decision) and recommended != decision:
+        findings.append(
+            SemanticFinding(
+                "blocking",
+                "semantic_review_decision_mismatch",
+                f"{review_file}#Recommended Decision",
+                "The semantic review recommended decision does not match decision.md.",
+                "Align review.md and decision.md before advancing.",
+                adapter,
+            )
+        )
+    if _review_records_attention_risk(fresh_evidence, staleness, reuse_risk):
         findings.append(
             SemanticFinding(
                 "warning",
@@ -156,6 +171,20 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
                 str(review_file),
                 "The semantic review records weak fresh evidence, staleness, or high direction reuse risk.",
                 "Record a stall response, change direction, or close the session if the risk is decision-relevant.",
+                adapter,
+            )
+        )
+    if _review_records_stale_continue_risk(fresh_evidence, staleness, reuse_risk) and _continuing_current_direction(
+        decision,
+        direction_changed,
+    ) and not _meaningful_stall_response(stall_response):
+        findings.append(
+            SemanticFinding(
+                "blocking",
+                "semantic_review_missing_stall_response",
+                f"{decision_file}#Stall response",
+                "The semantic review records stale continuation risk without a meaningful stall response.",
+                "Record a stall response, change direction, or close the session.",
                 adapter,
             )
         )
@@ -226,3 +255,33 @@ def _split_field(value: str) -> tuple[str, ...]:
 
 def _blocking_gaps(value: str) -> bool:
     return value.strip().lower() not in NON_BLOCKING_GAP_VALUES
+
+
+def _review_records_attention_risk(fresh_evidence: str, staleness: str, reuse_risk: str) -> bool:
+    return fresh_evidence in {"mixed", "no"} or _review_records_stale_continue_risk(fresh_evidence, staleness, reuse_risk)
+
+
+def _review_records_stale_continue_risk(fresh_evidence: str, staleness: str, reuse_risk: str) -> bool:
+    return fresh_evidence == "no" or staleness in {"possible", "repeated"} or reuse_risk == "high"
+
+
+def _continuing_current_direction(decision: str, direction_changed: str) -> bool:
+    if direction_changed in {"yes", "closing"}:
+        return False
+    if decision.startswith("close-"):
+        return False
+    if decision in {"accept", "reject", "pivot", "narrow", "broaden", "diagnose", "build", "profile", "rerun"}:
+        return False
+    return _meaningful(decision)
+
+
+def _meaningful(value: str) -> bool:
+    normalized = value.strip().lower()
+    return bool(normalized and normalized not in {"-", "...", "tbd", "todo", "n/a", "not applicable", "none recorded"})
+
+
+def _meaningful_stall_response(value: str) -> bool:
+    normalized = value.strip().lower()
+    if not _meaningful(value):
+        return False
+    return normalized not in {"no staleness signal", "no staleness signals", "no stale signal", "no stale signals"}

@@ -179,8 +179,6 @@ class ProtocolDescriptorTests(unittest.TestCase):
             (
                 "review",
                 "decision",
-                "review-decision-alignment",
-                "staleness-response",
                 "mode-minimums",
                 "round-evidence-discipline",
                 "artifact-citations",

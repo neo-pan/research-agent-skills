@@ -11,9 +11,6 @@ from .protocol import descriptor
 from .session import Session
 
 
-NO_REVIEW_GAP_VALUES = {"none", "no", "no blocking gaps", "no blocking evidence gaps", "n/a", "not applicable", "-", "...", "tbd", "todo"}
-
-
 def check(session: Session, plan: str, outcome: str | None = None) -> list[Blocker]:
     rules = descriptor.readiness_plan(plan)
     if not rules:
@@ -41,10 +38,6 @@ def _apply_rule(session: Session, rule: str, outcome: str | None) -> list[Blocke
         return _validate_profile_review(profile, round_dir)
     if rule == "decision":
         return documents.validate("decision", round_dir / "decision.md", {"expected_closes": expected_closes})
-    if rule == "review-decision-alignment":
-        return _validate_review_decision_alignment(round_dir)
-    if rule == "staleness-response":
-        return _validate_staleness_response(round_dir)
     if rule == "mode-minimums":
         return _validate_profile_round_minimums(session.state.mode, profile, round_dir)
     if rule == "round-evidence-discipline":
@@ -84,97 +77,6 @@ def _validate_profile_review(profile: RoundProfile, round_dir: Path) -> list[Blo
     if profile == RoundProfile.FULL_REVIEW or review_file.is_file():
         return documents.validate("review", review_file)
     return []
-
-
-def _validate_review_decision_alignment(round_dir: Path) -> list[Blocker]:
-    review_file = round_dir / "review.md"
-    decision_file = round_dir / "decision.md"
-    if not review_file.is_file() or not decision_file.is_file():
-        return []
-    decision = documents.field(decision_file, "Decision")
-    review_blockers = _validate_review_not_blocked(review_file, decision)
-    if review_blockers:
-        return review_blockers
-    recommended = documents.field(review_file, "Recommended Decision")
-    if recommended and decision and recommended != decision:
-        return [
-            Blocker(
-                "review_decision_mismatch",
-                f"{review_file}#Recommended Decision",
-                "Review recommended decision does not match decision.md.",
-                "Align review.md and decision.md before advancing.",
-            )
-        ]
-    return []
-
-
-def _validate_review_not_blocked(review_file: Path, decision: str) -> list[Blocker]:
-    verdict = documents.field(review_file, "Verdict")
-    gaps = documents.field(review_file, "Blocking Evidence Gaps")
-    if verdict == "INCONCLUSIVE" and decision != "close-inconclusive":
-        return [
-            Blocker(
-                "inconclusive_review_verdict",
-                f"{review_file}#Verdict",
-                "Review verdict is INCONCLUSIVE but the decision is not close-inconclusive.",
-                "Close inconclusive or complete enough review evidence to proceed.",
-            )
-        ]
-    if verdict == "BLOCKED":
-        return [_blocked_review_blocker(review_file)]
-    if decision != "close-inconclusive" and _blocking_review_gaps(gaps):
-        return [_blocked_review_blocker(review_file)]
-    return []
-
-
-def _validate_staleness_response(round_dir: Path) -> list[Blocker]:
-    review_file = round_dir / "review.md"
-    decision_file = round_dir / "decision.md"
-    if not review_file.is_file() or not decision_file.is_file():
-        return []
-    staleness = documents.field(review_file, "Staleness Signal")
-    reuse_risk = documents.field(review_file, "Direction Reuse Risk")
-    fresh_evidence = documents.field(review_file, "Fresh Evidence")
-    direction_changed = documents.field(decision_file, "Direction changed")
-    decision = documents.field(decision_file, "Decision")
-    stall_response = documents.field(decision_file, "Stall response")
-
-    stale = staleness in {"possible", "repeated"} or reuse_risk == "high" or fresh_evidence == "no"
-    closing_or_redirecting = direction_changed in {"yes", "closing"} or decision in {
-        "pivot",
-        "narrow",
-        "broaden",
-        "diagnose",
-        "build",
-        "profile",
-        "rerun",
-        "close-positive",
-        "close-negative",
-        "close-inconclusive",
-    }
-    if stale and not closing_or_redirecting and not _meaningful(stall_response):
-        return [
-            Blocker(
-                "missing_staleness_response",
-                f"{decision_file}#Stall response",
-                "Possible research staleness requires an explicit continue justification or direction change.",
-                "Record a stall response, change direction, or close the session.",
-            )
-        ]
-    return []
-
-
-def _blocked_review_blocker(review_file: Path) -> Blocker:
-    return Blocker(
-        "blocked_review",
-        f"{review_file}#Verdict",
-        "Review is blocked or records blocking evidence gaps.",
-        "Resolve blocking review findings before advancing.",
-    )
-
-
-def _blocking_review_gaps(gaps: str) -> bool:
-    return bool(gaps and gaps.strip().lower() not in NO_REVIEW_GAP_VALUES)
 
 
 def _validate_profile_round_minimums(mode: SessionMode, profile: RoundProfile, round_dir: Path) -> list[Blocker]:

@@ -226,7 +226,7 @@ class ReadinessTests(unittest.TestCase):
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
             self.assertNotIn("unacknowledged_repeated_negative_evidence", codes)
 
-    def test_advance_blocks_blocked_review_verdict(self):
+    def test_advance_does_not_block_semantic_review_verdict_in_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp), mode="research")
             complete_research_round(session_dir, decision="continue")
@@ -234,9 +234,9 @@ class ReadinessTests(unittest.TestCase):
             review_file.write_text(review_file.read_text(encoding="utf-8").replace("Verdict: PASS", "Verdict: BLOCKED"), encoding="utf-8")
 
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
-            self.assertIn("blocked_review", codes)
+            self.assertNotIn("blocked_review", codes)
 
-    def test_advance_blocks_inconclusive_review_without_close_inconclusive_decision(self):
+    def test_advance_does_not_block_inconclusive_review_verdict_in_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp), mode="research")
             complete_research_round(session_dir, decision="continue")
@@ -244,9 +244,9 @@ class ReadinessTests(unittest.TestCase):
             review_file.write_text(review_file.read_text(encoding="utf-8").replace("Verdict: PASS", "Verdict: INCONCLUSIVE"), encoding="utf-8")
 
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
-            self.assertIn("inconclusive_review_verdict", codes)
+            self.assertNotIn("inconclusive_review_verdict", codes)
 
-    def test_advance_blocks_nonempty_blocking_evidence_gaps(self):
+    def test_advance_does_not_block_review_evidence_gaps_in_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp), mode="research")
             complete_research_round(session_dir, decision="continue")
@@ -254,7 +254,7 @@ class ReadinessTests(unittest.TestCase):
             review_file.write_text(review_file.read_text(encoding="utf-8").replace("Blocking Evidence Gaps: none", "Blocking Evidence Gaps: missing baseline"), encoding="utf-8")
 
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
-            self.assertIn("blocked_review", codes)
+            self.assertNotIn("blocked_review", codes)
 
     def test_advance_accepts_non_blocking_gap_phrases(self):
         for phrase in ("no blocking evidence gaps", "not applicable"):
@@ -268,13 +268,12 @@ class ReadinessTests(unittest.TestCase):
                     codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
                     self.assertNotIn("blocked_review", codes)
 
-    def test_advance_blocks_stale_continue_without_stall_response(self):
+    def test_advance_does_not_block_stale_continue_as_readiness_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp), mode="research")
             complete_research_round(session_dir, decision="continue")
             round_dir = session_dir / "rounds" / "001"
             review_file = round_dir / "review.md"
-            decision_file = round_dir / "decision.md"
             review_file.write_text(
                 review_file.read_text(encoding="utf-8")
                 .replace("Fresh Evidence: yes", "Fresh Evidence: no")
@@ -282,34 +281,25 @@ class ReadinessTests(unittest.TestCase):
                 .replace("Direction Reuse Risk: low", "Direction Reuse Risk: high"),
                 encoding="utf-8",
             )
-            decision_file.write_text(
-                decision_file.read_text(encoding="utf-8").replace("Stall response: no staleness signal", "Stall response:"),
-                encoding="utf-8",
-            )
 
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "advance")}
-            self.assertIn("missing_staleness_response", codes)
+            self.assertNotIn("missing_staleness_response", codes)
 
-    def test_doctor_current_blocks_stale_continue_without_stall_response(self):
+    def test_doctor_current_does_not_block_stale_continue_as_readiness_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = create_session(Path(tmp), mode="research")
             complete_research_round(session_dir, decision="continue")
             round_dir = session_dir / "rounds" / "001"
             review_file = round_dir / "review.md"
-            decision_file = round_dir / "decision.md"
             review_file.write_text(
                 review_file.read_text(encoding="utf-8")
                 .replace("Fresh Evidence: yes", "Fresh Evidence: no")
                 .replace("Staleness Signal: none", "Staleness Signal: repeated"),
                 encoding="utf-8",
             )
-            decision_file.write_text(
-                decision_file.read_text(encoding="utf-8").replace("Stall response: no staleness signal", "Stall response:"),
-                encoding="utf-8",
-            )
 
             codes = {blocker.code for blocker in readiness.check(SessionStore(Path(tmp)).active_session(), "doctor-current")}
-            self.assertIn("missing_staleness_response", codes)
+            self.assertNotIn("missing_staleness_response", codes)
 
     def test_advance_allows_stale_continue_with_stall_response(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -198,7 +198,7 @@ Recommended Decision: {decision}
 
 ## Returned Review Findings
 
-- none
+none
 
 ## Accepted Corrections and Resolutions
 

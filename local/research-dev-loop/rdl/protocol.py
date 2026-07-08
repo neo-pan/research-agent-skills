@@ -207,7 +207,6 @@ READINESS_PLANS = {
     "doctor-current": (
         "review",
         "decision",
-        "staleness-response",
         "mode-minimums",
         "round-evidence-discipline",
         "artifact-citations",
@@ -216,8 +215,6 @@ READINESS_PLANS = {
     "advance": (
         "review",
         "decision",
-        "review-decision-alignment",
-        "staleness-response",
         "mode-minimums",
         "round-evidence-discipline",
         "artifact-citations",
@@ -226,8 +223,6 @@ READINESS_PLANS = {
     "guard-stop-advance": (
         "review",
         "decision",
-        "review-decision-alignment",
-        "staleness-response",
         "mode-minimums",
         "round-evidence-discipline",
         "artifact-citations",

@@ -19,7 +19,7 @@ Recommended Decision:
 
 ## Returned Review Findings
 
-- severity | category | location | claim | required_resolution
+none
 
 ## Accepted Corrections and Resolutions
 

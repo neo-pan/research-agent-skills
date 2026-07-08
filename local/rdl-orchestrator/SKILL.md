@@ -101,6 +101,8 @@ project work.
 
 7. Return review findings to the same round writer.
    - The writer writes `review.md`.
+   - In the orchestrated path, the writer records `Review Mode: subagent`
+     unless the user explicitly supplied an external adapter result.
    - The writer records returned findings in `Returned Review Findings` using
      `- severity | category | location | claim | required_resolution`.
    - The writer applies necessary record corrections from accepted review
