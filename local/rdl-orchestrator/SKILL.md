@@ -28,18 +28,45 @@ project work.
    - Run `rdl handoff --json`.
    - Run `rdl doctor --json`.
    - Read `prompt.md`, `mission.md`, `progress.md`, `factors.md`,
-     `decision-ledger.md`, and previous round evidence and decision records
-     when present.
+     `decision-ledger.md`, current-round `intent.md` or `work.md` when present,
+     and previous round evidence and decision records when present.
+   - Identify the current mission slice from `progress.md#Active`,
+     round-local prompt or intent, and the latest decision. If the mission is
+     broad and no active slice is explicit, do not start project work yet.
    - Completion check: current session, current round, gate status, active
-     work, known blockers, and next step are understood.
+     work, current slice if present, known blockers, and next step are
+     understood.
 
-2. Execute the current plan step.
+2. Establish the mission slice when missing.
+   - Use this step only when takeover found a broad mission without an explicit
+     active slice.
+   - Spawn one round-local planning writer subagent to record a minimal slice
+     plan before project work. The planning writer should preserve the original
+     mission and record: horizontal slices as independent workstreams or
+     evidence areas, vertical slices as smallest evidence-producing steps,
+     exactly one current active slice, deferred slices, blockers, and the
+     review trigger for the current slice.
+   - Prefer `rdl progress active|blocked|deferred|none` and `rdl factors`
+     records over a new todo file. Use round `intent.md` or `work.md` only when
+     the current mode requires implementation detail.
+   - The writer must not edit `mission.md` unless the mission itself has
+     changed, and must not run `rdl next`, `rdl close`, or gate transitions.
+   - Reread `rdl handoff --json`, `progress.md`, and relevant round records
+     after the planning writer closes. Later execution results must be recorded
+     by a new writer pass.
+   - Completion check: there is one explicit active slice with a concrete
+     review trigger, or a blocker is recorded and project work stops.
+
+3. Execute the current plan step.
    - Perform the current `Next Smallest Step` or equivalent plan step.
+   - Keep execution inside the current active slice unless new evidence makes
+     the slice invalid; if it does, stop project work and have a writer record
+     the blocker or direction change.
    - Collect raw results, artifact facts, verification notes, and blockers.
    - Completion check: there is concrete material for a writer to record, or a
      blocker that can be faithfully recorded.
 
-3. Spawn one round-writer subagent for the current writer pass.
+4. Spawn one round-writer subagent for the current writer pass.
    - Provide RDL state, prompt, mission, prior context, raw results, artifact
      facts, verification notes, and blockers.
    - The writer creates a reviewable current-round state by writing evidence,
@@ -53,20 +80,22 @@ project work.
    - Completion check: current-round records are reviewable and no gate or
      transition command has been run by the writer.
 
-4. Create the semantic review pack.
+5. Create the semantic review pack.
    - Run `rdl review --pack --json`.
    - Completion check: the pack reflects the writer-produced current-round
      state.
 
-5. Spawn one semantic-review subagent.
+6. Spawn one semantic-review subagent.
    - Provide only the review pack and any explicitly supplied verification
      artifacts.
    - Require structured findings, a verdict recommendation, evidence gaps,
      staleness risk, overclaim risks, and whether top-level session memory
-     faithfully supports handoff.
+     faithfully supports handoff. When a slice plan exists, require the
+     reviewer to judge whether the active slice and deferred slices are
+     coherent with the mission and current evidence.
    - Completion check: reviewer has returned findings and made no file edits.
 
-6. Return review findings to the same round writer.
+7. Return review findings to the same round writer.
    - The writer writes `review.md`.
    - The writer applies necessary record corrections from accepted review
      findings.
@@ -77,7 +106,7 @@ project work.
    - Completion check: review findings and accepted corrections are recorded,
      then the writer closes.
 
-7. Run the gate and transition.
+8. Run the gate and transition.
    - Run `rdl doctor --json`.
    - If a close decision is valid, run `rdl close --json`.
    - If advance is valid, run `rdl next --json`.

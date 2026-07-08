@@ -89,6 +89,10 @@ checks, RDL Python tests, and repository prerequisite checks.
   round changes completed work, active claims or capabilities, blockers, open
   questions, directions tried, datasets, workloads, baselines, metrics,
   validators, prompts, backends, hardware, or nondeterminism.
+- When a broad mission needs decomposition, record the current mission slice in
+  `progress.md` and supporting context in `factors.md` or round records. Treat
+  slice quality, ordering, and completeness as semantic review concerns, not
+  deterministic gate rules.
 - Use `rdl progress active|blocked|deferred|none` and `rdl factors` to
   explicitly maintain top-level session memory
   without hand-editing Markdown tables.
