@@ -66,6 +66,7 @@ class CliSummarizeTests(unittest.TestCase):
             self.assertIn("<!-- rdl:summary section=Staleness Watch start -->", progress)
 
             ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
+            self.assertIn("<!-- rdl:ledger-summary start -->", ledger)
             self.assertIn("## Session Summary Refresh", ledger)
             self.assertIn("- Through round: 002", ledger)
             manifest = store.read_json(session_dir / "integrity.json")
@@ -128,7 +129,7 @@ class CliSummarizeTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(result["details"]["summary_status"], "up_to_date")
 
-    def test_summarize_write_is_idempotent_for_progress_rows(self):
+    def test_summarize_write_is_idempotent_for_progress_rows_and_ledger_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session_dir = create_two_round_session(root)
@@ -139,7 +140,8 @@ class CliSummarizeTests(unittest.TestCase):
             progress = (session_dir / "progress.md").read_text(encoding="utf-8")
             self.assertEqual(progress.count("| round-001 | continue | fixture evidence | 001 |"), 1)
             ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
-            self.assertEqual(ledger.count("## Session Summary Refresh"), 3)
+            self.assertEqual(ledger.count("<!-- rdl:ledger-summary start -->"), 1)
+            self.assertEqual(ledger.count("## Session Summary Refresh"), 1)
 
     def test_summarize_round_limits_scanned_rounds(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -210,6 +212,9 @@ class CliSummarizeTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(result["session_id"], "summarize")
             self.assertEqual(result["details"]["summary_status"], "up_to_date")
+            self.assertEqual(result["next_action"], "none")
+            self.assertTrue(result["details"]["terminal"])
+            self.assertEqual(result["details"]["terminal_reason"], "session is closed-positive")
             self.assertEqual(snapshot(session_dir), before)
 
     def test_summarize_write_rejects_specified_session(self):

@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 SUMMARY_START = "<!-- rdl:summary section={section} start -->"
 SUMMARY_END = "<!-- rdl:summary section={section} end -->"
+LEDGER_SUMMARY_START = "<!-- rdl:ledger-summary start -->"
+LEDGER_SUMMARY_END = "<!-- rdl:ledger-summary end -->"
 
 
 @dataclass(frozen=True)
@@ -99,7 +101,7 @@ def write(session: "Session", summary_plan: SummaryPlan) -> tuple[Blocker, ...]:
     if rendered != current:
         store.write_text_atomic(progress_path, rendered)
 
-    _append_ledger_summary(session.root / "decision-ledger.md", summary_plan)
+    _write_ledger_summary(session.root / "decision-ledger.md", summary_plan)
     return ()
 
 
@@ -193,21 +195,42 @@ def _replace_section_block(text: str, section: str, rows: tuple[str, ...]) -> st
     return f"{prefix}\n\n{block}\n\n{suffix}"
 
 
-def _append_ledger_summary(path: Path, summary_plan: SummaryPlan) -> None:
-    updates = summary_plan.details("written")["progress_updates"]
-    text = (
-        "\n"
-        "## Session Summary Refresh\n\n"
-        f"- Through round: {summary_plan.through_round:03d}\n"
-        f"- Completed rows generated: {updates['Completed']}\n"
-        f"- Open question rows generated: {updates['Open Questions']}\n"
-        f"- Directions tried rows generated: {updates['Directions Tried']}\n"
-        f"- Staleness watch rows generated: {updates['Staleness Watch']}\n"
-        "- Factors updated: no deterministic candidates\n"
-    )
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(text)
+def _write_ledger_summary(path: Path, summary_plan: SummaryPlan) -> None:
+    current = store.read_text(path)
+    rendered = _render_ledger_summary(current, summary_plan)
+    if rendered != current:
+        store.write_text_atomic(path, rendered)
 
+
+def _render_ledger_summary(text: str, summary_plan: SummaryPlan) -> str:
+    updates = summary_plan.details("written")["progress_updates"]
+    block = "\n".join(
+        (
+            LEDGER_SUMMARY_START,
+            "## Session Summary Refresh",
+            "",
+            f"- Through round: {summary_plan.through_round:03d}",
+            f"- Completed rows generated: {updates['Completed']}",
+            f"- Open question rows generated: {updates['Open Questions']}",
+            f"- Directions tried rows generated: {updates['Directions Tried']}",
+            f"- Staleness watch rows generated: {updates['Staleness Watch']}",
+            "- Factors updated: no deterministic candidates",
+            LEDGER_SUMMARY_END,
+        )
+    )
+    pattern = re.compile(
+        rf"\n?{re.escape(LEDGER_SUMMARY_START)}\n.*?\n{re.escape(LEDGER_SUMMARY_END)}",
+        re.DOTALL,
+    )
+    if pattern.search(text):
+        rendered = pattern.sub("\n" + block, text)
+        return rendered if rendered.endswith("\n") else rendered + "\n"
+    base = text.rstrip()
+    return (
+        f"{base}\n\n{block}\n"
+        if base
+        else f"{block}\n"
+    )
 
 def _open_question_values(decision_file: Path, evidence_file: Path) -> list[str]:
     values: list[str] = []

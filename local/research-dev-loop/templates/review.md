@@ -16,3 +16,11 @@ Staleness Signal: none | possible | repeated
 Direction Reuse Risk: low | medium | high
 Readiness Level:
 Recommended Decision:
+
+## Returned Review Findings
+
+- severity | category | location | claim | required_resolution
+
+## Accepted Corrections and Resolutions
+
+none recorded

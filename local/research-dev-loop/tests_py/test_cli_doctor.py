@@ -59,6 +59,9 @@ class CliDoctorTests(unittest.TestCase):
             self.assertEqual(result["status"], "ok")
             self.assertEqual(result["session_id"], "doctor_inactive")
             self.assertEqual(result["phase"], "complete")
+            self.assertEqual(result["next_action"], "none")
+            self.assertTrue(result["details"]["terminal"])
+            self.assertEqual(result["details"]["terminal_reason"], "session is closed-positive")
             self.assertIn("gate", result["details"])
 
     def test_doctor_json_errors_for_bad_state(self):

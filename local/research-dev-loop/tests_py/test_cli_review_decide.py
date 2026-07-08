@@ -103,6 +103,9 @@ class CliReviewDecideTests(unittest.TestCase):
             self.assertFalse(review_file.exists())
             pack = result["details"]["review_pack"]
             self.assertIn("rounds/001/evidence.md", {record["path"] for record in pack["records"]})
+            self.assertEqual(result["next_action"], "none")
+            self.assertTrue(result["details"]["terminal"])
+            self.assertEqual(result["details"]["terminal_reason"], "session is abandoned")
             self.assertEqual(SessionStore(root).active_session().state.session_id, "review_pack_active")
             self.assertEqual(snapshot(selected_dir), before_selected)
             self.assertEqual(snapshot(active_dir), before_active)

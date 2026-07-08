@@ -319,6 +319,19 @@ def _state_result(
     )
 
 
+def _terminal_details(state: SessionState, details: dict[str, object]) -> dict[str, object]:
+    if state.status == SessionStatus.ACTIVE:
+        return details
+    merged = dict(details)
+    merged["terminal"] = True
+    merged["terminal_reason"] = f"session is {state.status.value}"
+    return merged
+
+
+def _read_only_next_action(state: SessionState, next_action: str) -> str:
+    return "none" if state.status != SessionStatus.ACTIVE else next_action
+
+
 def _doctor(session_id: str | None = None, session_path: str | None = None) -> CommandResult:
     loaded = _selected_session_result("doctor", session_id, session_path)
     if isinstance(loaded, CommandResult):
@@ -331,22 +344,24 @@ def _doctor(session_id: str | None = None, session_path: str | None = None) -> C
     details = _gate_details(gate_report)
     state = session.state
     if blockers:
+        details = _terminal_details(state, details)
         return _state_result(
             "blocked",
             "doctor",
             state,
             blockers=blockers,
             warnings=warnings,
-            next_action="complete missing RDL records",
+            next_action=_read_only_next_action(state, "complete missing RDL records"),
             details=details,
         )
 
+    details = _terminal_details(state, details)
     return _state_result(
         "ok",
         "doctor",
         state,
         warnings=warnings,
-        next_action="rdl review",
+        next_action=_read_only_next_action(state, "rdl review"),
         details=details,
     )
 
@@ -454,21 +469,23 @@ def _summarize(mode: str | None, through_round: int | None, session_id: str | No
     state = loaded.state
     summary_plan = summary.check(loaded, through_round)
     if summary_plan.blockers:
+        details = _terminal_details(state, summary_plan.details("needs_update"))
         return _state_result(
             "error",
             "summarize",
             state,
             blockers=summary_plan.blockers,
-            next_action="pass a valid --round",
-            details=summary_plan.details("needs_update"),
+            next_action=_read_only_next_action(state, "pass a valid --round"),
+            details=details,
         )
     status = "up_to_date" if summary.progress_up_to_date(loaded, summary_plan) else "needs_update"
+    details = _terminal_details(state, summary_plan.details(status))
     return _state_result(
         "ok",
         "summarize",
         state,
-        next_action="rdl summarize --write" if status == "needs_update" else "rdl doctor",
-        details=summary_plan.details(status),
+        next_action=_read_only_next_action(state, "rdl summarize --write" if status == "needs_update" else "rdl doctor"),
+        details=details,
     )
 
 
@@ -536,20 +553,22 @@ def _memory(mode: str | None, session_id: str | None = None, session_path: str |
     state = loaded.state
     report, summary_plan = memory_report.check(loaded)
     if summary_plan.blockers:
+        details = _terminal_details(state, report.details("needs_attention"))
         return _state_result(
             "error",
             "memory",
             state,
             blockers=summary_plan.blockers,
-            next_action="inspect session round state",
-            details=report.details("needs_attention"),
+            next_action=_read_only_next_action(state, "inspect session round state"),
+            details=details,
         )
+    details = _terminal_details(state, report.details())
     return _state_result(
         "ok",
         "memory",
         state,
-        next_action=_memory_next_action(report),
-        details=report.details(),
+        next_action=_read_only_next_action(state, _memory_next_action(report)),
+        details=details,
     )
 
 
@@ -844,12 +863,13 @@ def _handoff(session_id: str | None = None, session_path: str | None = None) -> 
         "suggested_actions": suggested_actions,
         "gate": gate_report.details,
     }
+    details = _terminal_details(state, details)
     return _state_result(
         "ok",
         "handoff",
         state,
         warnings=gate_report.warnings,
-        next_action="rdl doctor" if handoff_status == "ready" else _memory_next_action(report),
+        next_action=_read_only_next_action(state, "rdl doctor" if handoff_status == "ready" else _memory_next_action(report)),
         details=details,
     )
 
@@ -1040,16 +1060,20 @@ def _review_pack(session_id: str | None = None, session_path: str | None = None)
     session = loaded
     gate_report = gate.run(session, "doctor")
     pack = review_pack.build(session, "review", gate_report)
+    details = _terminal_details(
+        session.state,
+        {
+            "review_pack": pack.as_dict(),
+            "gate": gate_report.details,
+        },
+    )
     return _state_result(
         "ok",
         "review",
         session.state,
         warnings=gate_report.warnings,
-        next_action="send details.review_pack to the reviewer agent",
-        details={
-            "review_pack": pack.as_dict(),
-            "gate": gate_report.details,
-        },
+        next_action=_read_only_next_action(session.state, "send details.review_pack to the reviewer agent"),
+        details=details,
     )
 
 

@@ -104,6 +104,7 @@ def assert_gate_details_compatible(
             "adapter",
             "required",
             "reviewed_artifacts",
+            "recorded_findings",
             "findings",
             "review_pack",
         }.issubset(semantic.keys()),
@@ -113,6 +114,7 @@ def assert_gate_details_compatible(
     testcase.assertIsInstance(semantic["adapter"], str)
     testcase.assertIsInstance(semantic["required"], bool)
     testcase.assertIsInstance(semantic["reviewed_artifacts"], list)
+    testcase.assertIsInstance(semantic["recorded_findings"], list)
     testcase.assertIsInstance(semantic["findings"], list)
     testcase.assertIsInstance(semantic["review_pack"], dict)
 
@@ -193,6 +195,14 @@ Staleness Signal: none
 Direction Reuse Risk: low
 Readiness Level: ready
 Recommended Decision: {decision}
+
+## Returned Review Findings
+
+- none
+
+## Accepted Corrections and Resolutions
+
+none
 """
 
 

@@ -42,6 +42,22 @@ class CliMemoryTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(result["details"]["memory_status"], "healthy")
 
+    def test_memory_check_reads_closed_session_as_terminal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_complete_memory_session(root)
+            mark_closed(session_dir)
+            before = snapshot(session_dir)
+
+            code, result = run_cli(root, ["memory", "--check", "--session-id", "memory_complete", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["session_id"], "memory_complete")
+            self.assertEqual(result["next_action"], "none")
+            self.assertTrue(result["details"]["terminal"])
+            self.assertEqual(result["details"]["terminal_reason"], "session is closed-positive")
+            self.assertEqual(snapshot(session_dir), before)
+
     def test_memory_write_refreshes_summary_and_integrity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -35,6 +35,9 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl progress active --item parser 
 PYTHONPATH=local/research-dev-loop python3 -m rdl factors --section "Dataset or Workload" --value "current workload slice" --json
 ```
 
+When another tool or agent consumes `--json`, run RDL from a clean shell/session
+so stdout remains parseable JSON.
+
 ## Requirements
 
 RDL requires `python3`. Its implementation lives under
@@ -112,6 +115,9 @@ checks, RDL Python tests, and repository prerequisite checks.
   agent. The pack includes RDL records, artifact manifest facts, deterministic
   findings, reviewer instructions, a finding schema, and semantic signals that
   require judgment. It must not create or modify `review.md`.
+- Keep semantic-review prompts concise but action/profile/mode-aware. Ask the
+  reviewer for a verdict recommendation, memory fidelity, next-action
+  recommendation, and short structured findings using the review-pack schema.
 - Treat semantic review as part of the default gate contract for `full-review`,
   close, and phase-gate cases. Semantic findings should be produced from the
   review pack or a completed adapter review and surfaced through normal
@@ -144,6 +150,10 @@ checks, RDL Python tests, and repository prerequisite checks.
 - For phase gates, close decisions, and substantial `full-review` rounds, record
   the semantic review adapter in `Review Mode` and capture its findings in
   `review.md`.
+- Record returned semantic findings under `Returned Review Findings` using the
+  line format `- severity | category | location | claim | required_resolution`.
+  Record accepted corrections separately; RDL may surface these records in gate
+  details but must not infer that a semantic issue is truly resolved.
 - When staleness appears, continue only with an explicit stall response, or
   change direction with prior directions checked.
 - Index artifacts in `artifact-manifest.json`; do not copy project artifacts.

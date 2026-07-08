@@ -199,6 +199,40 @@ class GateTests(unittest.TestCase):
             self.assertEqual(findings["semantic_review_recorded"]["severity"], "note")
             self.assertNotIn("semantic_review_recorded", report.warnings)
 
+    def test_semantic_gate_records_structured_review_findings_without_interpreting_them(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_findings")
+            complete_research_round(session_dir)
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(
+                complete_review("continue").replace(
+                    "- none",
+                    "- warning | overclaim | rounds/001/decision.md | claim scope may be too broad | keep the decision scoped",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            semantic = report.details["semantic"]
+            self.assertEqual(
+                semantic["recorded_findings"],
+                [
+                    {
+                        "severity": "warning",
+                        "category": "overclaim",
+                        "location": "rounds/001/decision.md",
+                        "claim": "claim scope may be too broad",
+                        "required_resolution": "keep the decision scoped",
+                        "source": "manual",
+                    }
+                ],
+            )
+            self.assertNotIn("overclaim", report.warnings)
+
     def test_semantic_gate_surfaces_each_protocol_review_adapter(self):
         for adapter in descriptor.allowed_values("review-mode"):
             with self.subTest(adapter=adapter), tempfile.TemporaryDirectory() as tmp:

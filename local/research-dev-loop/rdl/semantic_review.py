@@ -40,6 +40,7 @@ class SemanticReviewReport:
     adapter: str
     required: bool
     reviewed_artifacts: tuple[str, ...]
+    recorded_findings: tuple[dict[str, str], ...]
     findings: tuple[SemanticFinding, ...]
     review_pack: review_pack.ReviewPack
 
@@ -49,6 +50,7 @@ class SemanticReviewReport:
             "adapter": self.adapter,
             "required": self.required,
             "reviewed_artifacts": list(self.reviewed_artifacts),
+            "recorded_findings": list(self.recorded_findings),
             "findings": [finding.as_dict() for finding in self.findings],
             "review_pack": self.review_pack.summary(),
         }
@@ -74,7 +76,7 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
                 "review-md",
             )
         )
-        return _report(required, adapter, (), findings, pack)
+        return _report(required, adapter, (), (), findings, pack)
 
     review_blockers = documents.validate("review", review_file) if review_file.is_file() else []
     if required and review_blockers:
@@ -88,10 +90,10 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
                 "review-md",
             )
         )
-        return _report(required, adapter, (), findings, pack)
+        return _report(required, adapter, (), (), findings, pack)
 
     if not review_file.is_file() or review_blockers:
-        return _report(required, adapter, (), findings, pack)
+        return _report(required, adapter, (), (), findings, pack)
 
     artifacts = _split_field(documents.field(review_file, "Artifacts Reviewed"))
     decision = documents.field(session.round_dir() / "decision.md", "Decision")
@@ -100,6 +102,7 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
     fresh_evidence = documents.field(review_file, "Fresh Evidence")
     staleness = documents.field(review_file, "Staleness Signal")
     reuse_risk = documents.field(review_file, "Direction Reuse Risk")
+    recorded_findings = _recorded_findings(review_file, adapter)
 
     findings.append(
         SemanticFinding(
@@ -157,7 +160,7 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
             )
         )
 
-    return _report(required, adapter, artifacts, findings, pack)
+    return _report(required, adapter, artifacts, recorded_findings, findings, pack)
 
 
 def _semantic_review_required(session: Session, action: str, deterministic_gate_report: Any) -> bool:
@@ -181,13 +184,40 @@ def _report(
     required: bool,
     adapter: str,
     artifacts: tuple[str, ...],
+    recorded_findings: tuple[dict[str, str], ...],
     findings: list[SemanticFinding],
     pack: review_pack.ReviewPack,
 ) -> SemanticReviewReport:
     status = "blocked" if any(finding.severity == "blocking" for finding in findings) else "needs_attention" if any(
         finding.severity == "warning" for finding in findings
     ) else "ok"
-    return SemanticReviewReport(status, adapter, required, artifacts, tuple(findings), pack)
+    return SemanticReviewReport(status, adapter, required, artifacts, recorded_findings, tuple(findings), pack)
+
+
+def _recorded_findings(review_file: Any, adapter: str) -> tuple[dict[str, str], ...]:
+    parsed = documents.section(review_file, "Returned Review Findings")
+    lines = [line.strip() for line in parsed.content.splitlines() if line.strip()]
+    if len(lines) == 1 and lines[0].lower() in {"none", "none recorded", "- none"}:
+        return ()
+    findings = []
+    for line in lines:
+        if not line.startswith("- "):
+            continue
+        parts = [part.strip() for part in line[2:].split("|")]
+        if len(parts) != 5:
+            continue
+        severity, category, location, claim, required_resolution = parts
+        findings.append(
+            {
+                "severity": severity,
+                "category": category,
+                "location": location,
+                "claim": claim,
+                "required_resolution": required_resolution,
+                "source": adapter,
+            }
+        )
+    return tuple(findings)
 
 
 def _split_field(value: str) -> tuple[str, ...]:

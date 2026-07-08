@@ -182,6 +182,9 @@ keep future caveats scoped
             self.assertEqual(result["details"]["open_questions"], "- Could a stronger artifact change the gate after future retrieval work?")
             self.assertEqual(result["details"]["known_evidence_gaps"], "- future-only stronger artifact not tested")
             self.assertEqual(result["details"]["directions_tried"], "- closed instead of repeating model work")
+            self.assertEqual(result["next_action"], "none")
+            self.assertTrue(result["details"]["terminal"])
+            self.assertEqual(result["details"]["terminal_reason"], "session is closed-inconclusive")
             self.assertEqual(snapshot(session_dir), before)
 
     def test_handoff_json_can_read_specified_session_without_changing_active_session(self):

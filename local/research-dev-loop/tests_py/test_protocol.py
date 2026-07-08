@@ -193,7 +193,10 @@ class ProtocolDescriptorTests(unittest.TestCase):
     def test_document_specs_collect_fields_sections_and_values(self):
         review = descriptor.document_spec("review")
         self.assertEqual(review.required_fields, descriptor.required_fields("review"))
-        self.assertEqual(review.required_sections, ())
+        self.assertEqual(
+            review.required_sections,
+            ("Returned Review Findings", "Accepted Corrections and Resolutions"),
+        )
         self.assertEqual(review.values_for_field("Review Mode"), descriptor.allowed_values("review-mode"))
         self.assertEqual(review.values_for_field("Verdict"), descriptor.allowed_values("review-verdict"))
 

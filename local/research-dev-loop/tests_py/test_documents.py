@@ -93,6 +93,12 @@ class DocumentTests(unittest.TestCase):
             codes = [blocker.code for blocker in documents.validate("review", path)]
             self.assertIn("missing_review_field", codes)
 
+    def test_review_validation_blocks_malformed_structured_findings(self):
+        malformed = COMPLETE_REVIEW.replace("- none", "- urgent | vibes | nowhere | vague")
+        with markdown(malformed) as path:
+            codes = {blocker.code for blocker in documents.validate("review", path)}
+            self.assertIn("invalid_review_finding", codes)
+
     def test_complete_decision_validates_with_expected_closes(self):
         with markdown(COMPLETE_DECISION) as path:
             self.assertEqual(documents.validate("decision", path, {"expected_closes": "claim"}), [])
@@ -208,6 +214,14 @@ Staleness Signal: none
 Direction Reuse Risk: low
 Readiness Level: ready
 Recommended Decision: continue
+
+## Returned Review Findings
+
+- none
+
+## Accepted Corrections and Resolutions
+
+none
 """
 
 

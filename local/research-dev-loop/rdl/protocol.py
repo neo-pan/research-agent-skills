@@ -113,6 +113,8 @@ VALUE_SETS = {
     "fresh-evidence": ("yes", "mixed", "no"),
     "staleness-signal": ("none", "possible", "repeated"),
     "direction-reuse-risk": ("low", "medium", "high"),
+    "finding-severity": ("blocking", "warning", "note"),
+    "finding-category": ("evidence", "overclaim", "staleness", "handoff", "memory", "artifact", "decision"),
     "decision-type": (
         "continue",
         "pivot",
@@ -153,6 +155,7 @@ DOCUMENT_SPECS = {
             "Readiness Level",
             "Recommended Decision",
         ),
+        required_sections=("Returned Review Findings", "Accepted Corrections and Resolutions"),
         allowed_values={
             "Review Mode": VALUE_SETS["review-mode"],
             "Verdict": VALUE_SETS["review-verdict"],

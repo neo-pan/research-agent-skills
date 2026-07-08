@@ -130,6 +130,26 @@ def _validate_review(path: Path) -> list[Blocker]:
                     f"Complete {required_field} in review.md.",
                 )
             )
+    for required_section in spec.required_sections if spec is not None else ():
+        parsed = section(path, required_section)
+        if parsed.start_line is None:
+            blockers.append(
+                Blocker(
+                    "missing_review_section",
+                    f"{path}#{required_section}",
+                    f"{required_section} section is missing.",
+                    f"Restore the {required_section} section in review.md.",
+                )
+            )
+        elif not _text_has_content(parsed.content):
+            blockers.append(
+                Blocker(
+                    "empty_review_section",
+                    f"{path}#{required_section}",
+                    f"{required_section} section is empty.",
+                    f"Record findings or none in {required_section}.",
+                )
+            )
 
     review_mode = field(path, "Review Mode")
     if spec is None or review_mode not in spec.values_for_field("Review Mode"):
@@ -182,6 +202,59 @@ def _validate_review(path: Path) -> list[Blocker]:
                 "Use low, medium, or high.",
             )
         )
+    blockers.extend(_validate_review_findings(path))
+    return blockers
+
+
+def _validate_review_findings(path: Path) -> list[Blocker]:
+    parsed = section(path, "Returned Review Findings")
+    if parsed.start_line is None or not _text_has_content(parsed.content):
+        return []
+    lines = [line.strip() for line in parsed.content.splitlines() if line.strip()]
+    if len(lines) == 1 and lines[0].lower() in {"none", "none recorded", "- none"}:
+        return []
+    blockers: list[Blocker] = []
+    for line in lines:
+        if not line.startswith("- "):
+            blockers.append(
+                Blocker(
+                    "invalid_review_finding",
+                    f"{path}#Returned Review Findings",
+                    "Review finding lines must start with '- '.",
+                    "Use '- severity | category | location | claim | required_resolution'.",
+                )
+            )
+            continue
+        parts = [part.strip() for part in line[2:].split("|")]
+        if len(parts) != 5 or any(_placeholder(part) for part in parts):
+            blockers.append(
+                Blocker(
+                    "invalid_review_finding",
+                    f"{path}#Returned Review Findings",
+                    "Review finding lines must have five pipe-delimited fields.",
+                    "Use '- severity | category | location | claim | required_resolution'.",
+                )
+            )
+            continue
+        severity, category, _location, _claim, _required_resolution = parts
+        if not descriptor.value_allowed("finding-severity", severity):
+            blockers.append(
+                Blocker(
+                    "invalid_review_finding_severity",
+                    f"{path}#Returned Review Findings",
+                    "Review finding severity is unsupported.",
+                    "Use blocking, warning, or note.",
+                )
+            )
+        if not descriptor.value_allowed("finding-category", category):
+            blockers.append(
+                Blocker(
+                    "invalid_review_finding_category",
+                    f"{path}#Returned Review Findings",
+                    "Review finding category is unsupported.",
+                    "Use evidence, overclaim, staleness, handoff, memory, artifact, or decision.",
+                )
+            )
     return blockers
 
 

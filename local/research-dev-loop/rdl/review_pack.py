@@ -98,7 +98,7 @@ def build(session: Session, action: str, deterministic_gate_report: Any) -> Revi
         round=session.state.round,
         mode=str(session.state.mode),
         profile=str(session.state.profile),
-        reviewer_task=_reviewer_task(),
+        reviewer_task=_reviewer_task(action, str(session.state.mode), str(session.state.profile)),
         finding_schema=_finding_schema(),
         agent_review_signals=memory.agent_review_signals(session),
         records=tuple(records),
@@ -111,31 +111,51 @@ def build(session: Session, action: str, deterministic_gate_report: Any) -> Revi
     )
 
 
-def _reviewer_task() -> dict[str, Any]:
+def _reviewer_task(action: str, mode: str, profile: str) -> dict[str, Any]:
+    questions = [
+        "Does the supplied evidence support the proposed claim or capability decision?",
+        "Are there overclaim risks, missing decision-grade evidence, or unresolved confounders?",
+        "Is the current direction stale, repeating, or missing a concrete stall response?",
+        "Does top-level session memory faithfully preserve active, blocked, deferred, and open-question state?",
+    ]
+    if action == "close":
+        questions.append("Is the close outcome scoped correctly, with remaining unknowns and next-loop uncertainty preserved?")
+    elif action == "next":
+        questions.append("Is there enough fresh evidence and a concrete next smallest step to advance the round?")
+    if mode == "build":
+        questions.append("Are work artifacts and verification evidence sufficient for the capability decision?")
+    elif mode == "research":
+        questions.append("Are claim, uncertainty, and what-remains-unknown separated clearly?")
+    if profile == "full-review":
+        questions.append("Would any finding require revise-before-close, block, or inconclusive rather than pass?")
+
     return {
         "role": "independent semantic reviewer",
+        "mode": mode,
+        "profile": profile,
+        "action": action,
         "instructions": [
             "Use only the supplied RDL records, artifact manifest facts, deterministic findings, and cited evidence.",
             "Do not rely on main-agent conversation history.",
             "Do not edit canonical RDL files or advance the session.",
-            "Return structured findings for the main agent or user to record in review.md.",
+            "Return a compact verdict recommendation plus structured findings for review.md.",
         ],
-        "questions": [
-            "Does the evidence support the claim or capability decision?",
-            "Are there overclaim risks or missing decision-grade evidence?",
-            "Is the current direction becoming stale or repeating without useful fresh evidence?",
-            "Does top-level session memory faithfully preserve handoff state?",
-            "Do active items, blockers, deferred items, and open questions still represent the true state?",
-        ],
+        "output": {
+            "verdict_recommendation": "pass | revise-before-close | block | inconclusive",
+            "memory_fidelity": "faithful | needs-correction | incomplete",
+            "next_action_recommendation": "close | next | revise | stop",
+            "finding_line_format": "- severity | category | location | claim | required_resolution",
+        },
+        "questions": questions,
     }
 
 
 def _finding_schema() -> dict[str, Any]:
     return {
-        "required_fields": ["severity", "category", "location", "claim", "required_resolution", "source"],
+        "required_fields": ["severity", "category", "location", "claim", "required_resolution"],
         "severity": ["blocking", "warning", "note"],
         "category": ["evidence", "overclaim", "staleness", "handoff", "memory", "artifact", "decision"],
-        "source": ["manual", "checklist", "phase-review", "subagent", "project-adapter"],
+        "line_format": "- severity | category | location | claim | required_resolution",
     }
 
 

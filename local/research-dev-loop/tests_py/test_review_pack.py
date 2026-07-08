@@ -63,6 +63,26 @@ class ReviewPackTests(unittest.TestCase):
             self.assertIn("unchanged_next_smallest_step_across_rounds", {signal["code"] for signal in pack.agent_review_signals})
             self.assertEqual(pack.deterministic_findings, ())
 
+    def test_reviewer_task_is_action_profile_mode_aware_without_large_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_task", mode="build")
+            set_current_round(session_dir, 1)
+            session = SessionStore(root).active_session()
+            deterministic_report = SimpleNamespace(details={"findings": []})
+
+            pack = review_pack.build(session, "close", deterministic_report)
+
+            task = pack.as_dict()["reviewer_task"]
+            self.assertEqual(task["action"], "close")
+            self.assertEqual(task["mode"], "build")
+            self.assertEqual(task["profile"], "full-review")
+            self.assertIn("finding_line_format", task["output"])
+            joined_questions = "\n".join(task["questions"])
+            self.assertIn("close outcome", joined_questions)
+            self.assertIn("work artifacts", joined_questions)
+            self.assertLessEqual(len(task["questions"]), 7)
+
     def test_includes_bounded_prior_completed_round_key_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -27,6 +27,8 @@ project work.
 1. Take over RDL state.
    - Run `rdl handoff --json`.
    - Run `rdl doctor --json`.
+   - When consuming JSON output, use a clean invocation and retry cleanly if
+     stdout contains shell startup text or other non-JSON noise.
    - Read `prompt.md`, `mission.md`, `progress.md`, `factors.md`,
      `decision-ledger.md`, current-round `intent.md` or `work.md` when present,
      and previous round evidence and decision records when present.
@@ -82,6 +84,8 @@ project work.
 
 5. Create the semantic review pack.
    - Run `rdl review --pack --json`.
+   - Ensure the pack's reviewer task is action/profile/mode-aware and concise;
+     do not add extra reviewer ceremony outside the RDL review flow.
    - Completion check: the pack reflects the writer-produced current-round
      state.
 
@@ -97,8 +101,11 @@ project work.
 
 7. Return review findings to the same round writer.
    - The writer writes `review.md`.
+   - The writer records returned findings in `Returned Review Findings` using
+     `- severity | category | location | claim | required_resolution`.
    - The writer applies necessary record corrections from accepted review
      findings.
+   - The writer records accepted corrections separately from returned findings.
    - The writer may run read-only checks such as `rdl doctor --json`.
    - If accepted findings identify stale, fragmented, or incomplete handoff
      memory, the writer updates `progress.md` or `factors.md` explicitly and
