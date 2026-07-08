@@ -70,7 +70,9 @@ class CliCloseTests(unittest.TestCase):
                     self.assertEqual(progress_entry["sha256"], integrity.file_sha256(session_dir / "progress.md"))
                     gate_report = store.read_json(session_dir / "rounds" / "001" / "gate-report.json")
                     self.assertEqual(gate_report["action"], "close")
+                    self.assertEqual(gate_report["status"], "needs_attention")
                     self.assertEqual(gate_report["details"]["semantic"]["adapter"], "manual")
+                    self.assertNotIn("round_content_ahead_of_state_phase", gate_report["warnings"])
                     self.assertIn(f"Action: close", (session_dir / "rounds" / "001" / "gate.md").read_text(encoding="utf-8"))
 
     def test_close_json_blocks_for_missing_final_report_without_mutation(self):

@@ -123,6 +123,67 @@ No deferred items.
             self.assertEqual(result["details"]["latest_completed_decision"]["closes"], "claim")
             self.assertEqual(snapshot(session_dir), before)
 
+    def test_handoff_closed_session_uses_final_report_current_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_complete_handoff_session(root)
+            (session_dir / "final-report.md").write_text(
+                """# Final Report
+
+## Outcome
+
+closed-inconclusive
+
+## Claim or Capability Closed
+
+fixture closed claim
+
+## Evidence Cited
+
+fixture evidence
+
+## Missing Evidence and Confounders
+
+future-only stronger artifact not tested
+
+## Negative, Null, or Inconclusive Results
+
+inconclusive under current artifact
+
+## Open Questions
+
+Could a stronger artifact change the gate after
+future retrieval work?
+
+## Deferred Items
+
+deferred model work
+
+## Directions Tried And Stall Responses
+
+closed instead of repeating model work
+
+## Reusable Lessons
+
+keep future caveats scoped
+
+## Close Checklist
+
+- [x] Final report complete.
+""",
+                encoding="utf-8",
+            )
+            mark_closed(session_dir, "closed-inconclusive")
+            before = snapshot(session_dir)
+
+            code, result = run_cli_json(root, ["handoff", "--session-id", "handoff_complete", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["open_questions"], "- Could a stronger artifact change the gate after future retrieval work?")
+            self.assertEqual(result["details"]["known_evidence_gaps"], "- future-only stronger artifact not tested")
+            self.assertEqual(result["details"]["directions_tried"], "- closed instead of repeating model work")
+            self.assertEqual(snapshot(session_dir), before)
+
     def test_handoff_json_can_read_specified_session_without_changing_active_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -257,9 +318,13 @@ none
 
 
 def mark_inactive(session_dir: Path) -> None:
+    mark_closed(session_dir, "abandoned")
+
+
+def mark_closed(session_dir: Path, status: str) -> None:
     state_path = session_dir / "state.json"
     state = store.read_json(state_path)
-    state["status"] = "abandoned"
+    state["status"] = status
     state["phase"] = "complete"
     store.write_json_atomic(state_path, state)
     integrity.refresh(SessionStore(session_dir.parents[2]).load_session(session_dir))

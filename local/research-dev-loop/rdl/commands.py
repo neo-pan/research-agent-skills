@@ -883,8 +883,15 @@ def _decision_details(decision_file: Path) -> dict[str, str]:
 
 
 def _field_or_none_recorded(path: Path, name: str) -> str:
-    value = documents.field(path, name)
+    value = documents.field(path, name) if name in _SINGLE_LINE_DETAIL_FIELDS else documents.field_text(path, name)
     return value if value else memory.NONE_RECORDED
+
+
+_SINGLE_LINE_DETAIL_FIELDS = {
+    "Decision",
+    "Closes",
+    "Recommended next loop",
+}
 
 
 def _next(next_mode: str | None = None, next_profile: str | None = None) -> CommandResult:

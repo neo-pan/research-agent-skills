@@ -10,6 +10,20 @@ class DocumentTests(unittest.TestCase):
         with markdown("# Review\n\nReviewer:  fixture \n") as path:
             self.assertEqual(documents.field(path, "Reviewer"), "fixture")
 
+    def test_field_text_extracts_continuation_lines(self):
+        with markdown(
+            "# Decision\n\n"
+            "What remains unknown: whether a stronger external index,\n"
+            "graph-aware retriever, or curated artifact would help.\n"
+            "\n"
+            "Uncertainty: bounded\n"
+        ) as path:
+            self.assertEqual(
+                documents.field_text(path, "What remains unknown"),
+                "whether a stronger external index,\ngraph-aware retriever, or curated artifact would help.",
+            )
+            self.assertEqual(documents.field(path, "What remains unknown"), "whether a stronger external index,")
+
     def test_section_extracts_level_two_content(self):
         with markdown("# Report\n\n## Outcome\n\npositive\n\n## Next\n\nlater\n") as path:
             section = documents.section(path, "Outcome")

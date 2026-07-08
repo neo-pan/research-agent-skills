@@ -228,18 +228,13 @@ def _decision_summary(decision_file: Path) -> str:
 
 
 def _compact_field(decision_file: Path, field: str) -> str:
-    raw_value = documents.field(decision_file, field)
-    first_line = ""
-    for line in raw_value.splitlines():
-        candidate = " ".join(line.strip().split())
-        if _meaningful(candidate):
-            first_line = candidate
-            break
-    if not first_line:
+    raw_value = documents.field_text(decision_file, field)
+    compact = " ".join(raw_value.split())
+    if not _meaningful(compact):
         return "none recorded"
-    if len(first_line) > 240:
-        return first_line[:237].rstrip() + "..."
-    return first_line
+    if len(compact) > 240:
+        return compact[:237].rstrip() + "..."
+    return compact
 
 
 def _meaningful(value: str) -> bool:

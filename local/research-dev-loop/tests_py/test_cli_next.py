@@ -70,6 +70,7 @@ class CliNextTests(unittest.TestCase):
             self.assertEqual(gate_report["status"], "needs_attention")
             self.assertEqual(gate_report["details"]["semantic"]["adapter"], "manual")
             self.assertIn("semantic_review_recorded", {finding["code"] for finding in gate_report["details"]["findings"]})
+            self.assertNotIn("round_content_ahead_of_state_phase", gate_report["warnings"])
             self.assertIn("Status: needs_attention", (session_dir / "rounds" / "001" / "gate.md").read_text(encoding="utf-8"))
 
     def test_next_json_can_transition_to_build_mode(self):

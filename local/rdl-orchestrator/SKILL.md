@@ -47,6 +47,9 @@ project work.
      factor memory, and a decision record as needed.
    - The writer uses `rdl progress` and `rdl factors` when possible instead of
      hand-editing those records.
+   - The writer runs or consumes `rdl memory --check --json` and corrects
+     protocol-level session-memory gaps before review. Judgment-heavy memory
+     changes remain explicit writer decisions, not automatic summary edits.
    - Completion check: current-round records are reviewable and no gate or
      transition command has been run by the writer.
 
@@ -59,7 +62,8 @@ project work.
    - Provide only the review pack and any explicitly supplied verification
      artifacts.
    - Require structured findings, a verdict recommendation, evidence gaps,
-     staleness risk, and overclaim risks.
+     staleness risk, overclaim risks, and whether top-level session memory
+     faithfully supports handoff.
    - Completion check: reviewer has returned findings and made no file edits.
 
 6. Return review findings to the same round writer.
@@ -67,6 +71,9 @@ project work.
    - The writer applies necessary record corrections from accepted review
      findings.
    - The writer may run read-only checks such as `rdl doctor --json`.
+   - If accepted findings identify stale, fragmented, or incomplete handoff
+     memory, the writer updates `progress.md` or `factors.md` explicitly and
+     reruns `rdl memory --check --json` before closing.
    - Completion check: review findings and accepted corrections are recorded,
      then the writer closes.
 

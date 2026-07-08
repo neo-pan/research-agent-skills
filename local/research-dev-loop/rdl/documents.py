@@ -27,6 +27,30 @@ def field(path: str | Path, name: str) -> str:
     return ""
 
 
+def field_text(path: str | Path, name: str) -> str:
+    """Return a field value plus following continuation lines.
+
+    `field()` intentionally stays single-line for enum-like protocol fields.
+    Use this helper for free-text fields such as Evidence or What remains
+    unknown, where wrapping the value across lines must not truncate handoff
+    state.
+    """
+
+    lines = _read_lines(path)
+    for index, line in enumerate(lines):
+        match = re.match(rf"^[ \t]*{re.escape(name)}:[ \t]*(.*)$", line)
+        if not match:
+            continue
+        values = [match.group(1).strip()]
+        for continuation in lines[index + 1 :]:
+            stripped = continuation.strip()
+            if not stripped or stripped.startswith("#") or _field_like_line(stripped):
+                break
+            values.append(stripped)
+        return "\n".join(value for value in values if value).strip()
+    return ""
+
+
 def section(path: str | Path, heading: str) -> MarkdownSection:
     lines = _read_lines(path)
     start_index: int | None = None
@@ -314,6 +338,10 @@ def _read_lines(path: str | Path) -> list[str]:
     if not candidate.is_file():
         return []
     return candidate.read_text(encoding="utf-8").splitlines()
+
+
+def _field_like_line(value: str) -> bool:
+    return bool(re.match(r"^[A-Za-z][A-Za-z0-9 /?()_-]{0,80}:[ \t]*", value))
 
 
 def _placeholder(value: str) -> bool:

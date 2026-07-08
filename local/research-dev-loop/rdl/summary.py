@@ -220,7 +220,7 @@ def _open_question_values(decision_file: Path, evidence_file: Path) -> list[str]
 
 
 def _field(path: Path, name: str) -> str:
-    value = documents.field(path, name)
+    value = documents.field_text(path, name)
     return value if _meaningful(value) else ""
 
 

@@ -39,6 +39,17 @@ def prompt_context(session: "Session", round_number: int | None = None) -> Promp
     progress_file = session.root / "progress.md"
     decision_file = session.round_dir(current_round) / "decision.md"
     evidence_file = session.round_dir(current_round) / "evidence.md"
+    final_report_file = session.root / "final-report.md"
+
+    if _closed_status(str(session.state.status)) and final_report_file.is_file():
+        return PromptContext(
+            claim_or_capability=_section_or_none(final_report_file, "Claim or Capability Closed"),
+            open_questions=_section_or_none(final_report_file, "Open Questions"),
+            known_evidence_gaps=_section_or_none(final_report_file, "Missing Evidence and Confounders"),
+            directions_tried=_section_or_none(final_report_file, "Directions Tried And Stall Responses"),
+            staleness_watch=_progress_section_summary(progress_file, "Staleness Watch", preferred=("signal",)),
+            next_smallest_step=_field_or_none(decision_file, "Next smallest step"),
+        )
 
     return PromptContext(
         claim_or_capability=_progress_section_summary(progress_file, "Active", preferred=("claim or capability", "item")),
@@ -145,8 +156,13 @@ def _progress_section_summary(path: Path, heading: str, *, preferred: tuple[str,
 
 
 def _field_or_none(path: Path, name: str) -> str:
-    value = documents.field(path, name)
-    return value if _meaningful(value) else NONE_RECORDED
+    value = documents.field_text(path, name)
+    compact = " ".join(value.split())
+    return compact if _meaningful(compact) else NONE_RECORDED
+
+
+def _closed_status(value: str) -> bool:
+    return value.startswith("closed-") or value == "abandoned"
 
 
 def _section_or_none(path: Path, heading: str) -> str:
@@ -178,12 +194,33 @@ def _bullet_lines(values: list[str]) -> str:
 
 def _non_table_lines(markdown: str) -> list[str]:
     result: list[str] = []
+
+    paragraph: list[str] = []
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            value = " ".join(paragraph)
+            if _meaningful(value):
+                result.append(value)
+            paragraph.clear()
+
     for line in markdown.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("|") or stripped.startswith("#") or _managed_comment(stripped):
+        if not stripped:
+            flush_paragraph()
+            continue
+        if stripped.startswith("|") or stripped.startswith("#") or _managed_comment(stripped):
+            flush_paragraph()
+            continue
+        if stripped.startswith(("-", "*")):
+            flush_paragraph()
+            value = stripped.lstrip("-*").strip()
+            if _meaningful(value):
+                paragraph.append(value)
             continue
         if _meaningful(stripped):
-            result.append(stripped.lstrip("-").strip())
+            paragraph.append(stripped)
+    flush_paragraph()
     return result
 
 

@@ -64,7 +64,7 @@ def run(session: Session, action: str, *, next_mode: str | None = None, outcome:
     findings.extend(_artifact_findings(artifact_report))
     findings.extend(_summary_findings(session, summary_plan))
     findings.extend(_memory_findings(session_memory_report))
-    findings.extend(_state_findings(session))
+    findings.extend(_state_findings(session, action))
 
     deterministic_report = _build_report(
         session,
@@ -258,7 +258,9 @@ def _semantic_findings(report: semantic_review.SemanticReviewReport) -> tuple[Ga
     )
 
 
-def _state_findings(session: Session) -> tuple[GateFinding, ...]:
+def _state_findings(session: Session, action: str) -> tuple[GateFinding, ...]:
+    if action not in {"doctor", "handoff"}:
+        return ()
     decision_file = session.round_dir() / "decision.md"
     decision = documents.field(decision_file, "Decision")
     if not decision:

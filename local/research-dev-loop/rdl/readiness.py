@@ -414,7 +414,7 @@ def _citation_sources(session_dir: Path, round_dir: Path) -> list[tuple[Path, st
     sources: list[tuple[Path, str, str]] = []
     decision_file = round_dir / "decision.md"
     if decision_file.is_file():
-        sources.append((decision_file, "Evidence", documents.field(decision_file, "Evidence")))
+        sources.append((decision_file, "Evidence", documents.field_text(decision_file, "Evidence")))
     evidence_file = round_dir / "evidence.md"
     if evidence_file.is_file():
         sources.append((evidence_file, "Evidence Artifacts", documents.section(evidence_file, "Evidence Artifacts").content))
