@@ -11,7 +11,7 @@ session closes or a real blocker requires stopping.
 
 This skill is user-invoked only. Subagents are required for this workflow; if
 round-writer or semantic-review subagents cannot be created, stop and report the
-tooling blocker instead of continuing in the main agent.
+typed tooling blocker instead of continuing in the main agent.
 
 RDL remains a file protocol and CLI, not a runtime supervisor. Do not change RDL
 core commands, protocol files, or Python implementation as part of this
@@ -24,6 +24,10 @@ truth.
 A compact slice contract names the objective, smallest evidence-producing step,
 expected artifacts, validation command or check, review trigger, and abort
 condition for the current active slice.
+
+A typed blocker records the blocker type, cause, attempted resolution, and
+required external input. Use the closest type: tooling, permission,
+environment, evidence, design, semantic review, or scope.
 
 ## Round Lifecycle
 
@@ -68,7 +72,7 @@ project work.
      prewritten per-file content. The writer should preserve the original
      mission and record horizontal slices as independent workstreams or
      evidence areas, vertical slices as smallest evidence-producing steps,
-     deferred slices, and blockers.
+     deferred slices, and typed blockers.
    - The writer records exactly one current active slice with a compact slice
      contract.
    - Prefer `rdl progress active|blocked|deferred|none` and `rdl factors`
@@ -81,7 +85,7 @@ project work.
      returned to the same round writer.
    - Completion check: there is one explicit active slice with a compact slice
      contract that another agent could execute without rereading the full
-     mission history, or a blocker is recorded and project work stops.
+     mission history, or a typed blocker is recorded and project work stops.
 
 3. Inspect repository state before editing.
    - Use this step before project work in each non-closed round.
@@ -103,16 +107,16 @@ project work.
    - Perform the current `Next Smallest Step` or equivalent plan step.
    - Keep execution inside the current active slice unless new evidence makes
      the slice invalid; if it does, stop project work and have a writer record
-     the blocker or direction change.
+     the typed blocker or direction change.
    - Choose and collect the strongest feasible verification evidence for the
      slice: static inspection, unit test, integration test, end-to-end or
      manual check. Use `semantic review only` or `cannot verify` only when no
      stronger direct verification is feasible, and record the reason.
    - Collect raw results, artifact facts, verification level, command or
-     evidence, result, residual gap or risk, and blockers.
+     evidence, result, residual gap or risk, and typed blockers.
    - Completion check: there is concrete material for a writer to record,
-     including verification strength and residual gap, or a blocker that can be
-     faithfully recorded.
+     including verification strength and residual gap, or a typed blocker that
+     can be faithfully recorded.
 
 5. Use the round writer to record current-round state.
    - Spawn the round's canonical writer subagent if it is not already open, then
@@ -120,9 +124,9 @@ project work.
      closes, or stops.
    - Provide RDL state pointers, prompt, mission, prior context pointers, raw
      results, artifact facts, verification level, command or evidence, result,
-     fallback outcome when used, residual gap or risk, and blockers. Do not
-     provide exact target text for each RDL file unless the user supplied that
-     text or a protocol field requires a literal value.
+     fallback outcome when used, residual gap or risk, and typed blockers. Do
+     not provide exact target text for each RDL file unless the user supplied
+     that text or a protocol field requires a literal value.
    - The writer reads the supplied context and relevant files, summarizes the
      current state, and creates a reviewable current-round state by writing
      evidence, work or interpretation records, artifact manifest entries,
@@ -177,12 +181,12 @@ project work.
    - If advance is valid, run `rdl next --json`.
    - If blocked and fixable, do more plan work in the same round and repeat the
      writer/review sequence with the same round writer.
-   - If blocked and not fixable, have a writer record the blocker if possible,
-     then stop and report the blocker.
+   - If blocked and not fixable, have a writer record the typed blocker if
+     possible, then stop and report the blocker and required external input.
    - Close the round writer only after the round advances, closes, or stops.
    - Completion check: the session is closed, advanced, or stopped with a
-     recorded blocker, and the repository persistence check is still pending
-     after a successful close or advance.
+     recorded typed blocker when stopped, and the repository persistence check
+     is still pending after a successful close or advance.
 
 10. Run the repository persistence check.
    - Use this step only after `rdl next --json` or `rdl close --json`
@@ -213,18 +217,25 @@ project work.
 - Semantic review subagents are review-local and close after their assigned
   work.
 - Each round has exactly one canonical RDL writer. The same writer handles
-  slice planning, evidence and decision records, review incorporation, blocker
-  records, and session-memory updates for that round.
+  slice planning, evidence and decision records, review incorporation, typed
+  blocker records, and session-memory updates for that round.
 - The main agent runs RDL gate and transition commands, but does not directly
   edit canonical RDL round files.
 - The main agent or user handles repository-level persistence. Round writer and
   semantic review subagents do not stage or commit changes.
 - The main agent provides raw results, artifact facts, verification level,
-  command or evidence, result, residual gap, and pointers to relevant context.
-  The writer reads, summarizes, and decides the specific RDL file contents to
-  write.
+  command or evidence, result, residual gap, typed blockers, and pointers to
+  relevant context. The writer reads, summarizes, and decides the specific RDL
+  file contents to write.
 - Semantic review remains separate from deterministic gate checks and stays
   read-only.
+
+## Escalation Boundaries
+
+Pause and ask before destructive operations, approval-required dependency or
+network work, staging, committing, publishing, or pushing without authorization,
+work outside the active slice, mission or product direction changes, proceeding
+after contradictory evidence, or continuing after repeated failed attempts.
 
 ## Stop Conditions
 
@@ -232,8 +243,19 @@ Stop when any of these conditions applies:
 
 - `rdl close --json` succeeds and the repository persistence check is reported.
 - `rdl doctor --json` or `rdl next --json` is blocked and the main agent cannot
-  resolve the blocker through more work.
-- The writer cannot faithfully record evidence, artifact facts, or blockers.
+  resolve the typed blocker through more work.
+- The writer cannot faithfully record evidence, artifact facts, or typed
+  blockers.
 - Review findings require a direction change, unavailable evidence, or user or
   project input.
 - RDL protocol or gate files are damaged and require user intervention.
+
+When stopping on a typed blocker, report the blocker type, cause, attempted
+resolution, and required external input.
+
+## Final Reporting
+
+Before the final response for an orchestrated run, confirm and summarize the
+closure or stop status, repository persistence state, verification, remaining
+risks, final artifact paths, and whether any required subagent task remains
+open.
