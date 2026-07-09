@@ -19,6 +19,12 @@ workflow.
 For RDL CLI and protocol details, use `research-dev-loop` as the source of
 truth.
 
+## Core Terms
+
+A compact slice contract names the objective, smallest evidence-producing step,
+expected artifacts, validation command or check, review trigger, and abort
+condition for the current active slice.
+
 ## Round Lifecycle
 
 At the start of each non-closed round, reread this skill contract before doing
@@ -33,8 +39,10 @@ project work.
      `decision-ledger.md`, current-round `intent.md` or `work.md` when present,
      and previous round evidence and decision records when present.
    - Identify the current mission slice from `progress.md#Active`,
-     round-local prompt or intent, and the latest decision. If the mission is
-     broad and no active slice is explicit, do not start project work yet.
+     round-local prompt or intent, and the latest decision. Verify that any
+     existing active slice has a compact slice contract or equivalent record.
+     If the mission is broad and no active slice is explicit, do not start
+     project work yet.
    - Identify the autonomy envelope for this session or round: allowed scope,
      forbidden actions, approval-required actions, any time, token, round, or
      risk budget, expected final artifact or stopping state, and evidence
@@ -47,7 +55,8 @@ project work.
      and report the ambiguity.
    - Completion check: current session, current round, gate status, active
      work, current slice if present, known blockers, next step, autonomy
-     envelope, and clean, resumed, or blocked recovery status are understood.
+     envelope, active slice contract when present, and clean, resumed, or
+     blocked recovery status are understood.
 
 2. Establish the mission slice when missing.
    - Use this step only when takeover found a broad mission without an explicit
@@ -57,10 +66,11 @@ project work.
      and records a minimal slice plan before project work.
    - Give the writer the mission boundary and relevant context pointers, not
      prewritten per-file content. The writer should preserve the original
-     mission and record: horizontal slices as independent workstreams or
+     mission and record horizontal slices as independent workstreams or
      evidence areas, vertical slices as smallest evidence-producing steps,
-     exactly one current active slice, deferred slices, blockers, and the
-     review trigger for the current slice.
+     deferred slices, and blockers.
+   - The writer records exactly one current active slice with a compact slice
+     contract.
    - Prefer `rdl progress active|blocked|deferred|none` and `rdl factors`
      records over a new todo file. Use round `intent.md` or `work.md` only when
      the current mode requires implementation detail.
@@ -69,8 +79,9 @@ project work.
    - Reread `rdl handoff --json`, `progress.md`, and relevant round records
      after the writer records the slice. Later execution results must be
      returned to the same round writer.
-   - Completion check: there is one explicit active slice with a concrete
-     review trigger, or a blocker is recorded and project work stops.
+   - Completion check: there is one explicit active slice with a compact slice
+     contract that another agent could execute without rereading the full
+     mission history, or a blocker is recorded and project work stops.
 
 3. Inspect repository state before editing.
    - Use this step before project work in each non-closed round.
@@ -93,18 +104,25 @@ project work.
    - Keep execution inside the current active slice unless new evidence makes
      the slice invalid; if it does, stop project work and have a writer record
      the blocker or direction change.
-   - Collect raw results, artifact facts, verification notes, and blockers.
-   - Completion check: there is concrete material for a writer to record, or a
-     blocker that can be faithfully recorded.
+   - Choose and collect the strongest feasible verification evidence for the
+     slice: static inspection, unit test, integration test, end-to-end or
+     manual check. Use `semantic review only` or `cannot verify` only when no
+     stronger direct verification is feasible, and record the reason.
+   - Collect raw results, artifact facts, verification level, command or
+     evidence, result, residual gap or risk, and blockers.
+   - Completion check: there is concrete material for a writer to record,
+     including verification strength and residual gap, or a blocker that can be
+     faithfully recorded.
 
 5. Use the round writer to record current-round state.
    - Spawn the round's canonical writer subagent if it is not already open, then
      reuse that same writer for every write task until the round advances,
      closes, or stops.
    - Provide RDL state pointers, prompt, mission, prior context pointers, raw
-     results, artifact facts, verification notes, and blockers. Do not provide
-     exact target text for each RDL file unless the user supplied that text or a
-     protocol field requires a literal value.
+     results, artifact facts, verification level, command or evidence, result,
+     fallback outcome when used, residual gap or risk, and blockers. Do not
+     provide exact target text for each RDL file unless the user supplied that
+     text or a protocol field requires a literal value.
    - The writer reads the supplied context and relevant files, summarizes the
      current state, and creates a reviewable current-round state by writing
      evidence, work or interpretation records, artifact manifest entries,
@@ -114,9 +132,10 @@ project work.
    - The writer runs or consumes `rdl memory --check --json` and corrects
      protocol-level session-memory gaps before review. Judgment-heavy memory
      changes remain explicit writer decisions, not automatic summary edits.
-   - Completion check: current-round records are reviewable, the same round
-     writer remains available for review findings, and no gate or transition
-     command has been run by the writer.
+   - Completion check: current-round records are reviewable, verification
+     strength and residual gaps are recorded, the same round writer remains
+     available for review findings, and no gate or transition command has been
+     run by the writer.
 
 6. Create the semantic review pack.
    - Run `rdl review --pack --json`.
@@ -200,9 +219,10 @@ project work.
   edit canonical RDL round files.
 - The main agent or user handles repository-level persistence. Round writer and
   semantic review subagents do not stage or commit changes.
-- The main agent provides raw results, artifact facts, verification notes, and
-  pointers to relevant context. The writer reads, summarizes, and decides the
-  specific RDL file contents to write.
+- The main agent provides raw results, artifact facts, verification level,
+  command or evidence, result, residual gap, and pointers to relevant context.
+  The writer reads, summarizes, and decides the specific RDL file contents to
+  write.
 - Semantic review remains separate from deterministic gate checks and stays
   read-only.
 
