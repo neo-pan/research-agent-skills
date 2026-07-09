@@ -44,6 +44,10 @@ class CliRecordTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session_dir = create_session(root, "record_duplicate")
+            artifact_dir = root / "artifacts"
+            artifact_dir.mkdir()
+            (artifact_dir / "one.log").write_text("first\n", encoding="utf-8")
+            (artifact_dir / "two.log").write_text("second\n", encoding="utf-8")
             self.assertEqual(
                 run_cli(root, ["record", "artifact", "EV1", "log", "artifacts/one.log", "first", "--json"])[0],
                 0,
@@ -55,6 +59,39 @@ class CliRecordTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertEqual(result["blockers"][0]["code"], "duplicate_artifact_id")
             self.assertEqual((session_dir / "artifact-manifest.json").read_text(encoding="utf-8"), before)
+
+    def test_record_artifact_blocks_missing_local_path_without_partial_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "record_missing_artifact")
+            before = (session_dir / "artifact-manifest.json").read_text(encoding="utf-8")
+
+            code, result = run_cli(
+                root,
+                ["record", "artifact", "EV1", "log", "artifacts/missing.log", "missing output", "--json"],
+            )
+
+            self.assertEqual(code, 2)
+            self.assertEqual(result["blockers"][0]["code"], "missing_artifact_path")
+            self.assertEqual((session_dir / "artifact-manifest.json").read_text(encoding="utf-8"), before)
+
+    def test_record_artifact_accepts_remote_url_without_local_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "record_remote_artifact")
+
+            code, result = run_cli(
+                root,
+                ["record", "artifact", "EVURL", "log", "https://example.invalid/run.log", "remote output", "--json"],
+            )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["record_id"], "EVURL")
+            artifact = store.read_json(session_dir / "artifact-manifest.json")["artifacts"][0]
+            self.assertEqual(artifact["url"], "https://example.invalid/run.log")
+            self.assertNotIn("path", artifact)
+            self.assertNotIn("size", artifact)
+            self.assertNotIn("sha256", artifact)
 
     def test_record_finding_writes_review_finding_shape(self):
         with tempfile.TemporaryDirectory() as tmp:

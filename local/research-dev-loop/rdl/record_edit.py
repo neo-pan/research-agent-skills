@@ -67,6 +67,19 @@ def record_artifact(session: "Session", values: tuple[str, ...]) -> tuple[Record
                 "Choose a new artifact id or edit artifact-manifest.json intentionally.",
             )
         )
+    if _remote_url(location):
+        resolved = None
+    else:
+        resolved = _repo_root(session) / location
+        if location and not resolved.is_file():
+            blockers.append(
+                Blocker(
+                    "missing_artifact_path",
+                    location,
+                    "artifact path is not a reachable local file.",
+                    "Create the artifact file or pass an http(s) URL.",
+                )
+            )
     if blockers:
         return None, tuple(blockers)
 
@@ -77,14 +90,12 @@ def record_artifact(session: "Session", values: tuple[str, ...]) -> tuple[Record
         "round": session.state.round,
         "description": description,
     }
-    if _remote_url(location):
+    if resolved is None:
         artifact["url"] = location
     else:
         artifact["path"] = location
-        resolved = _repo_root(session) / location
-        if resolved.is_file():
-            artifact["size"] = resolved.stat().st_size
-            artifact["sha256"] = _sha256(resolved)
+        artifact["size"] = resolved.stat().st_size
+        artifact["sha256"] = _sha256(resolved)
     manifest["artifacts"].append(artifact)
     store.write_json_atomic(manifest_path, manifest)
     return RecordResult("artifact-manifest.json", "artifact", artifact_id), ()

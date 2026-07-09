@@ -41,6 +41,9 @@ Keep writer judgment separate from RDL shape.
   then points to CLI helpers or templates for shape.
 - Prefer `rdl progress`, `rdl factors`, and `rdl record` when they can express
   the record.
+- For artifacts, the writer supplies an existing local file path or an
+  `http(s)` URL to `rdl record artifact`; RDL records manifest shape and local
+  size/hash.
 - Use hand edits for semantic content that structured RDL commands cannot
   express. If canonical shape is damaged, surface the protocol blocker.
 

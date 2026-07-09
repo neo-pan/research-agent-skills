@@ -2,6 +2,8 @@
 
 Index artifacts in `artifact-manifest.json`; do not copy project artifacts into
 RDL. Cite artifacts explicitly as `[artifact:ID]` in evidence and decisions.
+Use `rdl record artifact` for existing local files or `http(s)` URLs; local
+file entries record size and sha256.
 
 Use optional round-local `events.md` for operational events that matter for
 recovery but are not decision-grade evidence: command timeouts, partial
