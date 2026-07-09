@@ -35,9 +35,19 @@ project work.
    - Identify the current mission slice from `progress.md#Active`,
      round-local prompt or intent, and the latest decision. If the mission is
      broad and no active slice is explicit, do not start project work yet.
+   - Identify the autonomy envelope for this session or round: allowed scope,
+     forbidden actions, approval-required actions, any time, token, round, or
+     risk budget, expected final artifact or stopping state, and evidence
+     threshold for the current mission.
+   - When there is evidence of interruption, compaction, resumed work, or
+     unclear state, inspect the last successful `rdl next` or `rdl close`, the
+     last repository persistence check when present, open review findings and
+     accepted corrections, and whether assumptions about writer or reviewer
+     state still hold. If recovery state is ambiguous, stop before project work
+     and report the ambiguity.
    - Completion check: current session, current round, gate status, active
-     work, current slice if present, known blockers, and next step are
-     understood.
+     work, current slice if present, known blockers, next step, autonomy
+     envelope, and clean, resumed, or blocked recovery status are understood.
 
 2. Establish the mission slice when missing.
    - Use this step only when takeover found a broad mission without an explicit
@@ -62,7 +72,23 @@ project work.
    - Completion check: there is one explicit active slice with a concrete
      review trigger, or a blocker is recorded and project work stops.
 
-3. Execute the current plan step.
+3. Inspect repository state before editing.
+   - Use this step before project work in each non-closed round.
+   - If the project is in a Git repository, run `git status --short`.
+   - Classify the changed-file surface as existing user changes,
+     pre-existing or uncertain changes, RDL or session changes, project
+     changes from the current loop, generated or disposable artifacts, and
+     untracked files that may be relevant to the slice.
+   - Identify files that must be avoided or protected during the current
+     slice.
+   - Keep this step to inspection and classification. Stage, commit, clean, or
+     discard files only when explicitly requested or when a later persistence
+     step permits it.
+   - Completion check: repository state is visible when Git is available, file
+     ownership is classified enough to edit safely, and protected files are
+     known before project work begins.
+
+4. Execute the current plan step.
    - Perform the current `Next Smallest Step` or equivalent plan step.
    - Keep execution inside the current active slice unless new evidence makes
      the slice invalid; if it does, stop project work and have a writer record
@@ -71,7 +97,7 @@ project work.
    - Completion check: there is concrete material for a writer to record, or a
      blocker that can be faithfully recorded.
 
-4. Use the round writer to record current-round state.
+5. Use the round writer to record current-round state.
    - Spawn the round's canonical writer subagent if it is not already open, then
      reuse that same writer for every write task until the round advances,
      closes, or stops.
@@ -92,14 +118,14 @@ project work.
      writer remains available for review findings, and no gate or transition
      command has been run by the writer.
 
-5. Create the semantic review pack.
+6. Create the semantic review pack.
    - Run `rdl review --pack --json`.
    - Ensure the pack's reviewer task is action/profile/mode-aware and concise;
      do not add extra reviewer ceremony outside the RDL review flow.
    - Completion check: the pack reflects the writer-produced current-round
      state.
 
-6. Spawn one semantic-review subagent.
+7. Spawn one semantic-review subagent.
    - Provide only the review pack and any explicitly supplied verification
      artifacts.
    - Require structured findings, a verdict recommendation, evidence gaps,
@@ -109,7 +135,7 @@ project work.
      coherent with the mission and current evidence.
    - Completion check: reviewer has returned findings and made no file edits.
 
-7. Return review findings to the round writer.
+8. Return review findings to the round writer.
    - The writer writes `review.md`.
    - In the orchestrated path, the writer records `Review Mode: subagent`
      unless the user explicitly supplied an external adapter result.
@@ -126,7 +152,7 @@ project work.
      and the round writer remains open until the gate transition or stop result
      for this round is known.
 
-8. Run the gate and transition.
+9. Run the gate and transition.
    - Run `rdl doctor --json`.
    - If a close decision is valid, run `rdl close --json`.
    - If advance is valid, run `rdl next --json`.
@@ -139,7 +165,7 @@ project work.
      recorded blocker, and the repository persistence check is still pending
      after a successful close or advance.
 
-9. Run the repository persistence check.
+10. Run the repository persistence check.
    - Use this step only after `rdl next --json` or `rdl close --json`
      succeeds.
    - Confirm RDL records, project artifacts, and verification outputs from the
