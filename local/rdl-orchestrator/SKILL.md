@@ -29,6 +29,21 @@ A typed blocker records the blocker type, cause, attempted resolution, and
 required external input. Use the closest type: tooling, permission,
 environment, evidence, design, semantic review, or scope.
 
+## Write Shape
+
+Keep writer judgment separate from RDL shape.
+
+- The round writer owns judgment: claims, evidence meaning, uncertainty,
+  blocker type, accepted corrections, and justified decisions.
+- RDL owns shape: templates, canonical headings, table columns, managed
+  summaries, JSON, gate artifacts, and integrity records.
+- The main agent gives the writer facts, constraints, artifacts, and pointers,
+  then points to CLI helpers or templates for shape.
+- Prefer `rdl progress`, `rdl factors`, and `rdl record` when they can express
+  the record.
+- Use hand edits for semantic content that structured RDL commands cannot
+  express. If canonical shape is damaged, surface the protocol blocker.
+
 ## Round Lifecycle
 
 At the start of each non-closed round, reread this skill contract before doing
@@ -227,6 +242,8 @@ project work.
   command or evidence, result, residual gap, typed blockers, and pointers to
   relevant context. The writer reads, summarizes, and decides the specific RDL
   file contents to write.
+- Writer prompts preserve the write-shape boundary: the writer decides meaning;
+  RDL helpers and templates carry canonical structure where available.
 - Semantic review remains separate from deterministic gate checks and stays
   read-only.
 

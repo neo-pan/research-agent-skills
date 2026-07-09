@@ -35,6 +35,12 @@ has run for multiple rounds. Use `rdl memory --write` only to refresh
 deterministic managed summary blocks; still update active, blocked, deferred,
 and factor records manually when they require judgment.
 
+Separate judgment from shape. Agents decide claims, blockers, evidence gaps,
+factors, decisions, and accepted corrections; RDL commands, templates, managed
+summary markers, and validators provide canonical shape. Use structured
+commands when they can express the record. Surface noncanonical files as
+protocol blockers.
+
 Keep canonical RDL files single-writer. Subagents may inspect context and
 produce findings, but the main agent or user must decide which judgment-heavy
 changes to record in `review.md`, `decision.md`, `progress.md`, and

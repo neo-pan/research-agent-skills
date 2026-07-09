@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import documents, gate, gate_reports, integrity, memory, memory_report, repair, review_pack, session_memory_edit, summary, templates, transition
+from . import documents, gate, gate_reports, integrity, memory, memory_report, record_edit, repair, review_pack, session_memory_edit, summary, templates, transition
 from .model import Blocker, CommandResult, RoundProfile, SessionMode, SessionPhase, SessionState, SessionStatus
 from .protocol import descriptor
 from .session import Session, SessionStore, SessionLockError, acquire_session_lock, valid_session_id
@@ -40,6 +40,8 @@ class CommandIntent:
     impact: str | None = None
     section: str | None = None
     value: str | None = None
+    record_kind: str | None = None
+    record_values: tuple[str, ...] = ()
     review_pack: bool = False
 
 
@@ -66,6 +68,8 @@ def execute(intent: CommandIntent) -> CommandResult:
         return _progress(intent)
     if intent.command == "factors":
         return _factors(intent)
+    if intent.command == "record":
+        return _record(intent)
     if intent.command == "start":
         return _start(intent.mode, intent.profile, intent.mission_file, intent.session_id)
     if intent.command == "status":
@@ -745,6 +749,47 @@ def _factors_locked(context: _LockedContext, intent: CommandIntent) -> CommandRe
         state,
         next_action="rdl memory --check",
         details={} if edit_result is None else edit_result.details(),
+    )
+
+
+def _record(intent: CommandIntent) -> CommandResult:
+    kind = intent.record_kind or ""
+    if kind not in {"artifact", "finding"}:
+        blocker = Blocker(
+            "invalid_record_kind",
+            "",
+            "record kind must be artifact or finding.",
+            "Use rdl record artifact ... or rdl record finding ...",
+        )
+        return CommandResult(status="error", action="record", blockers=(blocker,), next_action=blocker.next_action)
+    return _run_locked_session("record", lambda context: _record_locked(context, kind, intent.record_values))
+
+
+def _record_locked(context: _LockedContext, kind: str, values: tuple[str, ...]) -> CommandResult:
+    state = context.state
+    if kind == "artifact":
+        record_result, blockers = record_edit.record_artifact(context.session, values)
+    else:
+        record_result, blockers = record_edit.record_finding(context.session, values)
+    if blockers:
+        return _state_result(
+            "blocked" if blockers[0].code.startswith(("missing_", "duplicate_", "invalid_artifact_manifest")) else "error",
+            "record",
+            state,
+            blockers=blockers,
+            next_action=blockers[0].next_action,
+        )
+
+    refresh_error = context.refresh_after_mutation(str(state.phase), state.round)
+    if refresh_error is not None:
+        return refresh_error
+
+    return _state_result(
+        "ok",
+        "record",
+        state,
+        next_action="rdl doctor",
+        details={} if record_result is None else record_result.details(),
     )
 
 
