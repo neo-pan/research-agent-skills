@@ -250,6 +250,10 @@ CLOSE_OUTCOME_BY_DECISION = {
     "close-inconclusive": "inconclusive",
 }
 
+CURRENT_DIRECTION_DECISIONS = ("continue",)
+
+DIRECTION_CHANGE_END_STATES = ("yes", "closing")
+
 
 @dataclass(frozen=True)
 class ProtocolDescriptor:
@@ -363,6 +367,12 @@ class ProtocolDescriptor:
 
     def close_outcome_for_decision(self, decision: str) -> str:
         return CLOSE_OUTCOME_BY_DECISION.get(decision, "")
+
+    def decision_continues_current_direction(self, decision: str) -> bool:
+        return decision in CURRENT_DIRECTION_DECISIONS
+
+    def direction_change_ends_current_direction(self, direction_changed: str) -> bool:
+        return direction_changed in DIRECTION_CHANGE_END_STATES
 
 
 def _mode_value(mode: SessionMode | str) -> str:

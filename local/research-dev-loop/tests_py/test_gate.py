@@ -356,6 +356,24 @@ class GateTests(unittest.TestCase):
             self.assertIn("semantic_review_staleness_risk", report.warnings)
             self.assertNotIn("semantic_review_missing_stall_response", {blocker.code for blocker in report.blockers})
 
+    def test_semantic_review_staleness_risk_allows_non_continuing_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_semantic_stale_pivot")
+            complete_research_round(session_dir, decision="pivot")
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.write_text(
+                review_file.read_text(encoding="utf-8").replace("Fresh Evidence: yes", "Fresh Evidence: no"),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertIn("semantic_review_staleness_risk", report.warnings)
+            self.assertNotIn("semantic_review_missing_stall_response", {blocker.code for blocker in report.blockers})
+
     def test_semantic_review_blocks_review_verdict_and_evidence_gaps(self):
         cases = (
             ("Verdict: PASS", "Verdict: BLOCKED", "semantic_review_blocked"),

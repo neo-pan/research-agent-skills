@@ -238,6 +238,18 @@ class ProtocolDescriptorTests(unittest.TestCase):
         self.assertEqual(descriptor.close_outcome_for_decision("close-inconclusive"), "inconclusive")
         self.assertEqual(descriptor.close_outcome_for_decision("continue"), "")
 
+    def test_current_direction_decision_semantics_are_protocol_owned(self):
+        self.assertTrue(descriptor.decision_continues_current_direction("continue"))
+        for decision in descriptor.allowed_values("decision-type"):
+            if decision == "continue":
+                continue
+            with self.subTest(decision=decision):
+                self.assertFalse(descriptor.decision_continues_current_direction(decision))
+
+        self.assertTrue(descriptor.direction_change_ends_current_direction("yes"))
+        self.assertTrue(descriptor.direction_change_ends_current_direction("closing"))
+        self.assertFalse(descriptor.direction_change_ends_current_direction("no"))
+
     def test_protocol_file_policy_for_known_and_unknown_paths(self):
         self.assertEqual(descriptor.path_policy("state.json"), "cli_owned")
         self.assertEqual(descriptor.path_policy("decision-ledger.md"), "append_only")

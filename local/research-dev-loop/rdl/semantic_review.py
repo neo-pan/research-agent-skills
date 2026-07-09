@@ -7,6 +7,7 @@ from typing import Any
 
 from . import documents, review_pack
 from .model import RoundProfile
+from .protocol import descriptor
 from .session import Session
 
 
@@ -266,13 +267,9 @@ def _review_records_stale_continue_risk(fresh_evidence: str, staleness: str, reu
 
 
 def _continuing_current_direction(decision: str, direction_changed: str) -> bool:
-    if direction_changed in {"yes", "closing"}:
+    if descriptor.direction_change_ends_current_direction(direction_changed):
         return False
-    if decision.startswith("close-"):
-        return False
-    if decision in {"accept", "reject", "pivot", "narrow", "broaden", "diagnose", "build", "profile", "rerun"}:
-        return False
-    return _meaningful(decision)
+    return descriptor.decision_continues_current_direction(decision)
 
 
 def _meaningful(value: str) -> bool:

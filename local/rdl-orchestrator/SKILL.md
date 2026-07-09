@@ -42,8 +42,11 @@ project work.
 2. Establish the mission slice when missing.
    - Use this step only when takeover found a broad mission without an explicit
      active slice.
-   - Spawn one round-local planning writer subagent to record a minimal slice
-     plan before project work. The planning writer should preserve the original
+   - Spawn the round's canonical writer subagent if it is not already open. The
+     writer reads RDL records and project context, summarizes the mission shape,
+     and records a minimal slice plan before project work.
+   - Give the writer the mission boundary and relevant context pointers, not
+     prewritten per-file content. The writer should preserve the original
      mission and record: horizontal slices as independent workstreams or
      evidence areas, vertical slices as smallest evidence-producing steps,
      exactly one current active slice, deferred slices, blockers, and the
@@ -54,8 +57,8 @@ project work.
    - The writer must not edit `mission.md` unless the mission itself has
      changed, and must not run `rdl next`, `rdl close`, or gate transitions.
    - Reread `rdl handoff --json`, `progress.md`, and relevant round records
-     after the planning writer closes. Later execution results must be recorded
-     by a new writer pass.
+     after the writer records the slice. Later execution results must be
+     returned to the same round writer.
    - Completion check: there is one explicit active slice with a concrete
      review trigger, or a blocker is recorded and project work stops.
 
@@ -68,19 +71,26 @@ project work.
    - Completion check: there is concrete material for a writer to record, or a
      blocker that can be faithfully recorded.
 
-4. Spawn one round-writer subagent for the current writer pass.
-   - Provide RDL state, prompt, mission, prior context, raw results, artifact
-     facts, verification notes, and blockers.
-   - The writer creates a reviewable current-round state by writing evidence,
-     work or interpretation records, artifact manifest entries, progress or
-     factor memory, and a decision record as needed.
+4. Use the round writer to record current-round state.
+   - Spawn the round's canonical writer subagent if it is not already open, then
+     reuse that same writer for every write task until the round advances,
+     closes, or stops.
+   - Provide RDL state pointers, prompt, mission, prior context pointers, raw
+     results, artifact facts, verification notes, and blockers. Do not provide
+     exact target text for each RDL file unless the user supplied that text or a
+     protocol field requires a literal value.
+   - The writer reads the supplied context and relevant files, summarizes the
+     current state, and creates a reviewable current-round state by writing
+     evidence, work or interpretation records, artifact manifest entries,
+     progress or factor memory, and a decision record as needed.
    - The writer uses `rdl progress` and `rdl factors` when possible instead of
      hand-editing those records.
    - The writer runs or consumes `rdl memory --check --json` and corrects
      protocol-level session-memory gaps before review. Judgment-heavy memory
      changes remain explicit writer decisions, not automatic summary edits.
-   - Completion check: current-round records are reviewable and no gate or
-     transition command has been run by the writer.
+   - Completion check: current-round records are reviewable, the same round
+     writer remains available for review findings, and no gate or transition
+     command has been run by the writer.
 
 5. Create the semantic review pack.
    - Run `rdl review --pack --json`.
@@ -99,31 +109,32 @@ project work.
      coherent with the mission and current evidence.
    - Completion check: reviewer has returned findings and made no file edits.
 
-7. Return review findings to the same round writer.
+7. Return review findings to the round writer.
    - The writer writes `review.md`.
    - In the orchestrated path, the writer records `Review Mode: subagent`
      unless the user explicitly supplied an external adapter result.
    - The writer records returned findings in `Returned Review Findings` using
      `- severity | category | location | claim | required_resolution`.
-   - The writer applies necessary record corrections from accepted review
-     findings.
+   - The writer rereads the affected records and applies necessary record
+     corrections from accepted review findings.
    - The writer records accepted corrections separately from returned findings.
    - The writer may run read-only checks such as `rdl doctor --json`.
    - If accepted findings identify stale, fragmented, or incomplete handoff
      memory, the writer updates `progress.md` or `factors.md` explicitly and
      reruns `rdl memory --check --json` before closing.
    - Completion check: review findings and accepted corrections are recorded,
-     then the writer closes.
+     and the round writer remains open until the gate transition or stop result
+     for this round is known.
 
 8. Run the gate and transition.
    - Run `rdl doctor --json`.
    - If a close decision is valid, run `rdl close --json`.
    - If advance is valid, run `rdl next --json`.
    - If blocked and fixable, do more plan work in the same round and repeat the
-     writer/review sequence with a new round-local writer if the previous writer
-     has closed.
+     writer/review sequence with the same round writer.
    - If blocked and not fixable, have a writer record the blocker if possible,
      then stop and report the blocker.
+   - Close the round writer only after the round advances, closes, or stops.
    - Completion check: the session is closed, advanced, or stopped with a
      recorded blocker.
 
@@ -135,11 +146,18 @@ project work.
 | Round writer subagent | RDL state, raw results, review findings | Current-round RDL records, session memory, artifact manifest | `rdl next`, `rdl close`, `state.json`, `gate-report.json`, `gate.md`, `decision-ledger.md` |
 | Semantic review subagent | Review pack and explicit verification artifacts | Nothing | Any file edit |
 
-- Every subagent is round-local or review-local and closes after its assigned
+- The round writer is round-local and remains open across all write tasks in
+  that round until the round advances, closes, or stops.
+- Semantic review subagents are review-local and close after their assigned
   work.
-- Each round has exactly one canonical RDL writer at a time.
+- Each round has exactly one canonical RDL writer. The same writer handles
+  slice planning, evidence and decision records, review incorporation, blocker
+  records, and session-memory updates for that round.
 - The main agent runs RDL gate and transition commands, but does not directly
   edit canonical RDL round files.
+- The main agent provides raw results, artifact facts, verification notes, and
+  pointers to relevant context. The writer reads, summarizes, and decides the
+  specific RDL file contents to write.
 - Semantic review remains separate from deterministic gate checks and stays
   read-only.
 
