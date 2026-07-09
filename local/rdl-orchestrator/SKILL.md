@@ -136,7 +136,24 @@ project work.
      then stop and report the blocker.
    - Close the round writer only after the round advances, closes, or stops.
    - Completion check: the session is closed, advanced, or stopped with a
-     recorded blocker.
+     recorded blocker, and the repository persistence check is still pending
+     after a successful close or advance.
+
+9. Run the repository persistence check.
+   - Use this step only after `rdl next --json` or `rdl close --json`
+     succeeds.
+   - Confirm RDL records, project artifacts, and verification outputs from the
+     completed round are saved.
+   - If the project is in a Git repository, run `git status --short` and review
+     the changed-file surface before reporting the boundary state.
+   - Stage or commit changes only when the user explicitly requests it, or when
+     standing project permission allows it and the changed-file surface has been
+     reviewed.
+   - Report whether a commit is recommended when saved code, research outputs,
+     or RDL records form a useful recovery boundary.
+   - Completion check: saved artifacts are accounted for, repository state is
+     visible when Git is available, and any commit action or recommendation is
+     explicit.
 
 ## Role And Write Constraints
 
@@ -155,6 +172,8 @@ project work.
   records, and session-memory updates for that round.
 - The main agent runs RDL gate and transition commands, but does not directly
   edit canonical RDL round files.
+- The main agent or user handles repository-level persistence. Round writer and
+  semantic review subagents do not stage or commit changes.
 - The main agent provides raw results, artifact facts, verification notes, and
   pointers to relevant context. The writer reads, summarizes, and decides the
   specific RDL file contents to write.
@@ -165,7 +184,7 @@ project work.
 
 Stop when any of these conditions applies:
 
-- `rdl close --json` succeeds.
+- `rdl close --json` succeeds and the repository persistence check is reported.
 - `rdl doctor --json` or `rdl next --json` is blocked and the main agent cannot
   resolve the blocker through more work.
 - The writer cannot faithfully record evidence, artifact facts, or blockers.
