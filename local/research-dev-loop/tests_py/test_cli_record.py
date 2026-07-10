@@ -35,10 +35,47 @@ class CliRecordTests(unittest.TestCase):
             self.assertEqual(artifact["kind"], "log")
             self.assertEqual(artifact["round"], 1)
             self.assertEqual(artifact["path"], "artifacts/run.log")
+            self.assertEqual(artifact["stability"], "snapshot")
             self.assertEqual(artifact["size"], artifact_path.stat().st_size)
             self.assertEqual(artifact["sha256"], integrity.file_sha256(artifact_path))
             entries = {entry["path"] for entry in store.read_json(session_dir / "integrity.json")["entries"]}
             self.assertIn("artifact-manifest.json", entries)
+
+    def test_record_artifact_accepts_live_path_stability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "record_live_artifact")
+            artifact_path = root / "artifacts" / "live.log"
+            artifact_path.parent.mkdir()
+            artifact_path.write_text("fixture output\n", encoding="utf-8")
+
+            code, result = run_cli(
+                root,
+                ["record", "artifact", "EV1", "log", "artifacts/live.log", "live source output", "live-path", "--json"],
+            )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["record_id"], "EV1")
+            artifact = store.read_json(session_dir / "artifact-manifest.json")["artifacts"][0]
+            self.assertEqual(artifact["stability"], "live-path")
+
+    def test_record_artifact_rejects_invalid_stability_without_partial_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "record_bad_stability")
+            artifact_path = root / "artifacts" / "run.log"
+            artifact_path.parent.mkdir()
+            artifact_path.write_text("fixture output\n", encoding="utf-8")
+            before = (session_dir / "artifact-manifest.json").read_text(encoding="utf-8")
+
+            code, result = run_cli(
+                root,
+                ["record", "artifact", "EV1", "log", "artifacts/run.log", "parser smoke output", "mutable", "--json"],
+            )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["blockers"][0]["code"], "invalid_artifact_stability")
+            self.assertEqual((session_dir / "artifact-manifest.json").read_text(encoding="utf-8"), before)
 
     def test_record_artifact_blocks_duplicate_without_partial_write(self):
         with tempfile.TemporaryDirectory() as tmp:

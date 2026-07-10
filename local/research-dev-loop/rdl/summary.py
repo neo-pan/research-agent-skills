@@ -18,6 +18,7 @@ SUMMARY_START = "<!-- rdl:summary section={section} start -->"
 SUMMARY_END = "<!-- rdl:summary section={section} end -->"
 LEDGER_SUMMARY_START = "<!-- rdl:ledger-summary start -->"
 LEDGER_SUMMARY_END = "<!-- rdl:ledger-summary end -->"
+MAX_TABLE_CELL_CHARS = 240
 
 
 @dataclass(frozen=True)
@@ -55,21 +56,21 @@ def plan(session: "Session", through_round: int | None = None) -> SummaryPlan:
         decision = _field(decision_file, "Decision")
         if decision:
             evidence = _field(decision_file, "Evidence") or "none recorded"
-            rows["Completed"].append(f"| round-{round_number:03d} | {decision} | {evidence} | {round_number:03d} |")
+            rows["Completed"].append(_row(f"round-{round_number:03d}", decision, evidence, f"{round_number:03d}"))
 
         for question in _open_question_values(decision_file, round_dir / "evidence.md"):
-            rows["Open Questions"].append(f"| {question} | unassigned | unknown | - |")
+            rows["Open Questions"].append(_row(question, "unassigned", "unknown", "-"))
 
         direction = _field(decision_file, "Prior directions checked")
         ruled_out = _field(decision_file, "What this rules out")
         if direction:
             outcome = ruled_out or "recorded"
-            rows["Directions Tried"].append(f"| {direction} | {round_number:03d} | {outcome} | see decision.md |")
+            rows["Directions Tried"].append(_row(direction, f"{round_number:03d}", outcome, "see decision.md"))
 
         staleness = documents.field(round_dir / "review.md", "Staleness Signal")
         if staleness in {"possible", "repeated"}:
             response = _field(decision_file, "Stall response") or "record response before repeating direction"
-            rows["Staleness Watch"].append(f"| {staleness} in round {round_number:03d} | review.md | {response} |")
+            rows["Staleness Watch"].append(_row(f"{staleness} in round {round_number:03d}", "review.md", response))
 
     return SummaryPlan(target_round, {section: tuple(_dedupe_rows(section_rows)) for section, section_rows in rows.items()})
 
@@ -250,18 +251,26 @@ def _field(path: Path, name: str) -> str:
 def _content_lines(text: str) -> list[str]:
     values: list[str] = []
     paragraph: list[str] = []
+    bullet_paragraph: list[str] = []
 
     def flush_paragraph() -> None:
         if paragraph:
             values.append(" ".join(paragraph))
             paragraph.clear()
 
+    def flush_bullet() -> None:
+        if bullet_paragraph:
+            values.append(" ".join(bullet_paragraph))
+            bullet_paragraph.clear()
+
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
+            flush_bullet()
             flush_paragraph()
             continue
         if stripped.startswith("|") or _managed_comment(stripped):
+            flush_bullet()
             flush_paragraph()
             continue
         bullet = stripped.startswith(("-", "*"))
@@ -269,10 +278,15 @@ def _content_lines(text: str) -> list[str]:
         if not _meaningful(cleaned):
             continue
         if bullet:
+            flush_bullet()
             flush_paragraph()
-            values.append(cleaned)
+            bullet_paragraph.append(cleaned)
+        elif bullet_paragraph and line[:1].isspace():
+            bullet_paragraph.append(cleaned)
         else:
+            flush_bullet()
             paragraph.append(cleaned)
+    flush_bullet()
     flush_paragraph()
     return values
 
@@ -302,7 +316,18 @@ def _dedupe_rows(values) -> list[str]:
 
 
 def _clean_cell(value: str) -> str:
-    return " ".join(value.replace("|", "/").strip().split())
+    return _cell(value)
+
+
+def _row(*cells: str) -> str:
+    return "| " + " | ".join(_cell(cell) for cell in cells) + " |"
+
+
+def _cell(value: str) -> str:
+    compact = " ".join(str(value).replace("|", "/").strip().split())
+    if len(compact) > MAX_TABLE_CELL_CHARS:
+        return compact[: MAX_TABLE_CELL_CHARS - 3].rstrip() + "..."
+    return compact
 
 
 def _managed_comment(value: str) -> bool:

@@ -518,6 +518,38 @@ class GateTests(unittest.TestCase):
             self.assertIn("artifact_size_mismatch", codes)
             self.assertIn("artifact_sha256_mismatch", codes)
 
+    def test_gate_warns_for_live_path_artifact_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_live_artifact_drift")
+            complete_research_round(session_dir)
+            artifact_path = root / "artifacts" / "live.log"
+            artifact_path.parent.mkdir()
+            artifact_path.write_text("current evidence\n", encoding="utf-8")
+            _write_artifact_manifest(
+                session_dir,
+                [
+                    {
+                        "id": "EV-LIVE",
+                        "kind": "log",
+                        "round": 1,
+                        "description": "live source path",
+                        "path": "artifacts/live.log",
+                        "stability": "live-path",
+                        "size": artifact_path.stat().st_size + 1,
+                        "sha256": hashlib.sha256(b"old evidence\n").hexdigest(),
+                    }
+                ],
+            )
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertFalse(report.blockers)
+            self.assertIn("live_artifact_size_drift", report.warnings)
+            self.assertIn("live_artifact_sha256_drift", report.warnings)
+            self.assertEqual(report.details["artifact"]["artifact_status"], "needs_attention")
+
     def test_gate_ignores_remote_url_artifact_reachability(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -579,6 +611,44 @@ class GateTests(unittest.TestCase):
             self.assertNotIn("artifact_sha256_mismatch", {blocker.code for blocker in report.blockers})
             findings = {finding["code"]: finding for finding in report.details["findings"]}
             self.assertEqual(findings["duplicate_artifact_path_hashes"]["category"], "artifact")
+
+    def test_gate_suppresses_duplicate_hash_warning_for_live_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_live_duplicate_artifact_path")
+            complete_research_round(session_dir)
+            artifact_path = root / "artifacts" / "shared.log"
+            artifact_path.parent.mkdir()
+            artifact_path.write_text("actual evidence\n", encoding="utf-8")
+            _write_artifact_manifest(
+                session_dir,
+                [
+                    {
+                        "id": "EV-LIVE-OLD",
+                        "kind": "log",
+                        "round": 1,
+                        "description": "old live source",
+                        "path": "artifacts/shared.log",
+                        "stability": "live-path",
+                        "sha256": hashlib.sha256(b"old evidence\n").hexdigest(),
+                    },
+                    {
+                        "id": "EV-LIVE-NEW",
+                        "kind": "log",
+                        "round": 1,
+                        "description": "new live source",
+                        "path": "artifacts/shared.log",
+                        "stability": "live-path",
+                        "sha256": hashlib.sha256(b"new evidence\n").hexdigest(),
+                    },
+                ],
+            )
+            session = SessionStore(root).active_session()
+
+            report = gate.run(session, "doctor")
+
+            self.assertNotIn("duplicate_artifact_path_hashes", report.warnings)
+            self.assertIn("live_artifact_sha256_drift", report.warnings)
 
     def test_gate_warns_for_malformed_optional_artifact_integrity_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:

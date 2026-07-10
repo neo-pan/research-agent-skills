@@ -892,7 +892,7 @@ def _handoff(session_id: str | None = None, session_path: str | None = None) -> 
     gate_report = gate.run(session, "handoff")
     prompt_context = memory.prompt_context(session)
     report, _summary_plan = memory_report.check(session)
-    handoff_status = "ready" if report.memory_status == "healthy" else "needs_attention"
+    handoff_status = _handoff_status(report, gate_report)
     suggested_actions = list(report.suggested_actions) or ["rdl doctor"]
     details = {
         "handoff_status": handoff_status,
@@ -901,7 +901,7 @@ def _handoff(session_id: str | None = None, session_path: str | None = None) -> 
         "known_evidence_gaps": prompt_context.known_evidence_gaps,
         "directions_tried": prompt_context.directions_tried,
         "staleness_watch": prompt_context.staleness_watch,
-        "next_smallest_step": prompt_context.next_smallest_step,
+        "next_smallest_step": _handoff_next_smallest_step(state, prompt_context.next_smallest_step),
         "last_decision": _last_decision_details(session),
         "latest_completed_decision": _latest_completed_decision_details(session),
         "memory": report.details(),
@@ -914,9 +914,31 @@ def _handoff(session_id: str | None = None, session_path: str | None = None) -> 
         "handoff",
         state,
         warnings=gate_report.warnings,
-        next_action=_read_only_next_action(state, "rdl doctor" if handoff_status == "ready" else _memory_next_action(report)),
+        next_action=_read_only_next_action(state, _handoff_next_action(handoff_status, report)),
         details=details,
     )
+
+
+def _handoff_status(report: memory_report.MemoryReport, gate_report: gate.GateReport) -> str:
+    if report.memory_status != "healthy":
+        return "needs_attention"
+    if gate_report.status == "blocked":
+        return "needs_attention"
+    return "ready"
+
+
+def _handoff_next_action(handoff_status: str, report: memory_report.MemoryReport) -> str:
+    if handoff_status == "ready":
+        return "rdl doctor"
+    if report.memory_status != "healthy":
+        return _memory_next_action(report)
+    return "rdl doctor"
+
+
+def _handoff_next_smallest_step(state: SessionState, next_smallest_step: str) -> str:
+    if state.status == SessionStatus.ACTIVE:
+        return next_smallest_step
+    return f"none: session is {state.status.value}"
 
 
 def _last_decision_details(session: Session) -> dict[str, str]:

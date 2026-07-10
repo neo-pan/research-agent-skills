@@ -56,6 +56,47 @@ class CliRepairTests(unittest.TestCase):
             self.assertIn("Objective: mission.md", prompt.read_text(encoding="utf-8"))
             self.assertEqual(result["next_action"], "rounds/001/prompt.md,integrity.json")
 
+    def test_repair_json_adds_missing_review_sections_with_neutral_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "repair_review_sections")
+            complete_research_round(session_dir)
+            review_path = session_dir / "rounds" / "001" / "review.md"
+            old_review = _remove_review_sections(review_path.read_text(encoding="utf-8"))
+            review_path.write_text(old_review, encoding="utf-8")
+            refresh_integrity(session_dir)
+
+            code, result = run_cli(root, ["repair", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["next_action"], "rounds/001/review.md,integrity.json")
+            repaired = review_path.read_text(encoding="utf-8")
+            self.assertIn("Reviewer: fixture", repaired)
+            self.assertIn("Recommended Decision: continue", repaired)
+            self.assertIn("## Returned Review Findings\n\nnone", repaired)
+            self.assertIn("## Accepted Corrections and Resolutions\n\nnone recorded", repaired)
+            manifest = store.read_json(session_dir / "integrity.json")
+            entry = next(entry for entry in manifest["entries"] if entry["path"] == "rounds/001/review.md")
+            self.assertEqual(entry["sha256"], integrity.file_sha256(review_path))
+
+    def test_repair_json_does_not_infer_missing_review_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "repair_review_semantic")
+            complete_research_round(session_dir)
+            review_path = session_dir / "rounds" / "001" / "review.md"
+            broken = _remove_review_sections(review_path.read_text(encoding="utf-8")).replace("Reviewer: fixture\n", "")
+            review_path.write_text(broken, encoding="utf-8")
+            refresh_integrity(session_dir)
+
+            code, result = run_cli(root, ["repair", "--json"])
+
+            self.assertEqual(code, 2)
+            self.assertEqual(result["status"], "blocked")
+            self.assertIn("missing_review_field", {blocker["code"] for blocker in result["blockers"]})
+            self.assertNotIn("## Returned Review Findings", review_path.read_text(encoding="utf-8"))
+
     def test_repair_json_blocks_missing_initial_prompt_without_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -206,6 +247,10 @@ def remove_tree(path: Path) -> None:
     import shutil
 
     shutil.rmtree(path)
+
+
+def _remove_review_sections(text: str) -> str:
+    return text.split("## Returned Review Findings", 1)[0].rstrip() + "\n"
 
 
 class change_dir:

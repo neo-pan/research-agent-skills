@@ -43,7 +43,8 @@ Keep writer judgment separate from RDL shape.
   the record.
 - For artifacts, the writer supplies an existing local file path or an
   `http(s)` URL to `rdl record artifact`; RDL records manifest shape and local
-  size/hash.
+  size/hash. When local artifacts are recorded, the writer also records whether
+  the artifact is an immutable snapshot or an intentionally live project path.
 - Use hand edits for semantic content that structured RDL commands cannot
   express. If canonical shape is damaged, surface the protocol blocker.
 
@@ -145,6 +146,11 @@ project work.
      fallback outcome when used, residual gap or risk, and typed blockers. Do
      not provide exact target text for each RDL file unless the user supplied
      that text or a protocol field requires a literal value.
+   - For local artifact facts, include the intended stability choice for each
+     artifact, or explicitly state why no artifact entry is being recorded for
+     the slice. Keep the choice tied to recoverability: immutable evidence
+     snapshots should remain strict, while live project paths should be marked
+     as live rather than silently treated as snapshots.
    - The writer reads the supplied context and relevant files, summarizes the
      current state, and creates a reviewable current-round state by writing
      evidence, work or interpretation records, artifact manifest entries,
@@ -211,6 +217,10 @@ project work.
      succeeds.
    - Confirm RDL records, project artifacts, and verification outputs from the
      completed round are saved.
+   - After a successful `rdl close --json`, run the repository's read-only RDL
+     dogfood or takeover audit against the closed session before final
+     reporting. If no such audit command exists, record that as a residual
+     recoverability gap instead of treating the close as fully revalidated.
    - If the project is in a Git repository, run `git status --short` and review
      the changed-file surface before reporting the boundary state.
    - Stage or commit changes only when the user explicitly requests it, or when

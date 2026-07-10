@@ -53,6 +53,36 @@ class CliHandoffTests(unittest.TestCase):
             self.assertEqual(result["next_action"], "rdl progress active|blocked|deferred|none")
             self.assertEqual(snapshot(session_dir), before)
 
+    def test_handoff_status_needs_attention_when_gate_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_complete_handoff_session(root)
+            store.write_json_atomic(
+                session_dir / "artifact-manifest.json",
+                {
+                    "artifacts": [
+                        {
+                            "id": "MISSING",
+                            "kind": "log",
+                            "round": 1,
+                            "description": "missing fixture artifact",
+                            "path": "artifacts/missing.log",
+                        }
+                    ]
+                },
+            )
+            before = snapshot(session_dir)
+
+            code, result = run_cli_json(root, ["handoff", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["details"]["memory"]["memory_status"], "healthy")
+            self.assertEqual(result["details"]["gate"]["gate_status"], "blocked")
+            self.assertEqual(result["details"]["handoff_status"], "needs_attention")
+            self.assertEqual(result["next_action"], "rdl doctor")
+            self.assertEqual(snapshot(session_dir), before)
+
     def test_handoff_next_action_points_to_memory_write_for_stale_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -182,6 +212,7 @@ keep future caveats scoped
             self.assertEqual(result["details"]["open_questions"], "- Could a stronger artifact change the gate after future retrieval work?")
             self.assertEqual(result["details"]["known_evidence_gaps"], "- future-only stronger artifact not tested")
             self.assertEqual(result["details"]["directions_tried"], "- closed instead of repeating model work")
+            self.assertEqual(result["details"]["next_smallest_step"], "none: session is closed-inconclusive")
             self.assertEqual(result["next_action"], "none")
             self.assertTrue(result["details"]["terminal"])
             self.assertEqual(result["details"]["terminal_reason"], "session is closed-inconclusive")

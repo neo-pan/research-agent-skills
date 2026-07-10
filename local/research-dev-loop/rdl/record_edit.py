@@ -33,10 +33,14 @@ class RecordResult:
         return result
 
 
+_ARTIFACT_STABILITY = {"snapshot", "live-path"}
+
+
 def record_artifact(session: "Session", values: tuple[str, ...]) -> tuple[RecordResult | None, tuple[Blocker, ...]]:
-    if len(values) != 4:
-        return None, (_usage_blocker("artifact", "rdl record artifact <id> <kind> <path-or-url> <description>"),)
-    artifact_id, kind, location, description = (_clean_text(value) for value in values)
+    if len(values) not in {4, 5}:
+        return None, (_usage_blocker("artifact", "rdl record artifact <id> <kind> <path-or-url> <description> [snapshot|live-path]"),)
+    artifact_id, kind, location, description = (_clean_text(value) for value in values[:4])
+    stability = _clean_text(values[4]) if len(values) == 5 else "snapshot"
     blockers = _required_values(
         (
             (artifact_id, "artifact id"),
@@ -52,6 +56,15 @@ def record_artifact(session: "Session", values: tuple[str, ...]) -> tuple[Record
                 "",
                 "artifact id must start with a letter and contain only letters, numbers, dot, underscore, and dash.",
                 "Use rdl record artifact <id> <kind> <path-or-url> <description>.",
+            )
+        )
+    if stability not in _ARTIFACT_STABILITY:
+        blockers.append(
+            Blocker(
+                "invalid_artifact_stability",
+                "",
+                "artifact stability must be snapshot or live-path.",
+                "Use rdl record artifact <id> <kind> <path-or-url> <description> [snapshot|live-path].",
             )
         )
     manifest_path = session.root / "artifact-manifest.json"
@@ -89,6 +102,7 @@ def record_artifact(session: "Session", values: tuple[str, ...]) -> tuple[Record
         "kind": kind,
         "round": session.state.round,
         "description": description,
+        "stability": stability,
     }
     if resolved is None:
         artifact["url"] = location

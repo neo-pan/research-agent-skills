@@ -16,6 +16,7 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --js
 PYTHONPATH=local/research-dev-loop python3 -m rdl progress active --item parser --text "raw parser capability" --trigger "sample coverage review" --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl factors --section "Dataset or Workload" --value "current workload slice" --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl record artifact EV1 log artifacts/run.log "parser smoke output" --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl record artifact EV2 log src/parser.py "live source path" live-path --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl record finding warning evidence rounds/001/evidence.md "coverage is thin" "add fixture evidence" --json
 ```
 

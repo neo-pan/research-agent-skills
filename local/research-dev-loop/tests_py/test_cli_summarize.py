@@ -99,6 +99,50 @@ class CliSummarizeTests(unittest.TestCase):
             self.assertIn("| Need a schema inspection across wrapped lines. | unassigned | unknown | - |", progress)
             self.assertNotIn("| across wrapped lines. | unassigned | unknown | - |", progress)
 
+    def test_summarize_write_keeps_wrapped_bullet_missing_evidence_as_one_question(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_two_round_session(root)
+            evidence_file = session_dir / "rounds" / "002" / "evidence.md"
+            evidence_file.write_text(
+                evidence_file.read_text(encoding="utf-8").replace(
+                    "Need a schema inspection.",
+                    "- Need a schema inspection\n  across wrapped bullet lines with phase1 | phase2.",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, _result = run_cli(root, ["summarize", "--write", "--json"])
+
+            self.assertEqual(code, 0)
+            progress = (session_dir / "progress.md").read_text(encoding="utf-8")
+            self.assertIn(
+                "| Need a schema inspection across wrapped bullet lines with phase1 / phase2. | unassigned | unknown | - |",
+                progress,
+            )
+            self.assertNotIn("| across wrapped bullet lines", progress)
+
+    def test_summarize_write_compacts_and_sanitizes_table_cells(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_two_round_session(root)
+            long_evidence = "prefix | " + ("x" * 260)
+            decision_file = session_dir / "rounds" / "002" / "decision.md"
+            decision_file.write_text(
+                decision_file.read_text(encoding="utf-8").replace("Evidence: fixture evidence", f"Evidence: {long_evidence}"),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, _result = run_cli(root, ["summarize", "--write", "--json"])
+
+            self.assertEqual(code, 0)
+            progress = (session_dir / "progress.md").read_text(encoding="utf-8")
+            self.assertIn("| round-002 | continue | prefix / ", progress)
+            self.assertIn("... | 002 |", progress)
+            self.assertNotIn("| round-002 | continue | prefix | ", progress)
+
     def test_prompt_context_ignores_empty_managed_summary_markers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

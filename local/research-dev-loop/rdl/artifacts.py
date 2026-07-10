@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+_SNAPSHOT = "snapshot"
+_LIVE_PATH = "live-path"
+_VALID_STABILITY = {_SNAPSHOT, _LIVE_PATH}
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,7 @@ class _ArtifactEntry:
     resolved_path: Path
     size: int | None
     sha256: str | None
+    stability: str
 
 
 def check(session: "Session") -> ArtifactReport:
@@ -87,6 +91,7 @@ def check(session: "Session") -> ArtifactReport:
                 resolved_path=_resolve_artifact_path(session, raw_path.strip()),
                 size=artifact["size"] if _strict_int(artifact.get("size")) and artifact["size"] >= 0 else None,
                 sha256=artifact["sha256"] if isinstance(artifact.get("sha256"), str) and _DIGEST_RE.fullmatch(artifact["sha256"]) else None,
+                stability=_stability(artifact),
             )
         )
 
@@ -121,23 +126,29 @@ def check(session: "Session") -> ArtifactReport:
         if entry.raw_path in missing_paths or entry.raw_path in duplicate_hash_paths:
             continue
         if entry.size is not None and entry.resolved_path.stat().st_size != entry.size:
+            severity = "warning" if entry.stability == _LIVE_PATH else "blocking"
             findings.append(
                 ArtifactFinding(
-                    "blocking",
-                    "artifact_size_mismatch",
+                    severity,
+                    "live_artifact_size_drift" if entry.stability == _LIVE_PATH else "artifact_size_mismatch",
                     _location(entry.artifact_id),
-                    f"Artifact {entry.artifact_id} byte size does not match artifact-manifest.json.",
-                    "Regenerate the artifact, or update its recorded size after verifying the change.",
+                    f"Artifact {entry.artifact_id} byte size drifted from artifact-manifest.json.",
+                    "Review the live path drift and update the artifact record if the current file is the intended evidence."
+                    if entry.stability == _LIVE_PATH
+                    else "Regenerate the artifact, or update its recorded size after verifying the change.",
                 )
             )
         if entry.sha256 is not None and _sha256(entry.resolved_path) != entry.sha256:
+            severity = "warning" if entry.stability == _LIVE_PATH else "blocking"
             findings.append(
                 ArtifactFinding(
-                    "blocking",
-                    "artifact_sha256_mismatch",
+                    severity,
+                    "live_artifact_sha256_drift" if entry.stability == _LIVE_PATH else "artifact_sha256_mismatch",
                     _location(entry.artifact_id),
-                    f"Artifact {entry.artifact_id} sha256 does not match artifact-manifest.json.",
-                    "Regenerate the artifact, or update its recorded sha256 after verifying the change.",
+                    f"Artifact {entry.artifact_id} sha256 drifted from artifact-manifest.json.",
+                    "Review the live path drift and update the artifact record if the current file is the intended evidence."
+                    if entry.stability == _LIVE_PATH
+                    else "Regenerate the artifact, or update its recorded sha256 after verifying the change.",
                 )
             )
 
@@ -179,7 +190,22 @@ def _metadata_findings(artifacts: list[Any]) -> list[ArtifactFinding]:
                     "Update artifact-manifest.json with a valid sha256 digest or remove the optional sha256 field.",
                 )
             )
+        if "stability" in artifact and artifact.get("stability") not in _VALID_STABILITY:
+            findings.append(
+                ArtifactFinding(
+                    "warning",
+                    "invalid_artifact_stability",
+                    _location(artifact_id),
+                    f"Artifact {artifact_id} records unsupported stability metadata.",
+                    "Use stability snapshot or live-path, or remove the optional stability field.",
+                )
+            )
     return findings
+
+
+def _stability(artifact: dict[str, Any]) -> str:
+    value = artifact.get("stability")
+    return value if value in _VALID_STABILITY else _SNAPSHOT
 
 
 def _resolve_artifact_path(session: "Session", raw_path: str) -> Path:
@@ -198,7 +224,7 @@ def _repo_root(session: "Session") -> Path:
 def _duplicate_hash_paths(entries: list[_ArtifactEntry], missing_paths: set[str]) -> dict[str, list[str]]:
     by_path: dict[str, list[_ArtifactEntry]] = {}
     for entry in entries:
-        if entry.raw_path in missing_paths or entry.sha256 is None:
+        if entry.raw_path in missing_paths or entry.sha256 is None or entry.stability == _LIVE_PATH:
             continue
         by_path.setdefault(entry.raw_path, []).append(entry)
     return {

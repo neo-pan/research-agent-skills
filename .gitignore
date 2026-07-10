@@ -5,6 +5,7 @@ __pycache__/
 
 # Local scratch notes and temporary design documents.
 local-notes/
+.scratch/
 
 # Local Humanize loop state.
 .humanize/
