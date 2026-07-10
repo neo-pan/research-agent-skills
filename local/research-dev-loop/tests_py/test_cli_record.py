@@ -12,34 +12,36 @@ from rdl_test_support import complete_review, create_session, refresh_integrity
 
 
 class CliRecordTests(unittest.TestCase):
-    def test_record_artifact_adds_manifest_entry_and_integrity(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            session_dir = create_session(root, "record_artifact")
-            artifact_path = root / "artifacts" / "run.log"
-            artifact_path.parent.mkdir()
-            artifact_path.write_text("fixture output\n", encoding="utf-8")
+    def test_record_artifact_adds_manifest_entry_and_snapshot_integrity(self):
+        snapshot_kinds = ("log", "report", "result", "output")
+        for kind in snapshot_kinds:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_dir = create_session(root, f"record_{kind}_artifact")
+                artifact_path = root / "artifacts" / f"run.{kind}"
+                artifact_path.parent.mkdir()
+                artifact_path.write_text("fixture output\n", encoding="utf-8")
 
-            code, result = run_cli(
-                root,
-                ["record", "artifact", "EV1", "log", "artifacts/run.log", "parser smoke output", "--json"],
-            )
+                code, result = run_cli(
+                    root,
+                    ["record", "artifact", "EV1", kind, f"artifacts/run.{kind}", f"{kind} output", "--json"],
+                )
 
-            self.assertEqual(code, 0)
-            self.assertEqual(result["details"]["record_kind"], "artifact")
-            self.assertEqual(result["details"]["record_id"], "EV1")
-            manifest = store.read_json(session_dir / "artifact-manifest.json")
-            self.assertEqual(len(manifest["artifacts"]), 1)
-            artifact = manifest["artifacts"][0]
-            self.assertEqual(artifact["id"], "EV1")
-            self.assertEqual(artifact["kind"], "log")
-            self.assertEqual(artifact["round"], 1)
-            self.assertEqual(artifact["path"], "artifacts/run.log")
-            self.assertEqual(artifact["stability"], "snapshot")
-            self.assertEqual(artifact["size"], artifact_path.stat().st_size)
-            self.assertEqual(artifact["sha256"], integrity.file_sha256(artifact_path))
-            entries = {entry["path"] for entry in store.read_json(session_dir / "integrity.json")["entries"]}
-            self.assertIn("artifact-manifest.json", entries)
+                self.assertEqual(code, 0)
+                self.assertEqual(result["details"]["record_kind"], "artifact")
+                self.assertEqual(result["details"]["record_id"], "EV1")
+                manifest = store.read_json(session_dir / "artifact-manifest.json")
+                self.assertEqual(len(manifest["artifacts"]), 1)
+                artifact = manifest["artifacts"][0]
+                self.assertEqual(artifact["id"], "EV1")
+                self.assertEqual(artifact["kind"], kind)
+                self.assertEqual(artifact["round"], 1)
+                self.assertEqual(artifact["path"], f"artifacts/run.{kind}")
+                self.assertEqual(artifact["stability"], "snapshot")
+                self.assertEqual(artifact["size"], artifact_path.stat().st_size)
+                self.assertEqual(artifact["sha256"], integrity.file_sha256(artifact_path))
+                entries = {entry["path"] for entry in store.read_json(session_dir / "integrity.json")["entries"]}
+                self.assertIn("artifact-manifest.json", entries)
 
     def test_record_artifact_accepts_live_path_stability(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -58,6 +60,44 @@ class CliRecordTests(unittest.TestCase):
             self.assertEqual(result["details"]["record_id"], "EV1")
             artifact = store.read_json(session_dir / "artifact-manifest.json")["artifacts"][0]
             self.assertEqual(artifact["stability"], "live-path")
+
+    def test_record_artifact_infers_live_path_for_mutable_project_kinds(self):
+        mutable_kinds = ("source", "test", "config", "docs")
+        for kind in mutable_kinds:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_dir = create_session(root, f"record_{kind}_artifact")
+                artifact_path = root / "src" / f"{kind}.txt"
+                artifact_path.parent.mkdir()
+                artifact_path.write_text(f"{kind} content\n", encoding="utf-8")
+
+                code, result = run_cli(
+                    root,
+                    ["record", "artifact", "EV1", kind, f"src/{kind}.txt", f"{kind} project path", "--json"],
+                )
+
+                self.assertEqual(code, 0)
+                self.assertEqual(result["details"]["record_id"], "EV1")
+                artifact = store.read_json(session_dir / "artifact-manifest.json")["artifacts"][0]
+                self.assertEqual(artifact["stability"], "live-path")
+
+    def test_record_artifact_explicit_snapshot_overrides_mutable_kind_inference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "record_explicit_source_snapshot")
+            artifact_path = root / "src" / "parser.py"
+            artifact_path.parent.mkdir()
+            artifact_path.write_text("print('snapshot')\n", encoding="utf-8")
+
+            code, result = run_cli(
+                root,
+                ["record", "artifact", "EV1", "source", "src/parser.py", "immutable source snapshot", "snapshot", "--json"],
+            )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["details"]["record_id"], "EV1")
+            artifact = store.read_json(session_dir / "artifact-manifest.json")["artifacts"][0]
+            self.assertEqual(artifact["stability"], "snapshot")
 
     def test_record_artifact_rejects_invalid_stability_without_partial_write(self):
         with tempfile.TemporaryDirectory() as tmp:

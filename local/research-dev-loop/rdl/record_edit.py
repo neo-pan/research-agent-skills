@@ -34,13 +34,14 @@ class RecordResult:
 
 
 _ARTIFACT_STABILITY = {"snapshot", "live-path"}
+_LIVE_PATH_KINDS = {"source", "test", "config", "docs"}
 
 
 def record_artifact(session: "Session", values: tuple[str, ...]) -> tuple[RecordResult | None, tuple[Blocker, ...]]:
     if len(values) not in {4, 5}:
         return None, (_usage_blocker("artifact", "rdl record artifact <id> <kind> <path-or-url> <description> [snapshot|live-path]"),)
     artifact_id, kind, location, description = (_clean_text(value) for value in values[:4])
-    stability = _clean_text(values[4]) if len(values) == 5 else "snapshot"
+    stability = _clean_text(values[4]) if len(values) == 5 else _default_stability(kind, location)
     blockers = _required_values(
         (
             (artifact_id, "artifact id"),
@@ -224,6 +225,10 @@ def _read_manifest(path: Path) -> dict[str, Any] | Blocker:
 
 def _artifact_id_exists(manifest: dict[str, Any], artifact_id: str) -> bool:
     return any(isinstance(item, dict) and item.get("id") == artifact_id for item in manifest.get("artifacts", ()))
+
+
+def _default_stability(kind: str, location: str) -> str:
+    return "live-path" if kind in _LIVE_PATH_KINDS and not _remote_url(location) else "snapshot"
 
 
 def _review_finding_shape_blockers(path: Path) -> list[Blocker]:
