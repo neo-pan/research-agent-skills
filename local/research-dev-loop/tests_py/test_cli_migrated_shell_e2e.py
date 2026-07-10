@@ -223,6 +223,18 @@ class MigratedShellE2ETests(unittest.TestCase):
             )
             self.assertEqual(run_cli(root, ["progress", "none", "--section", "Blocked", "--reason", "no current blockers", "--json"])[0], 0)
             self.assertEqual(run_cli(root, ["progress", "none", "--section", "Deferred", "--reason", "no deferred work", "--json"])[0], 0)
+            progress_path = session_dir / "progress.md"
+            progress_path.write_text(
+                progress_path.read_text(encoding="utf-8").replace(
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n",
+                    "| Question | Owner | Blocking? | Resolution |\n"
+                    "|---|---|---|---|\n"
+                    "| sample coverage still needs review | team | no | inspect parser sample coverage |\n",
+                ),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
             set_all_factors(root)
 
             code, result = run_cli(root, ["memory", "--check", "--json"])

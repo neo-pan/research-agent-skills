@@ -18,6 +18,7 @@ from rdl_test_support import (
     complete_research_round,
     complete_review,
     create_session,
+    set_current_round,
 )
 
 
@@ -142,6 +143,24 @@ class CliSummarizeTests(unittest.TestCase):
             self.assertIn("| round-002 | continue | prefix / ", progress)
             self.assertIn("... | 002 |", progress)
             self.assertNotIn("| round-002 | continue | prefix | ", progress)
+
+    def test_summarize_write_does_not_revive_historical_open_questions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_three_round_session(root)
+
+            code, _result = run_cli(root, ["summarize", "--write", "--json"])
+
+            self.assertEqual(code, 0)
+            progress = (session_dir / "progress.md").read_text(encoding="utf-8")
+            self.assertIn("| current curated question | team | no | tracked manually |", progress)
+            self.assertNotIn("| Need a schema inspection. | unassigned | unknown | - |", progress)
+            self.assertNotIn("| later work | unassigned | unknown | - |", progress)
+            self.assertIn("| round-001 | continue | fixture evidence | 001 |", progress)
+            self.assertIn("| round-002 | continue | fixture evidence | 002 |", progress)
+            self.assertIn("| round-003 | continue | fixture evidence | 003 |", progress)
+            self.assertIn("| fixture prior directions checked | 001 | unsupported alternatives | see decision.md |", progress)
+            self.assertIn("| possible in round 002 | review.md | no staleness signal |", progress)
 
     def test_prompt_context_ignores_empty_managed_summary_markers(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -315,6 +334,29 @@ def create_two_round_session(root: Path) -> Path:
     (round_two / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
     (round_two / "review.md").write_text(complete_review("continue").replace("Staleness Signal: none", "Staleness Signal: possible"), encoding="utf-8")
     (round_two / "decision.md").write_text(complete_decision("continue", "claim"), encoding="utf-8")
+    integrity.refresh(SessionStore(root).active_session())
+    return session_dir
+
+
+def create_three_round_session(root: Path) -> Path:
+    session_dir = create_two_round_session(root)
+    round_three = set_current_round(session_dir, 3)
+    (round_three / "evidence.md").write_text(COMPLETE_RESEARCH_EVIDENCE, encoding="utf-8")
+    (round_three / "interpretation.md").write_text(COMPLETE_INTERPRETATION, encoding="utf-8")
+    (round_three / "review.md").write_text(complete_review("continue"), encoding="utf-8")
+    (round_three / "decision.md").write_text(
+        complete_decision("continue", "claim").replace("What remains unknown: later work", "What remains unknown: none"),
+        encoding="utf-8",
+    )
+    progress_path = session_dir / "progress.md"
+    progress_path.write_text(
+        progress_path.read_text(encoding="utf-8").replace(
+            "| Question | Owner | Blocking? | Resolution |\n|---|---|---|---|\n",
+            "| Question | Owner | Blocking? | Resolution |\n|---|---|---|---|\n"
+            "| current curated question | team | no | tracked manually |\n",
+        ),
+        encoding="utf-8",
+    )
     integrity.refresh(SessionStore(root).active_session())
     return session_dir
 

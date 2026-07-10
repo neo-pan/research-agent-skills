@@ -34,6 +34,9 @@ Use `rdl memory --check` when `doctor` reports weak session memory or a session
 has run for multiple rounds. Use `rdl memory --write` only to refresh
 deterministic managed summary blocks; still update active, blocked, deferred,
 and factor records manually when they require judgment.
+Managed `Open Questions` rows are current-round hints; persistent cross-round
+questions must be recorded explicitly in `progress.md#Open Questions` until a
+dedicated helper exists.
 
 Separate judgment from shape. Agents decide claims, blockers, evidence gaps,
 factors, decisions, and accepted corrections; RDL commands, templates, managed

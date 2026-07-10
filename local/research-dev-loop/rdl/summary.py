@@ -58,8 +58,9 @@ def plan(session: "Session", through_round: int | None = None) -> SummaryPlan:
             evidence = _field(decision_file, "Evidence") or "none recorded"
             rows["Completed"].append(_row(f"round-{round_number:03d}", decision, evidence, f"{round_number:03d}"))
 
-        for question in _open_question_values(decision_file, round_dir / "evidence.md"):
-            rows["Open Questions"].append(_row(question, "unassigned", "unknown", "-"))
+        if round_number == target_round:
+            for question in _open_question_values(decision_file, round_dir / "evidence.md"):
+                rows["Open Questions"].append(_row(question, "unassigned", "unknown", "-"))
 
         direction = _field(decision_file, "Prior directions checked")
         ruled_out = _field(decision_file, "What this rules out")
