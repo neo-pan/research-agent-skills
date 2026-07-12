@@ -84,6 +84,19 @@ assert_current_repository_manifest() {
 
   [[ "${actual_count}" == "${expected_count}" ]] \
     || fail "expected ${expected_count} selected skill records, got ${actual_count}"
+
+  local selected_names=" ${SELECTED_SKILLS_RECORD_NAMES[*]} "
+  local required_name
+  for required_name in to-spec to-tickets wayfinder; do
+    [[ "${selected_names}" == *" ${required_name} "* ]] \
+      || fail "current manifest missing migrated skill: ${required_name}"
+  done
+
+  local retired_name
+  for retired_name in to-prd to-issues; do
+    [[ "${selected_names}" != *" ${retired_name} "* ]] \
+      || fail "current manifest still exposes retired skill: ${retired_name}"
+  done
 }
 
 assert_invalid_fixture() {

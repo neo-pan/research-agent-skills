@@ -57,6 +57,10 @@ bash "${ROOT_DIR}/tests/check-selected-skills-module.sh" >/dev/null
 
 echo "Selected skills module ok"
 
+bash "${ROOT_DIR}/tests/check-installed-skills-module.sh" >/dev/null
+
+echo "Installed skills module ok"
+
 bash "${ROOT_DIR}/tests/check-upstream-install-guard.sh" >/dev/null
 
 echo "Upstream install guard ok"

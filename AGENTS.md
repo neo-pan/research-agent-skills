@@ -93,7 +93,7 @@ submodule pointer updates.
 
 ### Issue tracker
 
-Issues and PRDs are tracked as local markdown under `.scratch/`. See
+Specs, tickets, and wayfinding maps are tracked as local markdown under `.scratch/`. See
 `docs/agents/issue-tracker.md`.
 
 ### Triage labels

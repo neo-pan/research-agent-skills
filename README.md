@@ -130,6 +130,11 @@ request review and enable auto-merge for the repository.
 
 ## Selected Upstream Skills
 
+Selection favors stable, general-purpose research-engineering workflows that
+compose with the rest of this pack. Skills under upstream `in-progress/`,
+ecosystem-specific setup skills, and roles that substantially duplicate an
+existing local workflow are not exposed by default.
+
 The current selected upstream skills are:
 
 - `grill-with-docs`
@@ -139,9 +144,10 @@ The current selected upstream skills are:
 - `diagnosing-bugs`
 - `setup-matt-pocock-skills`
 - `tdd`
-- `to-prd`
-- `to-issues`
+- `to-spec`
+- `to-tickets`
 - `prototype`
+- `wayfinder`
 - `grill-me`
 - `grilling`
 - `handoff`
