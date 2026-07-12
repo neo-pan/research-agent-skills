@@ -12,6 +12,11 @@ across local projects.
   `./scripts/install_selected_skills.sh <target-skills-dir>`.
 - Never install by recursively scanning `upstream/` or by using
   `upstream/mattpocock-skills` as the repository root.
+- For Codex RDL orchestration, recommend the reviewed role configurations under
+  `codex/agents/` and install them separately with
+  `./scripts/install_recommended_codex_agents.sh [target-agents-dir]`.
+  Do not make custom-agent installation an implicit side effect of skill
+  installation.
 
 ## Repository Rules
 

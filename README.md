@@ -33,8 +33,10 @@ source for the selected upstream entries.
 | `selected-skills.conf` | Canonical selected skill manifest. |
 | `skills/` | Generated symlinks for selected skills. |
 | `local/` | Personal local skills, maintained separately from upstream. |
+| `codex/agents/` | Recommended Codex role configurations for the RDL orchestrator. |
 | `scripts/link_selected_skills.sh` | Rebuilds `skills/` symlinks from the selected list. |
 | `scripts/install_selected_skills.sh` | Installs selected skill links into a target skill directory. |
+| `scripts/install_recommended_codex_agents.sh` | Installs the recommended RDL Codex role configurations. |
 | `scripts/check.sh` | Runs repository checks. |
 | `scripts/update_upstream.sh` | Explicitly updates the upstream submodule and relinks. |
 
@@ -58,6 +60,48 @@ If no target is provided, the script installs into
 `${CODEX_HOME:-$HOME/.codex}/skills`. Different agents discover skills
 differently; use `skills/` as the prepared selected source and follow the target
 agent or project convention for exposing those skill directories.
+
+### Recommended Codex agents
+
+When using `rdl-orchestrator` with Codex, installing the repository's bounded
+writer, reviewer, and explorer roles is recommended:
+
+```bash
+./scripts/install_recommended_codex_agents.sh
+```
+
+The command links the reviewed configurations from `codex/agents/` into
+`${CODEX_HOME:-$HOME/.codex}/agents`. It refuses to replace an existing regular
+file. To install them for one trusted project instead, pass that project's
+agent directory explicitly:
+
+```bash
+./scripts/install_recommended_codex_agents.sh /path/to/project/.codex/agents
+```
+
+The recommended role allocation is:
+
+| Role | Model | Reasoning effort | Sandbox |
+|---|---|---|---|
+| RDL writer | `gpt-5.6-sol` | `medium` | `workspace-write` |
+| RDL reviewer | `gpt-5.6-sol` | `high` | `read-only` |
+| RDL explorer | `gpt-5.6-terra` | `medium` | `read-only` |
+
+The writer remains on Sol because the July 2026 writer A/B did not meet the
+quality or efficiency gates for promoting Terra. For shallow, bounded
+delegation, also add the following to the applicable user or trusted-project
+`config.toml`:
+
+```toml
+[agents]
+max_threads = 4
+max_depth = 1
+```
+
+Restart Codex or start a new session after installing or changing custom agent
+files. See `local/rdl-orchestrator/CODEX.md` for the role rationale and usage
+constraints. Installing these roles is recommended for RDL orchestration but is
+not required for using the other skills in this repository.
 
 For shallow clones, initialize submodules before installing:
 
