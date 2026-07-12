@@ -12,5 +12,5 @@ Current local skills:
 - `research-dev-loop` - lightweight Research Development Loop records and CLI;
   see `local/research-dev-loop/README.md` for current capabilities, dogfood
   takeover workflow, and deferred automation boundaries.
-- `rdl-orchestrator` - manual RDL-backed orchestration workflow with dedicated
-  writer and reviewer subagents.
+- `rdl-orchestrator` - manual RDL-backed orchestration workflow with a dedicated
+  round writer and conditional semantic reviewer.

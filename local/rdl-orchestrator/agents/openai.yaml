@@ -1,0 +1,7 @@
+interface:
+  display_name: "RDL Orchestrator"
+  short_description: "Drive evidence-backed research and build sessions."
+  default_prompt: "Use $rdl-orchestrator to drive the active RDL session through its next justified transition."
+
+policy:
+  allow_implicit_invocation: false
