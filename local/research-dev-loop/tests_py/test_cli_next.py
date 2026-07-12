@@ -17,6 +17,7 @@ from rdl_test_support import (
     COMPLETE_RESEARCH_EVIDENCE,
     COMPLETE_WORK,
     assert_gate_details_compatible,
+    bind_review_subject,
     complete_decision,
     complete_research_round,
     complete_review,
@@ -25,6 +26,41 @@ from rdl_test_support import (
 
 
 class CliNextTests(unittest.TestCase):
+    def test_next_accepts_bound_review_across_summary_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "next_bound_review")
+            complete_research_round(session_dir)
+            bind_review_subject(session_dir, "next")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["round"], 2)
+            binding = result["details"]["gate"]["semantic"]["subject_binding"]
+            self.assertEqual(binding["status"], "matched")
+            self.assertNotIn("semantic_review_subject_stale", result["warnings"])
+
+    def test_next_blocks_when_bound_evidence_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "next_stale_review")
+            complete_research_round(session_dir)
+            bind_review_subject(session_dir, "next")
+            evidence_file = session_dir / "rounds" / "001" / "evidence.md"
+            evidence_file.write_text(evidence_file.read_text(encoding="utf-8") + "\nLate change.\n", encoding="utf-8")
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["next", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertIn("semantic_review_subject_stale", {blocker["code"] for blocker in result["blockers"]})
+            self.assertEqual(store.read_json(session_dir / "state.json")["round"], 1)
+
     def test_next_json_advances_complete_research_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

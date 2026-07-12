@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,6 +37,26 @@ class SemanticFinding:
 
 
 @dataclass(frozen=True)
+class SubjectBinding:
+    status: str
+    gate_action: str
+    recorded_action: str
+    recorded_digest: str
+    expected_action: str
+    current_digest: str
+
+    def details(self) -> dict[str, str]:
+        return {
+            "status": self.status,
+            "gate_action": self.gate_action,
+            "recorded_action": self.recorded_action,
+            "recorded_digest": self.recorded_digest,
+            "expected_action": self.expected_action,
+            "current_digest": self.current_digest,
+        }
+
+
+@dataclass(frozen=True)
 class SemanticReviewReport:
     status: str
     adapter: str
@@ -44,6 +65,7 @@ class SemanticReviewReport:
     recorded_findings: tuple[dict[str, str], ...]
     findings: tuple[SemanticFinding, ...]
     review_pack: review_pack.ReviewPack
+    subject_binding: SubjectBinding
 
     def details(self) -> dict[str, Any]:
         return {
@@ -54,6 +76,7 @@ class SemanticReviewReport:
             "recorded_findings": list(self.recorded_findings),
             "findings": [finding.as_dict() for finding in self.findings],
             "review_pack": self.review_pack.summary(),
+            "subject_binding": self.subject_binding.details(),
         }
 
 
@@ -65,6 +88,7 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
     review_file = session.round_dir() / "review.md"
     adapter = documents.field(review_file, "Review Mode") if review_file.is_file() else "none"
     findings: list[SemanticFinding] = []
+    subject_binding = _unbound_binding(pack)
 
     if required and not review_file.is_file():
         findings.append(
@@ -77,7 +101,7 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
                 "review-md",
             )
         )
-        return _report(required, adapter, (), (), findings, pack)
+        return _report(required, adapter, (), (), findings, pack, subject_binding)
 
     review_blockers = documents.validate("review", review_file) if review_file.is_file() else []
     if required and review_blockers:
@@ -91,12 +115,27 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
                 "review-md",
             )
         )
-        return _report(required, adapter, (), (), findings, pack)
+        return _report(required, adapter, (), (), findings, pack, subject_binding)
 
     if not review_file.is_file() or review_blockers:
-        return _report(required, adapter, (), (), findings, pack)
+        return _report(required, adapter, (), (), findings, pack, subject_binding)
 
     artifacts = _split_field(documents.field(review_file, "Artifacts Reviewed"))
+    recorded_findings = _recorded_findings(review_file, adapter)
+    subject_binding = _subject_binding(session, deterministic_gate_report, review_file, pack)
+    if subject_binding.status == "stale":
+        findings.append(
+            SemanticFinding(
+                "blocking" if required else "warning",
+                "semantic_review_subject_stale",
+                f"{review_file}#Review Subject Digest",
+                "The semantic review is not bound to the current review subject and intended action.",
+                f"Regenerate the {subject_binding.expected_action} review pack and record its action and digest.",
+                adapter,
+            )
+        )
+        return _report(required, adapter, artifacts, recorded_findings, findings, pack, subject_binding)
+
     decision = documents.field(session.round_dir() / "decision.md", "Decision")
     verdict = documents.field(review_file, "Verdict")
     gaps = documents.field(review_file, "Blocking Evidence Gaps")
@@ -107,7 +146,6 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
     decision_file = session.round_dir() / "decision.md"
     direction_changed = documents.field(decision_file, "Direction changed")
     stall_response = documents.field(decision_file, "Stall response")
-    recorded_findings = _recorded_findings(review_file, adapter)
 
     findings.append(
         SemanticFinding(
@@ -190,7 +228,7 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
             )
         )
 
-    return _report(required, adapter, artifacts, recorded_findings, findings, pack)
+    return _report(required, adapter, artifacts, recorded_findings, findings, pack, subject_binding)
 
 
 def _semantic_review_required(session: Session, action: str, deterministic_gate_report: Any) -> bool:
@@ -217,11 +255,48 @@ def _report(
     recorded_findings: tuple[dict[str, str], ...],
     findings: list[SemanticFinding],
     pack: review_pack.ReviewPack,
+    subject_binding: SubjectBinding,
 ) -> SemanticReviewReport:
     status = "blocked" if any(finding.severity == "blocking" for finding in findings) else "needs_attention" if any(
         finding.severity == "warning" for finding in findings
     ) else "ok"
-    return SemanticReviewReport(status, adapter, required, artifacts, recorded_findings, tuple(findings), pack)
+    return SemanticReviewReport(status, adapter, required, artifacts, recorded_findings, tuple(findings), pack, subject_binding)
+
+
+def _subject_binding(
+    session: Session,
+    deterministic_gate_report: Any,
+    review_file: Any,
+    gate_pack: review_pack.ReviewPack,
+) -> SubjectBinding:
+    recorded_action = documents.field(review_file, "Review Subject Action")
+    recorded_digest = documents.field(review_file, "Review Subject Digest")
+    if not recorded_action and not recorded_digest:
+        return _unbound_binding(gate_pack)
+
+    strict_action = gate_pack.action in {"next", "close"}
+    recorded_action_valid = recorded_action in review_pack.SUPPORTED_SUBJECT_ACTIONS
+    expected_action = gate_pack.action if strict_action or not recorded_action_valid else recorded_action
+    current_pack = gate_pack if expected_action == gate_pack.action else review_pack.build(
+        session,
+        expected_action,
+        deterministic_gate_report,
+    )
+    digest_valid = bool(re.fullmatch(r"sha256:[0-9a-f]{64}", recorded_digest))
+    action_matches = recorded_action_valid and (not strict_action or recorded_action == expected_action)
+    status = "matched" if digest_valid and action_matches and recorded_digest == current_pack.subject_digest else "stale"
+    return SubjectBinding(
+        status,
+        gate_pack.action,
+        recorded_action,
+        recorded_digest,
+        expected_action,
+        current_pack.subject_digest,
+    )
+
+
+def _unbound_binding(pack: review_pack.ReviewPack) -> SubjectBinding:
+    return SubjectBinding("unbound", pack.action, "", "", pack.action, pack.subject_digest)
 
 
 def _recorded_findings(review_file: Any, adapter: str) -> tuple[dict[str, str], ...]:

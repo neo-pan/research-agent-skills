@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import documents, memory, store
+from . import documents, memory, store, summary
 from .session import Session
 
 
 PRIOR_ROUND_WINDOW = 2
+SUBJECT_DIGEST_VERSION = 1
+SUPPORTED_SUBJECT_ACTIONS = frozenset({"review", "doctor", "next", "close"})
 
 EXPECTED_REVIEW_ABSENCE_CODES = {
     "missing_review",
@@ -35,6 +38,7 @@ SESSION_RECORDS = (
     "factors.md",
     "decision-ledger.md",
     "artifact-manifest.json",
+    "final-report.md",
 )
 
 PRIOR_ROUND_RECORDS = (
@@ -53,6 +57,7 @@ class ReviewPack:
     round: int
     mode: str
     profile: str
+    subject_digest: str
     reviewer_task: dict[str, Any]
     finding_schema: dict[str, Any]
     agent_review_signals: tuple[dict[str, str], ...]
@@ -67,6 +72,7 @@ class ReviewPack:
             "round": self.round,
             "mode": self.mode,
             "profile": self.profile,
+            "subject_digest": self.subject_digest,
             "reviewer_task": self.reviewer_task,
             "finding_schema": self.finding_schema,
             "agent_review_signals": list(self.agent_review_signals),
@@ -82,6 +88,7 @@ class ReviewPack:
             "round": self.round,
             "mode": self.mode,
             "profile": self.profile,
+            "subject_digest": self.subject_digest,
             "agent_review_signal_codes": [signal["code"] for signal in self.agent_review_signals],
             "record_paths": [record["path"] for record in self.records],
             "artifact_count": _artifact_count(self.artifact_manifest),
@@ -98,22 +105,34 @@ def build(session: Session, action: str, deterministic_gate_report: Any) -> Revi
         path = session.root / relative
         if path.is_file():
             records.append(_record(path, relative))
+    agent_review_signals = memory.agent_review_signals(session)
+    artifact_manifest = _artifact_manifest(session.root / "artifact-manifest.json")
+    deterministic_findings = tuple(
+        finding
+        for finding in deterministic_gate_report.details.get("findings", [])
+        if _include_deterministic_finding(finding)
+    )
+    subject_digest = _subject_digest(
+        session,
+        normalized_action,
+        tuple(records),
+        artifact_manifest,
+        deterministic_findings,
+        agent_review_signals,
+    )
     return ReviewPack(
         session_id=session.state.session_id,
         action=normalized_action,
         round=session.state.round,
         mode=str(session.state.mode),
         profile=str(session.state.profile),
+        subject_digest=subject_digest,
         reviewer_task=_reviewer_task(normalized_action, str(session.state.mode), str(session.state.profile)),
         finding_schema=_finding_schema(),
-        agent_review_signals=memory.agent_review_signals(session),
+        agent_review_signals=agent_review_signals,
         records=tuple(records),
-        artifact_manifest=_artifact_manifest(session.root / "artifact-manifest.json"),
-        deterministic_findings=tuple(
-            finding
-            for finding in deterministic_gate_report.details.get("findings", [])
-            if _include_deterministic_finding(finding)
-        ),
+        artifact_manifest=artifact_manifest,
+        deterministic_findings=deterministic_findings,
     )
 
 
@@ -155,6 +174,8 @@ def _reviewer_task(action: str, mode: str, profile: str) -> dict[str, Any]:
             "Return a compact verdict recommendation plus structured findings for review.md.",
         ],
         "output": {
+            "subject_action": "echo review_pack.action exactly",
+            "subject_digest": "echo review_pack.subject_digest exactly",
             "verdict_recommendation": "pass | revise-before-close | block | inconclusive",
             "memory_fidelity": "faithful | needs-correction | incomplete",
             "next_action_recommendation": "close | next | revise | stop",
@@ -243,7 +264,6 @@ def _current_citation_sources(session: Session) -> tuple[Path, ...]:
     return (
         round_dir / "decision.md",
         round_dir / "evidence.md",
-        round_dir / "review.md",
         session.root / "final-report.md",
     )
 
@@ -303,6 +323,59 @@ def _artifact_count(manifest: dict[str, Any] | None) -> int:
         return 0
     artifacts = manifest.get("artifacts")
     return len(artifacts) if isinstance(artifacts, list) else 0
+
+
+def _subject_digest(
+    session: Session,
+    action: str,
+    records: tuple[dict[str, str], ...],
+    artifact_manifest: dict[str, Any] | None,
+    deterministic_findings: tuple[dict[str, str], ...],
+    agent_review_signals: tuple[dict[str, str], ...],
+) -> str:
+    current_review = f"rounds/{session.state.round:03d}/review.md"
+    subject_records = []
+    for record in records:
+        relative = record["path"]
+        if relative in {current_review, "artifact-manifest.json"}:
+            continue
+        text = summary.without_generated_blocks(relative, record["text"])
+        subject_records.append(
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            }
+        )
+
+    stable_findings = tuple(
+        finding for finding in deterministic_findings if finding.get("category") in {"artifact", "evidence"}
+    )
+    payload = {
+        "version": SUBJECT_DIGEST_VERSION,
+        "session_id": session.state.session_id,
+        "round": session.state.round,
+        "mode": str(session.state.mode),
+        "profile": str(session.state.profile),
+        "action": action,
+        "records": sorted(subject_records, key=lambda record: record["path"]),
+        "artifact_manifest_sha256": _canonical_digest(artifact_manifest),
+        "deterministic_findings": _canonical_items(stable_findings),
+        "agent_review_signals": _canonical_items(agent_review_signals),
+    }
+    return _canonical_digest(payload)
+
+
+def _canonical_items(items) -> list[Any]:
+    normalized = [json.loads(_canonical_json(item)) for item in items]
+    return sorted(normalized, key=_canonical_json)
+
+
+def _canonical_digest(value: Any) -> str:
+    return f"sha256:{hashlib.sha256(_canonical_json(value).encode('utf-8')).hexdigest()}"
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _meaningful(value: str) -> bool:

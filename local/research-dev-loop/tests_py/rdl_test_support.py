@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
-from rdl import integrity, templates
+from rdl import integrity, review_pack, templates
 from rdl.session import SessionStore
 
 
@@ -107,6 +108,7 @@ def assert_gate_details_compatible(
             "recorded_findings",
             "findings",
             "review_pack",
+            "subject_binding",
         }.issubset(semantic.keys()),
         semantic,
     )
@@ -117,6 +119,7 @@ def assert_gate_details_compatible(
     testcase.assertIsInstance(semantic["recorded_findings"], list)
     testcase.assertIsInstance(semantic["findings"], list)
     testcase.assertIsInstance(semantic["review_pack"], dict)
+    testcase.assertIn(semantic["subject_binding"]["status"], {"matched", "stale", "unbound"})
 
 
 def create_session(root: Path, session_id: str = "r1", mode: str = "research", profile: str = "full-review") -> Path:
@@ -160,6 +163,24 @@ def refresh_integrity(session_dir: Path) -> None:
     integrity.refresh(SessionStore(repo_root).load_session(session_dir))
 
 
+def bind_review_subject(session_dir: Path, action: str) -> str:
+    repo_root = session_dir.parents[2]
+    session = SessionStore(repo_root).load_session(session_dir)
+    pack = review_pack.build(session, action, SimpleNamespace(details={"findings": []}))
+    review_file = session.round_dir() / "review.md"
+    text = review_file.read_text(encoding="utf-8")
+    lines = []
+    for line in text.splitlines():
+        if line.startswith("Review Subject Action:"):
+            line = f"Review Subject Action: {pack.action}"
+        elif line.startswith("Review Subject Digest:"):
+            line = f"Review Subject Digest: {pack.subject_digest}"
+        lines.append(line)
+    review_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    refresh_integrity(session_dir)
+    return pack.subject_digest
+
+
 def complete_build_round(session_dir: Path, verification: bool = True) -> None:
     round_dir = session_dir / "rounds" / "001"
     (round_dir / "intent.md").write_text(COMPLETE_INTENT, encoding="utf-8")
@@ -182,6 +203,8 @@ def complete_review(decision: str) -> str:
 Reviewer: fixture
 Review Mode: manual
 Review Scope: current round
+Review Subject Action:
+Review Subject Digest:
 Artifacts Reviewed: prompt, evidence, decision
 Verdict: PASS
 Decision Reviewed: {decision}

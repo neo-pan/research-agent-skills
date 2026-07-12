@@ -3,6 +3,8 @@
 Reviewer:
 Review Mode: manual | checklist | phase-review | subagent | project-adapter
 Review Scope:
+Review Subject Action:
+Review Subject Digest:
 Artifacts Reviewed:
 Verdict: PASS | PASS_WITH_NOTES | BLOCKED | INCONCLUSIVE
 Decision Reviewed:

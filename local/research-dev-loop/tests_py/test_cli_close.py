@@ -13,6 +13,7 @@ from rdl.session import SessionStore
 from rdl_test_support import (
     REPEATED_NEGATIVE_EVIDENCE,
     assert_gate_details_compatible,
+    bind_review_subject,
     complete_decision,
     complete_final_report,
     complete_research_round,
@@ -24,6 +25,41 @@ from rdl_test_support import (
 
 
 class CliCloseTests(unittest.TestCase):
+    def test_close_accepts_bound_review_across_summary_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "positive")
+            bind_review_subject(session_dir, "close")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["close", "positive", "--json"]), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["details"]["gate"]["semantic"]["subject_binding"]["status"], "matched")
+            self.assertNotIn("semantic_review_subject_stale", result["warnings"])
+
+    def test_close_blocks_when_bound_final_report_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "positive")
+            bind_review_subject(session_dir, "close")
+            final_report = session_dir / "final-report.md"
+            final_report.write_text(
+                final_report.read_text(encoding="utf-8").replace("fixture claim", "changed claim scope"),
+                encoding="utf-8",
+            )
+            integrity.refresh(SessionStore(root).active_session())
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["close", "positive", "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertIn("semantic_review_subject_stale", {blocker["code"] for blocker in result["blockers"]})
+            self.assertEqual(store.read_json(session_dir / "state.json")["status"], "active")
+
     def test_close_json_closes_supported_outcomes(self):
         for outcome in ("positive", "negative", "inconclusive"):
             with self.subTest(outcome=outcome):

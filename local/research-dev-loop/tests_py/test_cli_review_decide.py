@@ -81,6 +81,9 @@ class CliReviewDecideTests(unittest.TestCase):
             self.assertEqual(pack["action"], "review")
             self.assertIn("reviewer_task", pack)
             self.assertIn("finding_schema", pack)
+            self.assertRegex(pack["subject_digest"], r"^sha256:[0-9a-f]{64}$")
+            self.assertEqual(pack["reviewer_task"]["output"]["subject_action"], "echo review_pack.action exactly")
+            self.assertEqual(pack["reviewer_task"]["output"]["subject_digest"], "echo review_pack.subject_digest exactly")
             self.assertIn("unchanged_next_smallest_step_across_rounds", {signal["code"] for signal in pack["agent_review_signals"]})
             self.assertIn("rounds/001/evidence.md", {record["path"] for record in pack["records"]})
 

@@ -30,7 +30,9 @@ Use `review --pack --for next|close|doctor` when the reviewer should assess a
 specific intended action. `--for next` evaluates the advance gate but exposes
 `next` in the reviewer task. `--for close` infers the outcome from the current
 `Decision: close-*` record and returns `missing_close_outcome` when no such
-decision is recorded. Omitting `--for` preserves the generic review pack.
+decision is recorded. Omitting `--for` preserves the generic review pack. Each
+pack exposes `subject_digest`; record it with the pack `action` as `Review
+Subject Digest` and `Review Subject Action` in `review.md`.
 
 RDL requires `python3`. Its implementation lives under
 `local/research-dev-loop/rdl/`.

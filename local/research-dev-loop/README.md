@@ -25,7 +25,10 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
 - Agent-facing semantic review packs with optional `--for next|close|doctor`, including
   reviewer instructions, supplied RDL records, bounded prior-round context,
   cited artifact-producing round context, deterministic findings, artifact
-  facts, finding schema, and review-only semantic signals.
+  facts, finding schema, review-only semantic signals, and a review subject
+  digest bound to the intended action.
+- Semantic review binding states (`matched`, `stale`, and legacy `unbound`)
+  with stale-review blocking for required review gates.
 - Round-local `gate-report.json` and `gate.md` audit artifacts written before
   successful `rdl next`, `rdl close`, and `rdl guard-stop` transitions.
 - Read-only artifact gate checks for local artifact path reachability, byte
@@ -55,7 +58,9 @@ represent the true state.
 Semantic review is agent-native first. `rdl review --pack --for next|close|doctor --json` exposes the
 clean context a reviewer agent needs without conversation history. The default
 gate consumes completed `review.md` records after the main agent or user records
-accepted findings. Later adapters may include an independent subagent,
+accepted findings. New reviews echo the pack action and subject digest so the
+gate can reject a review after decision-relevant records change. Later adapters
+may include an independent subagent,
 `phase-review`, or a project-provided reviewer, but adapter mechanics should not
 come before the agent-facing review contract. Reviewers must not directly mutate
 canonical RDL files or advance the session.

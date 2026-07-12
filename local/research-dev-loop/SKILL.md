@@ -53,6 +53,9 @@ skill focused on the RDL protocol and CLI.
      adapters include independent subagents, `phase-review`, manual review, and
      project reviewers. The orchestrated path defaults to subagents; the base
      RDL protocol accepts any explicit adapter recorded in `review.md`.
+   - Record the pack action and subject digest in `review.md`. Regenerate the
+     same action-aware pack after accepted subject corrections; confirm again
+     only when the digest changed.
    - Completion check: review findings and accepted corrections are recorded in
      `review.md`, while judgment-heavy changes to `decision.md`, `progress.md`,
      and `factors.md` remain accepted by the main agent or user.

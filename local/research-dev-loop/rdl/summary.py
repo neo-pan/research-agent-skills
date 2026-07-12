@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -39,6 +40,26 @@ class SummaryPlan:
             "progress_updates": {section: len(rows) for section, rows in self.rows.items()},
             "factor_gaps": list(self.factor_gaps),
         }
+
+
+def without_generated_blocks(relative: str, text: str) -> str:
+    """Return record text without deterministic summary blocks."""
+
+    if relative == "progress.md":
+        return _without_marker_blocks(
+            text,
+            lambda line: bool(re.fullmatch(r"<!-- rdl:summary section=.+ start -->", line)),
+            lambda line: bool(re.fullmatch(r"<!-- rdl:summary section=.+ end -->", line)),
+            terminal_newlines=1,
+        )
+    if relative == "decision-ledger.md":
+        return _without_marker_blocks(
+            text,
+            lambda line: line == LEDGER_SUMMARY_START,
+            lambda line: line == LEDGER_SUMMARY_END,
+            terminal_newlines=2,
+        )
+    return text
 
 
 def plan(session: "Session", through_round: int | None = None) -> SummaryPlan:
@@ -114,6 +135,45 @@ def _empty_rows() -> dict[str, list[str]]:
         "Directions Tried": [],
         "Staleness Watch": [],
     }
+
+
+def _without_marker_blocks(
+    text: str,
+    starts: Callable[[str], bool],
+    ends: Callable[[str], bool],
+    *,
+    terminal_newlines: int,
+) -> str:
+    lines = text.splitlines()
+    result: list[str] = []
+    skipping = False
+    removed_block = False
+    pending_gap = False
+    for line in lines:
+        stripped = line.strip()
+        if not skipping and starts(stripped):
+            while result and not result[-1].strip():
+                result.pop()
+            skipping = True
+            pending_gap = True
+            continue
+        if skipping:
+            if ends(stripped):
+                skipping = False
+                removed_block = True
+            continue
+        if pending_gap:
+            if not stripped:
+                continue
+            if result:
+                result.append("")
+            pending_gap = False
+        result.append(line)
+    if skipping:
+        return text
+    if not removed_block:
+        return text
+    return "\n".join(result).rstrip() + ("\n" * terminal_newlines)
 
 
 def _round_blockers(session: "Session", through_round: int) -> list[Blocker]:
