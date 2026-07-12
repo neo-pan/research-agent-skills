@@ -20,15 +20,17 @@ Use this quality-first baseline before optimizing role models:
 
 | Role | Model | Reasoning effort |
 | --- | --- | --- |
-| Main/root | `gpt-5.6` | `medium`; raise to `high` for difficult work |
-| Writer | `gpt-5.6` | `medium` |
-| Reviewer | `gpt-5.6` | `high` |
+| Main/root | `gpt-5.6-sol` | `medium`; raise to `high` for difficult work |
+| Writer | `gpt-5.6-sol` | `medium` |
+| Reviewer | `gpt-5.6-sol` | `high` |
 | Explorer | `gpt-5.6-terra` | `medium` |
 
-Evaluate `gpt-5.6-terra` for the writer only after representative A/B runs show
-no increase in evidence omission, wrong decisions, reviewer corrections,
-re-review, or handoff failure, and show a real latency or token benefit. Keep
-the critical reviewer on `gpt-5.6` high by default.
+The July 2026 writer calibration did not promote `gpt-5.6-terra`: a repeated,
+representative A/B failed the semantic-fidelity and efficiency gates. Keep the
+writer on `gpt-5.6-sol` until a new representative calibration shows no
+increase in evidence omission, false facts, reviewer corrections, re-review,
+or handoff failure and also shows a real latency or token benefit. Keep the
+critical reviewer on `gpt-5.6-sol` high by default.
 
 ## Writer
 
@@ -37,7 +39,7 @@ Save as `.codex/agents/rdl-writer.toml` when a project should define this role:
 ```toml
 name = "rdl_writer"
 description = "Single writer for canonical records in the active RDL round."
-model = "gpt-5.6"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 
@@ -52,8 +54,8 @@ Return the compact writer receipt required by the orchestrator skill.
 """
 ```
 
-Change only `model` to `gpt-5.6-terra` if the writer A/B promotion criteria are
-met.
+Do not change `model` to `gpt-5.6-terra` unless a later writer A/B meets every
+promotion criterion above.
 
 ## Reviewer
 
@@ -62,7 +64,7 @@ Save as `.codex/agents/rdl-reviewer.toml`:
 ```toml
 name = "rdl_reviewer"
 description = "Independent semantic reviewer for RDL evidence and decisions."
-model = "gpt-5.6"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 
