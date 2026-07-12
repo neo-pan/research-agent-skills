@@ -13,6 +13,11 @@ from .session import Session
 
 PRIOR_ROUND_WINDOW = 2
 
+EXPECTED_REVIEW_ABSENCE_CODES = {
+    "missing_review",
+    "missing_semantic_review",
+}
+
 ROUND_RECORDS = (
     "prompt.md",
     "intent.md",
@@ -87,6 +92,7 @@ class ReviewPack:
 def build(session: Session, action: str, deterministic_gate_report: Any) -> ReviewPack:
     """Build a clean RDL-only context pack for semantic review adapters."""
 
+    normalized_action = _normalize_action(action)
     records = []
     for relative in _record_paths(session):
         path = session.root / relative
@@ -94,11 +100,11 @@ def build(session: Session, action: str, deterministic_gate_report: Any) -> Revi
             records.append(_record(path, relative))
     return ReviewPack(
         session_id=session.state.session_id,
-        action=action,
+        action=normalized_action,
         round=session.state.round,
         mode=str(session.state.mode),
         profile=str(session.state.profile),
-        reviewer_task=_reviewer_task(action, str(session.state.mode), str(session.state.profile)),
+        reviewer_task=_reviewer_task(normalized_action, str(session.state.mode), str(session.state.profile)),
         finding_schema=_finding_schema(),
         agent_review_signals=memory.agent_review_signals(session),
         records=tuple(records),
@@ -106,9 +112,17 @@ def build(session: Session, action: str, deterministic_gate_report: Any) -> Revi
         deterministic_findings=tuple(
             finding
             for finding in deterministic_gate_report.details.get("findings", [])
-            if finding.get("category") != "semantic"
+            if _include_deterministic_finding(finding)
         ),
     )
+
+
+def _normalize_action(action: str) -> str:
+    return "next" if action == "advance" else action
+
+
+def _include_deterministic_finding(finding: dict[str, Any]) -> bool:
+    return finding.get("category") != "semantic" and finding.get("code") not in EXPECTED_REVIEW_ABSENCE_CODES
 
 
 def _reviewer_task(action: str, mode: str, profile: str) -> dict[str, Any]:

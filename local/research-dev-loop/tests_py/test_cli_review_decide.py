@@ -10,7 +10,7 @@ from rdl import integrity, store
 from rdl.cli import main
 from rdl.session import SessionStore
 
-from rdl_test_support import complete_decision, complete_research_round, complete_review, create_session, set_current_round
+from rdl_test_support import complete_decision, complete_research_round, complete_review, create_session, set_current_round, write_json
 
 
 class CliReviewDecideTests(unittest.TestCase):
@@ -78,10 +78,106 @@ class CliReviewDecideTests(unittest.TestCase):
             self.assertIn("review_pack", details)
             self.assertIn("gate", details)
             pack = details["review_pack"]
+            self.assertEqual(pack["action"], "review")
             self.assertIn("reviewer_task", pack)
             self.assertIn("finding_schema", pack)
             self.assertIn("unchanged_next_smallest_step_across_rounds", {signal["code"] for signal in pack["agent_review_signals"]})
             self.assertIn("rounds/001/evidence.md", {record["path"] for record in pack["records"]})
+
+    def test_review_pack_for_next_uses_next_action_and_filters_expected_review_absence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_next")
+            complete_research_round(session_dir)
+            review_file = session_dir / "rounds" / "001" / "review.md"
+            review_file.unlink()
+            integrity.refresh(SessionStore(root).active_session())
+
+            code, result = run_cli(root, ["review", "--pack", "--for", "next", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "ok")
+            self.assertFalse(review_file.exists())
+            pack = result["details"]["review_pack"]
+            self.assertEqual(pack["action"], "next")
+            self.assertEqual(pack["reviewer_task"]["action"], "next")
+            self.assertIn("next smallest step", "\n".join(pack["reviewer_task"]["questions"]))
+            self.assertNotIn("missing_review", {finding["code"] for finding in pack["deterministic_findings"]})
+            self.assertIn("missing_review", {finding["code"] for finding in result["details"]["gate"]["findings"]})
+
+    def test_review_pack_for_close_infers_outcome_and_uses_close_action(self):
+        for outcome in ("positive", "negative", "inconclusive"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_dir = create_session(root, f"review_pack_close_{outcome}")
+                round_dir = session_dir / "rounds" / "001"
+                (round_dir / "decision.md").write_text(complete_decision(f"close-{outcome}", "claim"), encoding="utf-8")
+
+                code, result = run_cli(root, ["review", "--pack", "--for", "close", "--json"])
+
+                self.assertEqual(code, 0)
+                pack = result["details"]["review_pack"]
+                self.assertEqual(pack["action"], "close")
+                self.assertEqual(pack["reviewer_task"]["action"], "close")
+                self.assertIn("close outcome", "\n".join(pack["reviewer_task"]["questions"]))
+                self.assertNotIn("missing_review", {finding["code"] for finding in pack["deterministic_findings"]})
+
+    def test_review_pack_for_close_requires_close_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "review_pack_close_missing")
+
+            code, result = run_cli(root, ["review", "--pack", "--for", "close", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["action"], "review")
+            self.assertEqual(result["blockers"][0]["code"], "missing_close_outcome")
+            self.assertNotIn("review_pack", result["details"])
+
+    def test_review_pack_for_doctor_uses_doctor_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "review_pack_doctor", profile="checkpoint")
+
+            code, result = run_cli(root, ["review", "--pack", "--for", "doctor", "--json"])
+
+            self.assertEqual(code, 0)
+            pack = result["details"]["review_pack"]
+            self.assertEqual(pack["action"], "doctor")
+            questions = "\n".join(pack["reviewer_task"]["questions"])
+            self.assertNotIn("next smallest step", questions)
+            self.assertNotIn("close outcome", questions)
+
+    def test_review_for_requires_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "review_for_requires_pack")
+
+            code, result = run_cli(root, ["review", "--for", "next", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["blockers"][0]["code"], "review_action_requires_pack")
+
+    def test_review_pack_rejects_invalid_review_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "review_for_invalid")
+
+            code, result = run_cli(root, ["review", "--pack", "--for", "publish", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["blockers"][0]["code"], "invalid_review_action")
+
+    def test_review_pack_reports_missing_review_action_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "review_for_missing")
+
+            code, result = run_cli(root, ["review", "--pack", "--for", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["blockers"][0]["code"], "missing_review_action")
 
     def test_review_pack_json_can_read_specified_session_path_without_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -96,12 +192,13 @@ class CliReviewDecideTests(unittest.TestCase):
             before_selected = snapshot(selected_dir)
             before_active = snapshot(active_dir)
 
-            code, result = run_cli(root, ["review", "--pack", "--session-path", str(selected_dir), "--json"])
+            code, result = run_cli(root, ["review", "--pack", "--for", "next", "--session-path", str(selected_dir), "--json"])
 
             self.assertEqual(code, 0)
             self.assertEqual(result["session_id"], "review_pack_selected")
             self.assertFalse(review_file.exists())
             pack = result["details"]["review_pack"]
+            self.assertEqual(pack["action"], "next")
             self.assertIn("rounds/001/evidence.md", {record["path"] for record in pack["records"]})
             self.assertEqual(result["next_action"], "none")
             self.assertTrue(result["details"]["terminal"])
@@ -109,6 +206,49 @@ class CliReviewDecideTests(unittest.TestCase):
             self.assertEqual(SessionStore(root).active_session().state.session_id, "review_pack_active")
             self.assertEqual(snapshot(selected_dir), before_selected)
             self.assertEqual(snapshot(active_dir), before_active)
+
+    def test_review_pack_for_next_can_read_specified_session_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_session(root, "review_pack_selected_id", profile="checkpoint")
+
+            code, result = run_cli(
+                root,
+                ["review", "--pack", "--for", "next", "--session-id", "review_pack_selected_id", "--json"],
+            )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["session_id"], "review_pack_selected_id")
+            self.assertEqual(result["details"]["review_pack"]["action"], "next")
+
+    def test_review_pack_rejects_unsupported_session_schema(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_bad_schema")
+            state_path = session_dir / "state.json"
+            state = store.read_json(state_path)
+            state["schema_version"] = 2
+            write_json(state_path, state)
+
+            code, result = run_cli(root, ["review", "--pack", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "unsupported_schema")
+            self.assertNotIn("review_pack", result["details"])
+
+    def test_review_pack_rejects_malformed_integrity_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_bad_integrity")
+            (session_dir / "integrity.json").write_text("{broken\n", encoding="utf-8")
+
+            code, result = run_cli(root, ["review", "--pack", "--json"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["blockers"][0]["code"], "invalid_integrity_json")
+            self.assertNotIn("review_pack", result["details"])
 
     def test_review_json_rejects_session_selector_without_pack(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,9 +1,18 @@
 # Semantic Review
 
-Use `rdl review --pack --json` to produce a clean context pack for a reviewer.
+Use `rdl review --pack --for next|close|doctor --json` to produce an
+action-aware clean context pack for a reviewer. Use the generic
+`rdl review --pack --json` form only when no intended action is known or for a
+backward-compatible caller. A close pack requires a current `Decision: close-*`
+record so the reviewer assesses a specific proposed outcome.
 The pack includes RDL records, artifact manifest facts, deterministic findings,
 reviewer instructions, a finding schema, and semantic signals that require
 judgment. It must not create or modify `review.md`.
+
+The pack omits expected `missing_review` and `missing_semantic_review` findings
+because the reviewer is being asked to produce that review. The accompanying
+gate details remain complete, and all other deterministic evidence, artifact,
+memory, decision, and integrity findings remain available to the reviewer.
 
 Keep semantic-review prompts concise but action/profile/mode-aware. Ask the
 reviewer for a verdict recommendation, memory fidelity, next-action

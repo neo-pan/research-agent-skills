@@ -9,6 +9,9 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl status --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --session-id <id> --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --for next --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --for close --json
+PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --for doctor --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --session-path <path> --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl memory --check --json
 PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
@@ -22,6 +25,12 @@ PYTHONPATH=local/research-dev-loop python3 -m rdl record finding warning evidenc
 
 When another tool or agent consumes `--json`, run RDL from a clean shell/session
 so stdout remains parseable JSON.
+
+Use `review --pack --for next|close|doctor` when the reviewer should assess a
+specific intended action. `--for next` evaluates the advance gate but exposes
+`next` in the reviewer task. `--for close` infers the outcome from the current
+`Decision: close-*` record and returns `missing_close_outcome` when no such
+decision is recorded. Omitting `--for` preserves the generic review pack.
 
 RDL requires `python3`. Its implementation lives under
 `local/research-dev-loop/rdl/`.

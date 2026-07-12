@@ -73,6 +73,7 @@ class ReviewPackTests(unittest.TestCase):
                 details={
                     "findings": [
                         {"category": "protocol", "code": "missing_decision"},
+                        {"category": "semantic", "code": "missing_semantic_review"},
                         {"category": "semantic", "code": "semantic_review_blocked"},
                         {"category": "semantic", "code": "semantic_review_decision_mismatch"},
                     ]
@@ -82,6 +83,45 @@ class ReviewPackTests(unittest.TestCase):
             pack = review_pack.build(session, "review", deterministic_report)
 
             self.assertEqual([finding["code"] for finding in pack.deterministic_findings], ["missing_decision"])
+
+    def test_filters_expected_missing_review_findings_but_keeps_other_deterministic_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_expected_absence")
+            complete_research_round(session_dir)
+            session = SessionStore(root).active_session()
+            deterministic_report = SimpleNamespace(
+                details={
+                    "findings": [
+                        {"category": "protocol", "code": "missing_review"},
+                        {"category": "semantic", "code": "missing_semantic_review"},
+                        {"category": "evidence", "code": "missing_evidence"},
+                        {"category": "artifact", "code": "artifact_drift"},
+                    ]
+                }
+            )
+
+            pack = review_pack.build(session, "review", deterministic_report)
+
+            self.assertEqual(
+                [finding["code"] for finding in pack.deterministic_findings],
+                ["missing_evidence", "artifact_drift"],
+            )
+
+    def test_advance_action_normalizes_to_next_everywhere(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_advance")
+            complete_research_round(session_dir)
+            session = SessionStore(root).active_session()
+            deterministic_report = SimpleNamespace(details={"findings": []})
+
+            pack = review_pack.build(session, "advance", deterministic_report)
+
+            self.assertEqual(pack.action, "next")
+            self.assertEqual(pack.as_dict()["reviewer_task"]["action"], "next")
+            self.assertEqual(pack.summary()["action"], "next")
+            self.assertIn("next smallest step", "\n".join(pack.reviewer_task["questions"]))
 
     def test_reviewer_task_is_action_profile_mode_aware_without_large_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:

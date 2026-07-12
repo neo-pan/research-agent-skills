@@ -47,7 +47,9 @@ skill focused on the RDL protocol and CLI.
      relying on conversation memory.
 
 5. Run semantic review through the RDL review flow when the gate requires it.
-   - Use `rdl review --pack --json` to produce a clean context pack. Review
+   - Use `rdl review --pack --for next|close|doctor --json` to produce a clean,
+     action-aware context pack. Use generic `rdl review --pack --json` only when
+     no intended action is known or compatibility requires it. Review
      adapters include independent subagents, `phase-review`, manual review, and
      project reviewers. The orchestrated path defaults to subagents; the base
      RDL protocol accepts any explicit adapter recorded in `review.md`.

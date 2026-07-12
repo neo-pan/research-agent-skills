@@ -43,6 +43,7 @@ class CommandIntent:
     record_kind: str | None = None
     record_values: tuple[str, ...] = ()
     review_pack: bool = False
+    review_for: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,7 @@ def execute(intent: CommandIntent) -> CommandResult:
     if intent.command == "guard-stop":
         return _guard_stop(intent.guard_session_id, intent.guard_command_id)
     if intent.command == "review":
-        return _review(intent.review_pack, intent.session_id, intent.session_path)
+        return _review(intent.review_pack, intent.review_for, intent.session_id, intent.session_path)
     if intent.command == "decide":
         return _decide(intent.decision_type)
     raise ValueError(f"unsupported command: {intent.command!r}")
@@ -1100,7 +1101,40 @@ def _next_locked(context: _LockedContext, next_mode: str | None, next_profile: s
     )
 
 
-def _review(pack: bool = False, session_id: str | None = None, session_path: str | None = None) -> CommandResult:
+def _review(
+    pack: bool = False,
+    review_for: str | None = None,
+    session_id: str | None = None,
+    session_path: str | None = None,
+) -> CommandResult:
+    if review_for is not None and not pack:
+        blocker = Blocker(
+            "review_action_requires_pack",
+            "",
+            "review --for is only supported with --pack.",
+            "Use rdl review --pack --for next, close, or doctor --json.",
+        )
+        return CommandResult(
+            status="error",
+            action="review",
+            blockers=(blocker,),
+            missing=_missing_from_blockers((blocker,)),
+            next_action=blocker.next_action,
+        )
+    if review_for is not None and review_for not in {"next", "close", "doctor"}:
+        blocker = Blocker(
+            "invalid_review_action",
+            "",
+            f"unsupported review action: {review_for}",
+            "Use --for next, close, or doctor.",
+        )
+        return CommandResult(
+            status="error",
+            action="review",
+            blockers=(blocker,),
+            missing=_missing_from_blockers((blocker,)),
+            next_action=blocker.next_action,
+        )
     if (session_id or session_path) and not pack:
         blocker = Blocker(
             "session_selector_requires_pack",
@@ -1116,21 +1150,35 @@ def _review(pack: bool = False, session_id: str | None = None, session_path: str
             next_action=blocker.next_action,
         )
     if pack:
-        return _review_pack(session_id, session_path)
+        return _review_pack(review_for, session_id, session_path)
     return _run_locked_session("review", _review_locked)
 
 
-def _review_pack(session_id: str | None = None, session_path: str | None = None) -> CommandResult:
+def _review_pack(
+    review_for: str | None = None,
+    session_id: str | None = None,
+    session_path: str | None = None,
+) -> CommandResult:
     loaded = _selected_session_result("review", session_id, session_path)
     if isinstance(loaded, CommandResult):
         return loaded
     session = loaded
-    gate_report = gate.run(session, "doctor")
-    pack = review_pack.build(session, "review", gate_report)
+    gate_action = review_for or "doctor"
+    pack_action = review_for or "review"
+    outcome = None
+    if gate_action == "next":
+        gate_action = "advance"
+        pack_action = "advance"
+    elif gate_action == "close":
+        outcome = descriptor.close_outcome_for_decision(documents.field(session.round_dir() / "decision.md", "Decision"))
+        if not outcome:
+            return _missing_close_outcome_result(action="review")
+    gate_report = gate.run(session, gate_action, outcome=outcome)
+    review_context = review_pack.build(session, pack_action, gate_report)
     details = _terminal_details(
         session.state,
         {
-            "review_pack": pack.as_dict(),
+            "review_pack": review_context.as_dict(),
             "gate": gate_report.details,
         },
     )
@@ -1341,16 +1389,22 @@ def _close_locked(context: _LockedContext, outcome: str) -> CommandResult:
     )
 
 
-def _missing_close_outcome_result() -> CommandResult:
+def _missing_close_outcome_result(*, action: str = "close") -> CommandResult:
+    if action == "review":
+        message = "close review pack requires a close decision in decision.md."
+        next_action = "Run rdl decide close-positive, close-negative, or close-inconclusive."
+    else:
+        message = "close requires positive, negative, or inconclusive unless decision.md records a close decision."
+        next_action = "Run rdl decide close-positive or pass rdl close positive."
     blocker = Blocker(
         "missing_close_outcome",
         "",
-        "close requires positive, negative, or inconclusive unless decision.md records a close decision.",
-        "Run rdl decide close-positive or pass rdl close positive.",
+        message,
+        next_action,
     )
     return CommandResult(
         status="error",
-        action="close",
+        action=action,
         missing=_missing_from_blockers((blocker,)),
         blockers=(blocker,),
         next_action=blocker.next_action,

@@ -150,8 +150,10 @@ or untriggered checkpoint work. Do not create an empty `review.md`.
 
 When review is required:
 
-1. Run the existing `rdl review --pack --json`. Do not add action-specific CLI
-   options that the installed RDL version does not provide.
+1. Run `rdl review --pack --for close --json` for a close decision,
+   `rdl review --pack --for next --json` for an advance decision, or
+   `rdl review --pack --for doctor --json` for diagnostic review. Use the
+   generic pack only for compatibility when no intended action is known.
 2. Give one fresh-context reviewer only the pack and explicit verification
    artifacts. Require a verdict recommendation, structured findings, evidence
    gaps, confounders, falsification quality, overclaim and staleness risks,

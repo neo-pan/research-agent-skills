@@ -22,7 +22,7 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
   `rdl handoff`, and `rdl guard-stop`.
 - Semantic review findings surfaced through the unified gate with a first
   read-only `review.md` adapter and clean RDL context pack.
-- Agent-facing semantic review packs with `rdl review --pack --json`, including
+- Agent-facing semantic review packs with optional `--for next|close|doctor`, including
   reviewer instructions, supplied RDL records, bounded prior-round context,
   cited artifact-producing round context, deterministic findings, artifact
   facts, finding schema, and review-only semantic signals.
@@ -52,7 +52,7 @@ protect research judgment: evidence sufficiency, overclaim risk, stale
 directions, handoff faithfulness, and whether open or active items still
 represent the true state.
 
-Semantic review is agent-native first. `rdl review --pack --json` exposes the
+Semantic review is agent-native first. `rdl review --pack --for next|close|doctor --json` exposes the
 clean context a reviewer agent needs without conversation history. The default
 gate consumes completed `review.md` records after the main agent or user records
 accepted findings. Later adapters may include an independent subagent,

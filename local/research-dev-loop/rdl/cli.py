@@ -46,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     review = subparsers.add_parser("review", help="prepare or validate the current RDL review")
     review.add_argument("--pack", dest="review_pack", action="store_true")
+    review.add_argument("--for", dest="review_for")
     review.add_argument("--session-id")
     review.add_argument("--session-path")
     review.add_argument("--json", action="store_true")
@@ -198,6 +199,7 @@ def _command_intent(args: argparse.Namespace) -> CommandIntent:
         record_kind=getattr(args, "record_kind", None),
         record_values=tuple(getattr(args, "record_values", ()) or ()),
         review_pack=getattr(args, "review_pack", False),
+        review_for=getattr(args, "review_for", None),
     )
 
 
@@ -254,6 +256,7 @@ def _missing_value_option(argv: Sequence[str]) -> str:
             "--impact",
             "--section",
             "--value",
+            "--for",
         }:
             if index + 1 >= len(argv) or argv[index + 1].startswith("--"):
                 return token
@@ -273,6 +276,8 @@ def _missing_value_code(action: str, option: str) -> tuple[str, str]:
         return "missing_profile", "Pass --profile full-review, checkpoint, or build-update."
     if action == "summarize" and option == "--round":
         return "missing_round", "Pass --round <number>."
+    if action == "review" and option == "--for":
+        return "missing_review_action", "Pass --for next, close, or doctor."
     if action in {"progress", "factors"} and option in {
         "--item",
         "--text",
