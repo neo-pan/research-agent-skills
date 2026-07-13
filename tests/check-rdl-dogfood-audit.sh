@@ -67,6 +67,55 @@ create_session(Path(sys.argv[1]), "audit_incomplete")
 PY
 }
 
+create_close_ready_session() {
+  local project_root="$1"
+  PYTHONPATH="${RDL_ENV}" python3 - "${project_root}" <<'PY'
+from pathlib import Path
+import sys
+
+from test_cli_close import close_ready_session
+
+close_ready_session(Path(sys.argv[1]), "negative")
+PY
+}
+
+bind_close_review() {
+  local project_root="$1"
+  PYTHONPATH="${RDL_ENV}" python3 - "${project_root}" <<'PY'
+from pathlib import Path
+import sys
+
+from rdl_test_support import bind_review_subject
+
+bind_review_subject(Path(sys.argv[1]) / ".rdl" / "sessions" / "close_ok", "close")
+PY
+}
+
+prepare_close_memory() {
+  local project_root="$1"
+  run_rdl "${project_root}" memory --write
+  run_rdl "${project_root}" progress none --section Active --reason "close decision ready"
+  run_rdl "${project_root}" progress none --section Blocked --reason "no current blockers"
+  run_rdl "${project_root}" progress deferred \
+    --item future-work \
+    --reason "outside the closed mission" \
+    --trigger "start a new reviewed mission"
+  set_all_factors "${project_root}"
+}
+
+close_negative_session() {
+  local project_root="$1"
+  local output="$2"
+  if ! (
+    cd "${project_root}"
+    PYTHONPATH="${ROOT_DIR}/local/research-dev-loop" python3 -m rdl close negative --json
+  ) >"${output}.json" 2>"${output}.err"; then
+    cat "${output}.json" >&2
+    cat "${output}.err" >&2
+    fail "close-ready fixture should close through the CLI"
+  fi
+}
+
 mark_session_inactive() {
   local project_root="$1"
   local session_id="$2"
@@ -153,6 +202,50 @@ assert_specified_session_path_passes_without_active_session() {
   if grep -q "${project_root}" "${tmp_dir}/specified.out"; then
     fail "specified audit output must not include the external project absolute path"
   fi
+}
+
+assert_cli_closed_session_passes_action_aware_audit() {
+  local project_root="${tmp_dir}/closed-project"
+  local session_path
+  mkdir -p "${project_root}"
+  create_close_ready_session "${project_root}"
+
+  prepare_close_memory "${project_root}"
+  bind_close_review "${project_root}"
+  close_negative_session "${project_root}" "${tmp_dir}/closed-transition"
+  session_path="${project_root}/.rdl/sessions/close_ok"
+
+  if ! "${AUDIT}" --session-path "${session_path}" "${project_root}" >"${tmp_dir}/closed.out" 2>"${tmp_dir}/closed.err"; then
+    cat "${tmp_dir}/closed.out" >&2
+    cat "${tmp_dir}/closed.err" >&2
+    fail "CLI-closed RDL session should pass dogfood audit"
+  fi
+
+  grep -q "Audit: PASS" "${tmp_dir}/closed.out" \
+    || fail "closed audit output should report PASS"
+  grep -q "pack_action: close" "${tmp_dir}/closed.out" \
+    || fail "closed audit should use the close review pack"
+  grep -q "subject_binding: matched" "${tmp_dir}/closed.out" \
+    || fail "closed audit should report matched close review binding"
+}
+
+assert_cli_closed_unbound_session_fails_audit() {
+  local project_root="${tmp_dir}/closed-unbound-project"
+  local session_path
+  mkdir -p "${project_root}"
+  create_close_ready_session "${project_root}"
+  prepare_close_memory "${project_root}"
+  close_negative_session "${project_root}" "${tmp_dir}/closed-unbound-transition"
+  session_path="${project_root}/.rdl/sessions/close_ok"
+
+  if "${AUDIT}" --session-path "${session_path}" "${project_root}" >"${tmp_dir}/closed-unbound.out" 2>"${tmp_dir}/closed-unbound.err"; then
+    fail "new CLI-closed session with an unbound review should fail strict dogfood audit"
+  fi
+
+  grep -q "subject_binding: unbound" "${tmp_dir}/closed-unbound.out" \
+    || fail "unbound closed audit should report the binding status"
+  grep -q "Audit: FAIL" "${tmp_dir}/closed-unbound.out" \
+    || fail "unbound closed audit should fail"
 }
 
 assert_incomplete_session_fails() {
@@ -272,6 +365,8 @@ SH
 
 assert_complete_session_passes
 assert_specified_session_path_passes_without_active_session
+assert_cli_closed_session_passes_action_aware_audit
+assert_cli_closed_unbound_session_fails_audit
 assert_incomplete_session_fails
 assert_empty_project_fails
 assert_non_directory_fails

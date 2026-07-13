@@ -128,7 +128,23 @@ run_rdl_json handoff handoff "${selector_args[@]}"
 run_rdl_json memory memory --check "${selector_args[@]}"
 run_rdl_json summarize summarize --check "${selector_args[@]}"
 run_rdl_json doctor doctor "${selector_args[@]}"
-run_rdl_json review_pack review --pack "${selector_args[@]}"
+if python3 - "${tmp_dir}/handoff.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    result = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(1)
+decision = result.get("details", {}).get("last_decision", {}).get("decision", "")
+raise SystemExit(0 if decision in {"close-positive", "close-negative", "close-inconclusive"} else 1)
+PY
+then
+  run_rdl_json review_pack review --pack --for close "${selector_args[@]}"
+else
+  run_rdl_json review_pack review --pack "${selector_args[@]}"
+fi
 
 python3 - "${tmp_dir}" "${PROJECT_ROOT}" "${ROOT_DIR}" "${SESSION_PATH}" <<'PY'
 from __future__ import annotations
@@ -207,9 +223,14 @@ def _print_command(label: str, code: int, result: dict[str, Any]) -> bool:
         print(f"  summary_status: {details.get('summary_status', 'unknown')}")
     elif label == "review --pack":
         pack = _dict(details.get("review_pack"))
+        print(f"  pack_action: {pack.get('action', 'unknown')}")
         print(f"  record_count: {len(_list(pack.get('records')))}")
         artifact_manifest = _dict(pack.get("artifact_manifest"))
         print(f"  artifact_count: {len(_list(artifact_manifest.get('artifacts')))}")
+        gate = _dict(details.get("gate"))
+        semantic = _dict(gate.get("semantic"))
+        binding = _dict(semantic.get("subject_binding"))
+        print(f"  subject_binding: {binding.get('status', 'unknown')}")
 
     warnings = _list(result.get("warnings"))
     if warnings:
@@ -231,6 +252,15 @@ def _strict_health_failed(results: dict[str, dict[str, Any]]) -> bool:
     summarize = _dict(results["summarize"].get("details"))
     doctor = results["doctor"]
     review_pack = results["review_pack"]
+    handoff_decision = _dict(handoff.get("last_decision")).get("decision", "")
+    review_details = _dict(review_pack.get("details"))
+    pack = _dict(review_details.get("review_pack"))
+    pack_gate = _dict(review_details.get("gate"))
+    pack_semantic = _dict(pack_gate.get("semantic"))
+    binding = _dict(pack_semantic.get("subject_binding"))
+    close_expected = handoff_decision in {"close-positive", "close-negative", "close-inconclusive"}
+    action_failed = close_expected and pack.get("action") != "close"
+    binding_failed = close_expected and binding.get("status") != "matched"
 
     return any(
         (
@@ -239,6 +269,8 @@ def _strict_health_failed(results: dict[str, dict[str, Any]]) -> bool:
             summarize.get("summary_status") != "up_to_date",
             doctor.get("status") != "ok",
             review_pack.get("status") != "ok",
+            action_failed,
+            binding_failed,
         )
     )
 

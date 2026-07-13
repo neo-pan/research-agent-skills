@@ -26,6 +26,9 @@ Keep one active RDL session per repository.
 - Successful `rdl next`, `rdl close`, and `rdl guard-stop` transitions write
   round-local `gate-report.json` and `gate.md` audit artifacts for the gate that
   allowed the transition. `rdl doctor` and `rdl handoff` remain read-only.
+- The CLI-generated terminal ledger record is deterministic transition
+  bookkeeping. It is marker-delimited, records no next step inside the closed
+  session, and does not invalidate the semantic review that authorized close.
 
 ## Gate Boundary
 

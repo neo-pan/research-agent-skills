@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import documents, review_pack
-from .model import RoundProfile
+from .model import RoundProfile, SessionStatus
 from .protocol import descriptor
 from .session import Session
 
@@ -124,13 +124,22 @@ def run(session: Session, action: str, deterministic_gate_report: Any) -> Semant
     recorded_findings = _recorded_findings(review_file, adapter)
     subject_binding = _subject_binding(session, deterministic_gate_report, review_file, pack)
     if subject_binding.status == "stale":
+        terminal = session.state.status in {
+            SessionStatus.CLOSED_POSITIVE,
+            SessionStatus.CLOSED_NEGATIVE,
+            SessionStatus.CLOSED_INCONCLUSIVE,
+        }
         findings.append(
             SemanticFinding(
                 "blocking" if required else "warning",
                 "semantic_review_subject_stale",
                 f"{review_file}#Review Subject Digest",
-                "The semantic review is not bound to the current review subject and intended action.",
-                f"Regenerate the {subject_binding.expected_action} review pack and record its action and digest.",
+                "Closed session records no longer match the semantic review that authorized closure."
+                if terminal
+                else "The semantic review is not bound to the current review subject and intended action.",
+                "Restore the reviewed terminal records or start a new reviewed session; do not rewrite review.md."
+                if terminal
+                else f"Regenerate the {subject_binding.expected_action} review pack and record its action and digest.",
                 adapter,
             )
         )

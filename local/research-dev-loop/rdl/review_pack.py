@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import documents, memory, store, summary
+from . import documents, memory, store, summary, transition
 from .session import Session
 
 
@@ -152,7 +152,10 @@ def _reviewer_task(action: str, mode: str, profile: str) -> dict[str, Any]:
         "Does top-level session memory faithfully preserve active, blocked, deferred, and open-question state?",
     ]
     if action == "close":
-        questions.append("Is the close outcome scoped correctly, with remaining unknowns and next-loop uncertainty preserved?")
+        questions.append(
+            "Is the close outcome scoped correctly, with remaining unknowns and next-loop uncertainty preserved, "
+            "and will session memory remain faithful after the proposed close?"
+        )
     elif action == "next":
         questions.append("Is there enough fresh evidence and a concrete next smallest step to advance the round?")
     if mode == "build":
@@ -340,6 +343,8 @@ def _subject_digest(
         if relative in {current_review, "artifact-manifest.json"}:
             continue
         text = summary.without_generated_blocks(relative, record["text"])
+        if relative == "decision-ledger.md":
+            text = transition.without_generated_close_record(session, text)
         subject_records.append(
             {
                 "path": relative,

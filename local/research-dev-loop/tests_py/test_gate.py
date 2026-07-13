@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from rdl import documents, gate, integrity
+from rdl import documents, gate, integrity, store
 from rdl.protocol import descriptor
 from rdl.session import SessionStore
 
@@ -267,6 +267,29 @@ class GateTests(unittest.TestCase):
             self.assertFalse(report.details["semantic"]["required"])
             self.assertIn("semantic_review_subject_stale", report.warnings)
             self.assertNotIn("semantic_review_blocked", {blocker.code for blocker in report.blockers})
+
+    def test_abandoned_stale_review_does_not_claim_review_authorized_closure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "gate_abandoned_stale")
+            complete_research_round(session_dir)
+            bind_review_subject(session_dir, "next")
+            evidence_file = session_dir / "rounds" / "001" / "evidence.md"
+            evidence_file.write_text(evidence_file.read_text(encoding="utf-8") + "\nChanged after review.\n", encoding="utf-8")
+            state_path = session_dir / "state.json"
+            state = store.read_json(state_path)
+            state["status"] = "abandoned"
+            state["phase"] = "complete"
+            store.write_json_atomic(state_path, state)
+            integrity.refresh(SessionStore(root).load_session(session_dir))
+
+            report = gate.run(SessionStore(root).load_session(session_dir), "doctor")
+
+            finding = next(item for item in report.details["findings"] if item["code"] == "semantic_review_subject_stale")
+            self.assertEqual(
+                finding["message"],
+                "The semantic review is not bound to the current review subject and intended action.",
+            )
 
     def test_partial_subject_binding_is_stale(self):
         with tempfile.TemporaryDirectory() as tmp:

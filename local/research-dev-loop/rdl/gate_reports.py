@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import store
+from . import store, transition
 from .gate import GateReport
 from .session import Session
 
@@ -21,7 +21,7 @@ def write(session: Session, report: GateReport) -> tuple[str, str]:
 
 
 def _json_report(session: Session, report: GateReport) -> dict[str, Any]:
-    return {
+    payload = {
         "schema_version": 1,
         "session_id": session.state.session_id,
         "round": session.state.round,
@@ -41,6 +41,9 @@ def _json_report(session: Session, report: GateReport) -> dict[str, Any]:
         ],
         "details": report.details,
     }
+    if report.action == "close":
+        payload["close_record_format"] = transition.CLOSE_RECORD_FORMAT
+    return payload
 
 
 def _markdown_report(session: Session, report: GateReport) -> str:

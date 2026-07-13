@@ -12,6 +12,11 @@ from .model import Blocker, CloseOutcome, SessionPhase, SessionStatus
 from .protocol import descriptor
 
 
+LEDGER_CLOSE_START = "<!-- rdl:transition kind=close start -->"
+LEDGER_CLOSE_END = "<!-- rdl:transition kind=close end -->"
+CLOSE_RECORD_FORMAT = "rdl-close-v2"
+
+
 @dataclass(frozen=True)
 class TransitionResult:
     phase: str
@@ -144,7 +149,9 @@ def from_decision(session: Any) -> TransitionResult:
 
 
 def mark_guard_seen(session: Any, guard_session_id: str | None, guard_command_id: str | None) -> None:
-    updates: dict[str, object] = {"updated_at_utc": now_utc()}
+    updates: dict[str, object] = {}
+    if session.state.status == SessionStatus.ACTIVE:
+        updates["updated_at_utc"] = now_utc()
     if guard_session_id:
         updates["guard_session_id"] = guard_session_id
     if guard_command_id:
@@ -203,16 +210,100 @@ def _append_round_decision(
 
 
 def _append_close_record(session_dir: Path, outcome: str, expected_closes: str, round_number: int, now: str) -> None:
-    _append_text(
-        session_dir / "decision-ledger.md",
+    record = _render_close_record(session_dir, outcome, expected_closes, round_number, now)
+    _append_text(session_dir / "decision-ledger.md", record)
+
+
+def without_generated_close_record(session: Any, text: str) -> str:
+    outcomes = {
+        SessionStatus.CLOSED_POSITIVE: CloseOutcome.POSITIVE.value,
+        SessionStatus.CLOSED_NEGATIVE: CloseOutcome.NEGATIVE.value,
+        SessionStatus.CLOSED_INCONCLUSIVE: CloseOutcome.INCONCLUSIVE.value,
+    }
+    outcome = outcomes.get(session.state.status)
+    if outcome is None:
+        return text
+    decision_file = session.round_dir() / "decision.md"
+    if documents.field(decision_file, "Decision") != f"close-{outcome}":
+        return text
+    legacy = _close_record_is_legacy(session)
+    if legacy is None:
+        return text
+    variant = _render_close_record(
+        session.root,
+        outcome,
+        descriptor.expected_closes(session.state.mode),
+        session.state.round,
+        session.state.updated_at_utc,
+        legacy=legacy,
+    )
+    candidate = text.rstrip("\n")
+    suffix = variant.rstrip("\n")
+    if candidate.endswith(suffix):
+        return candidate[: -len(suffix)].rstrip() + "\n\n"
+    return text
+
+
+def _close_record_is_legacy(session: Any) -> bool | None:
+    try:
+        report = store.read_json(session.round_dir() / "gate-report.json")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(report, dict):
+        return None
+    expected = {
+        "schema_version": 1,
+        "session_id": session.state.session_id,
+        "round": session.state.round,
+        "mode": str(session.state.mode),
+        "profile": str(session.state.profile),
+        "action": "close",
+    }
+    if any(report.get(key) != value for key, value in expected.items()):
+        return None
+    if report.get("status") not in {"ok", "needs_attention"}:
+        return None
+    if not isinstance(report.get("warnings"), list) or report.get("blockers") != []:
+        return None
+    if not isinstance(report.get("details"), dict):
+        return None
+    if "close_record_format" not in report:
+        return True
+    if report["close_record_format"] == CLOSE_RECORD_FORMAT:
+        return False
+    return None
+
+
+def _render_close_record(
+    session_dir: Path,
+    outcome: str,
+    expected_closes: str,
+    round_number: int,
+    now: str,
+    *,
+    legacy: bool = False,
+) -> str:
+    decision_file = session_dir / "rounds" / f"{round_number:03d}" / "decision.md"
+    summary_text = (
+        _decision_summary(decision_file)
+        if legacy
+        else _close_decision_summary(decision_file, f"closed-{outcome}")
+    )
+    marker_start = "" if legacy else f"{LEDGER_CLOSE_START}\n"
+    marker_end = "" if legacy else f"{LEDGER_CLOSE_END}\n"
+    format_line = "" if legacy else f"- Record Format: {CLOSE_RECORD_FORMAT}\n"
+    return (
         "\n"
+        f"{marker_start}"
         "## Session Closed\n\n"
+        f"{format_line}"
         f"- Outcome: {outcome}\n"
         f"- Decision: close-{outcome}\n"
         f"- Closes: {expected_closes}\n"
         f"- Round: {round_number:03d}\n"
         f"- Closed at UTC: {now}\n"
-        + _decision_summary(session_dir / "rounds" / f"{round_number:03d}" / "decision.md")
+        f"{summary_text}"
+        f"{marker_end}"
     )
 
 
@@ -224,6 +315,17 @@ def _decision_summary(decision_file: Path) -> str:
         ("Next smallest step", "Next smallest step"),
     )
     lines = [f"- {label}: {_compact_field(decision_file, field)}" for label, field in fields]
+    return "".join(f"{line}\n" for line in lines)
+
+
+def _close_decision_summary(decision_file: Path, status: str) -> str:
+    fields = (
+        ("Evidence", "Evidence"),
+        ("Uncertainty", "Uncertainty"),
+        ("Remaining unknown", "What remains unknown"),
+    )
+    lines = [f"- {label}: {_compact_field(decision_file, field)}" for label, field in fields]
+    lines.append(f"- Next smallest step: none; session is {status}")
     return "".join(f"{line}\n" for line in lines)
 
 

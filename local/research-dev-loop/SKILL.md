@@ -45,6 +45,9 @@ skill focused on the RDL protocol and CLI.
      nondeterminism change.
    - Completion check: `rdl handoff` can recover the current state without
      relying on conversation memory.
+   - Before close review, make memory terminal-ready: no active work remains in
+     the closing session, review/close-only questions are resolved, and future
+     work has an explicit new-session revisit condition.
 
 5. Run semantic review through the RDL review flow when the gate requires it.
    - Use `rdl review --pack --for next|close|doctor --json` to produce a clean,
@@ -62,6 +65,8 @@ skill focused on the RDL protocol and CLI.
 
 6. Gate and transition.
    - Use `rdl doctor --json` before `rdl next --json` or `rdl close --json`.
+   - After close, keep canonical records read-only and use a selected-session
+     handoff, doctor, or dogfood audit to verify the terminal state.
    - Completion check: the session is advanced, closed, or stopped with a
      recorded blocker.
 

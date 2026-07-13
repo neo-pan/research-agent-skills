@@ -40,6 +40,158 @@ class CliCloseTests(unittest.TestCase):
             self.assertEqual(result["details"]["gate"]["semantic"]["subject_binding"]["status"], "matched")
             self.assertNotIn("semantic_review_subject_stale", result["warnings"])
 
+    def test_closed_session_preserves_bound_close_review_for_terminal_checks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "negative")
+            recorded_digest = bind_review_subject(session_dir, "close")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["close", "negative", "--json"]), 0)
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--session-path", str(session_dir), "--json"]), 0)
+
+            doctor_result = json.loads(stdout.getvalue())
+            binding = doctor_result["details"]["gate"]["semantic"]["subject_binding"]
+            self.assertEqual(binding["status"], "matched")
+            self.assertEqual(binding["recorded_digest"], recorded_digest)
+            self.assertEqual(binding["current_digest"], recorded_digest)
+            self.assertNotIn("semantic_review_subject_stale", doctor_result["warnings"])
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(
+                    main(["review", "--pack", "--for", "close", "--session-path", str(session_dir), "--json"]),
+                    0,
+                )
+
+            review_result = json.loads(stdout.getvalue())
+            self.assertEqual(review_result["details"]["review_pack"]["subject_digest"], recorded_digest)
+
+    def test_terminal_subject_drift_requires_restoration_not_review_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "negative")
+            bind_review_subject(session_dir, "close")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["close", "negative", "--json"]), 0)
+
+            evidence = session_dir / "rounds" / "001" / "evidence.md"
+            evidence.write_text(evidence.read_text(encoding="utf-8") + "\nChanged after closure.\n", encoding="utf-8")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--session-path", str(session_dir), "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            blocker = next(item for item in result["blockers"] if item["code"] == "semantic_review_subject_stale")
+            self.assertEqual(
+                blocker["message"],
+                "Closed session records no longer match the semantic review that authorized closure.",
+            )
+            self.assertEqual(
+                blocker["next_action"],
+                "Restore the reviewed terminal records or start a new reviewed session; do not rewrite review.md.",
+            )
+
+    def test_terminal_human_ledger_append_remains_in_review_subject(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "negative")
+            bind_review_subject(session_dir, "close")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["close", "negative", "--json"]), 0)
+
+            ledger = session_dir / "decision-ledger.md"
+            ledger.write_text(ledger.read_text(encoding="utf-8") + "\nHuman terminal note.\n", encoding="utf-8")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--session-path", str(session_dir), "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertIn("semantic_review_subject_stale", {item["code"] for item in result["blockers"]})
+
+    def test_terminal_close_ledger_field_tampering_is_stale(self):
+        cases = (
+            ("- Evidence: ", "- Evidence: HUMAN TAMPER"),
+            ("- Uncertainty: ", "- Uncertainty: HUMAN TAMPER"),
+            ("- Remaining unknown: ", "- Remaining unknown: HUMAN TAMPER"),
+            ("- Closes: ", "- Closes: capability"),
+            ("- Round: ", "- Round: 002"),
+            ("- Closed at UTC: ", "- Closed at UTC: 2026-07-12T00:00:00Z"),
+        )
+        for prefix, replacement in cases:
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_dir = close_ready_session(root, "negative")
+                bind_review_subject(session_dir, "close")
+
+                stdout = StringIO()
+                with change_dir(root), redirect_stdout(stdout):
+                    self.assertEqual(main(["close", "negative", "--json"]), 0)
+
+                ledger = session_dir / "decision-ledger.md"
+                lines = ledger.read_text(encoding="utf-8").splitlines()
+                ledger.write_text(
+                    "\n".join(replacement if line.startswith(prefix) else line for line in lines) + "\n",
+                    encoding="utf-8",
+                )
+                refresh_integrity(session_dir)
+
+                stdout = StringIO()
+                with change_dir(root), redirect_stdout(stdout):
+                    self.assertEqual(main(["doctor", "--session-path", str(session_dir), "--json"]), 2)
+
+                result = json.loads(stdout.getvalue())
+                self.assertIn("semantic_review_subject_stale", {item["code"] for item in result["blockers"]})
+
+    def test_removing_markers_and_format_cannot_downgrade_current_close_to_legacy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "negative")
+            decision = session_dir / "rounds" / "001" / "decision.md"
+            decision.write_text(
+                decision.read_text(encoding="utf-8").replace(
+                    "Next smallest step: continue same mode",
+                    "Next smallest step: none; session is closed-negative",
+                ),
+                encoding="utf-8",
+            )
+            refresh_integrity(session_dir)
+            bind_review_subject(session_dir, "close")
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["close", "negative", "--json"]), 0)
+
+            ledger = session_dir / "decision-ledger.md"
+            marker_lines = {
+                "<!-- rdl:transition kind=close start -->",
+                "<!-- rdl:transition kind=close end -->",
+                "- Record Format: rdl-close-v2",
+            }
+            ledger.write_text(
+                "\n".join(line for line in ledger.read_text(encoding="utf-8").splitlines() if line not in marker_lines)
+                + "\n",
+                encoding="utf-8",
+            )
+            refresh_integrity(session_dir)
+
+            stdout = StringIO()
+            with change_dir(root), redirect_stdout(stdout):
+                self.assertEqual(main(["doctor", "--session-path", str(session_dir), "--json"]), 2)
+
+            result = json.loads(stdout.getvalue())
+            self.assertIn("semantic_review_subject_stale", {item["code"] for item in result["blockers"]})
+
     def test_close_blocks_when_bound_final_report_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -91,12 +243,15 @@ class CliCloseTests(unittest.TestCase):
                     self.assertIn(f"| round-001 | close-{outcome} | fixture evidence | 001 |", progress)
                     ledger = (session_dir / "decision-ledger.md").read_text(encoding="utf-8")
                     self.assertIn("## Session Summary Refresh", ledger)
+                    self.assertIn("<!-- rdl:transition kind=close start -->", ledger)
                     self.assertIn("## Session Closed", ledger)
+                    self.assertIn("- Record Format: rdl-close-v2", ledger)
                     self.assertIn(f"- Decision: close-{outcome}", ledger)
                     self.assertIn("- Evidence: fixture evidence", ledger)
                     self.assertIn("- Uncertainty: bounded", ledger)
                     self.assertIn("- Remaining unknown: later work", ledger)
-                    self.assertIn("- Next smallest step: continue same mode", ledger)
+                    self.assertIn(f"- Next smallest step: none; session is closed-{outcome}", ledger)
+                    self.assertIn("<!-- rdl:transition kind=close end -->", ledger)
                     manifest = store.read_json(session_dir / "integrity.json")
                     entries = {entry["path"]: entry for entry in manifest["entries"]}
                     self.assertIn("final-report.md", entries)
@@ -106,6 +261,7 @@ class CliCloseTests(unittest.TestCase):
                     self.assertEqual(progress_entry["sha256"], integrity.file_sha256(session_dir / "progress.md"))
                     gate_report = store.read_json(session_dir / "rounds" / "001" / "gate-report.json")
                     self.assertEqual(gate_report["action"], "close")
+                    self.assertEqual(gate_report["close_record_format"], "rdl-close-v2")
                     self.assertEqual(gate_report["status"], "needs_attention")
                     self.assertEqual(gate_report["details"]["semantic"]["adapter"], "manual")
                     self.assertNotIn("round_content_ahead_of_state_phase", gate_report["warnings"])

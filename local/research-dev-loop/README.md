@@ -29,6 +29,8 @@ project-local `.rdl/` directory without becoming a runtime supervisor.
   digest bound to the intended action.
 - Semantic review binding states (`matched`, `stale`, and legacy `unbound`)
   with stale-review blocking for required review gates.
+- Stable terminal review binding across CLI-generated close bookkeeping, with
+  exact compatibility for existing unmarked close ledger records.
 - Round-local `gate-report.json` and `gate.md` audit artifacts written before
   successful `rdl next`, `rdl close`, and `rdl guard-stop` transitions.
 - Read-only artifact gate checks for local artifact path reachability, byte
@@ -86,6 +88,12 @@ Run the same read-only audit against a specified historical or closed session:
 ./scripts/rdl_dogfood_audit.sh --session-id <id> <project-root>
 ./scripts/rdl_dogfood_audit.sh --session-path <path> <project-root>
 ```
+
+When the selected session records a `close-*` decision, the audit uses the
+action-aware close pack, reports its action and subject-binding status, and
+requires a `matched` binding. The core gate still reads legacy `unbound`
+reviews for compatibility; the dogfood audit is the stricter orchestrated
+health check.
 
 If the audit fails, repair only the reported gaps:
 

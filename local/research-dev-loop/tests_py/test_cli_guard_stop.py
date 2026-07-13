@@ -10,7 +10,14 @@ from rdl import integrity, store
 from rdl.cli import main
 from rdl.session import SessionStore
 
-from rdl_test_support import assert_gate_details_compatible, complete_final_report, complete_research_round, create_session, write_json
+from rdl_test_support import (
+    assert_gate_details_compatible,
+    bind_review_subject,
+    complete_final_report,
+    complete_research_round,
+    create_session,
+    write_json,
+)
 
 
 class CliGuardStopTests(unittest.TestCase):
@@ -86,6 +93,34 @@ class CliGuardStopTests(unittest.TestCase):
                     gate_report = store.read_json(session_dir / "rounds" / "001" / "gate-report.json")
                     self.assertEqual(gate_report["action"], "close")
                     self.assertIn("Action: close", (session_dir / "rounds" / "001" / "gate.md").read_text(encoding="utf-8"))
+
+    def test_guard_stop_close_preserves_closure_timestamp_for_terminal_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = close_ready_session(root, "guard_close_timestamp", "negative")
+            bind_review_subject(session_dir, "close")
+
+            with patch(
+                "rdl.transition.now_utc",
+                side_effect=[
+                    "2026-07-13T00:00:00Z",
+                    "2026-07-13T00:00:01Z",
+                    "2026-07-13T00:00:02Z",
+                ],
+            ):
+                code, _ = run_guard_stop(
+                    root,
+                    ["guard-stop", "--guard-command-id", "cmd-1", "--json"],
+                )
+
+            doctor_code, doctor = run_guard_stop(
+                root,
+                ["doctor", "--session-path", str(session_dir), "--json"],
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(doctor_code, 0)
+            self.assertEqual(doctor["details"]["gate"]["semantic"]["subject_binding"]["status"], "matched")
+            self.assertEqual(store.read_json(session_dir / "state.json")["updated_at_utc"], "2026-07-13T00:00:01Z")
 
     def test_guard_stop_json_advances_non_close_decision_and_records_guard_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:

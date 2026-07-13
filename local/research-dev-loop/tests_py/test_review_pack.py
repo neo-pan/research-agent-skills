@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from rdl import review_pack
+from rdl import review_pack, store
 from rdl.session import SessionStore
 
 from rdl_test_support import (
@@ -222,6 +222,145 @@ class ReviewPackTests(unittest.TestCase):
 
             self.assertEqual(after, before)
 
+    def test_subject_digest_ignores_exact_legacy_close_ledger_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_legacy_close_digest")
+            complete_research_round(session_dir, "close-positive")
+            report = SimpleNamespace(details={"findings": []})
+            before = review_pack.build(SessionStore(root).active_session(), "close", report).subject_digest
+            ledger = session_dir / "decision-ledger.md"
+            ledger.write_text(
+                ledger.read_text(encoding="utf-8")
+                + "\n## Session Closed\n\n"
+                + "- Outcome: positive\n"
+                + "- Decision: close-positive\n"
+                + "- Closes: claim\n"
+                + "- Round: 001\n"
+                + "- Closed at UTC: 2026-07-12T21:44:52Z\n"
+                + "- Evidence: fixture evidence\n"
+                + "- Uncertainty: bounded\n"
+                + "- Remaining unknown: later work\n"
+                + "- Next smallest step: continue same mode\n",
+                encoding="utf-8",
+            )
+            gate_report_path = session_dir / "rounds" / "001" / "gate-report.json"
+            gate_report = {
+                "schema_version": 1,
+                "session_id": "review_pack_legacy_close_digest",
+                "round": 1,
+                "mode": "research",
+                "profile": "full-review",
+                "action": "close",
+                "status": "ok",
+                "warnings": [],
+                "blockers": [],
+                "details": {},
+            }
+            write_json(gate_report_path, gate_report)
+            _mark_closed(session_dir)
+
+            after = review_pack.build(SessionStore(root).load_session(session_dir), "close", report).subject_digest
+
+            self.assertEqual(after, before)
+            gate_report["close_record_format"] = "unknown"
+            write_json(gate_report_path, gate_report)
+            unknown = review_pack.build(SessionStore(root).load_session(session_dir), "close", report).subject_digest
+            self.assertNotEqual(unknown, before)
+            gate_report.pop("close_record_format")
+            gate_report["blockers"] = [{"code": "blocked"}]
+            write_json(gate_report_path, gate_report)
+            blocked = review_pack.build(SessionStore(root).load_session(session_dir), "close", report).subject_digest
+            self.assertNotEqual(blocked, before)
+
+    def test_subject_digest_keeps_malformed_close_ledger_blocks(self):
+        cases = (
+            "\n<!-- rdl:transition kind=close start -->\n## Session Closed\n",
+            "\n## Session Closed\n\n- Outcome: positive\n- Decision: close-positive\n",
+            (
+                "\n<!-- rdl:transition kind=close start -->\n"
+                "## Session Closed\n\n"
+                "- Outcome: positive\n"
+                "- Decision: close-positive\n"
+                "- Closes: claim\n"
+                "- Round: 001\n"
+                "- Closed at UTC: 2026-07-12T21:44:52Z\n"
+                "- Evidence: fixture evidence\n"
+                "Human note inside generated block.\n"
+                "- Uncertainty: bounded\n"
+                "- Remaining unknown: later work\n"
+                "- Next smallest step: none; session is closed-positive\n"
+                "<!-- rdl:transition kind=close end -->\n"
+            ),
+            (
+                "\n<!-- rdl:transition kind=close start -->\n"
+                "## Session Closed\n\n"
+                "- Outcome: positive\n"
+                "- Decision: close-positive\n"
+                "- Closes: claim\n"
+                "- Round: 001\n"
+                "- Closed at UTC: 2026-07-12T21:44:52Z\n"
+                "- Evidence: fixture evidence\n"
+                "- Uncertainty: bounded\n"
+                "- Remaining unknown: later work\n"
+                "- Next smallest step: close the session\n"
+                "<!-- rdl:transition kind=close end -->\n"
+            ),
+            (
+                "\n## Session Closed\n\n"
+                "- Outcome: positive\n\n"
+                "- Decision: close-positive\n"
+                "- Closes: claim\n"
+                "- Round: 001\n"
+                "- Closed at UTC: 2026-07-12T21:44:52Z\n"
+                "- Evidence: fixture evidence\n"
+                "- Uncertainty: bounded\n"
+                "- Remaining unknown: later work\n"
+                "- Next smallest step: close the session\n"
+            ),
+        )
+        for addition in cases:
+            with self.subTest(addition=addition), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_dir = create_session(root, "review_pack_malformed_close_digest")
+                complete_research_round(session_dir, "close-positive")
+                report = SimpleNamespace(details={"findings": []})
+                before = review_pack.build(SessionStore(root).active_session(), "close", report).subject_digest
+                ledger = session_dir / "decision-ledger.md"
+                ledger.write_text(ledger.read_text(encoding="utf-8") + addition, encoding="utf-8")
+                _mark_closed(session_dir)
+
+                after = review_pack.build(SessionStore(root).load_session(session_dir), "close", report).subject_digest
+
+                self.assertNotEqual(after, before)
+
+    def test_active_subject_does_not_ignore_close_shaped_ledger_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_dir = create_session(root, "review_pack_active_close_shape")
+            complete_research_round(session_dir, "close-positive")
+            report = SimpleNamespace(details={"findings": []})
+            before = review_pack.build(SessionStore(root).active_session(), "close", report).subject_digest
+            ledger = session_dir / "decision-ledger.md"
+            ledger.write_text(
+                ledger.read_text(encoding="utf-8")
+                + "\n## Session Closed\n\n"
+                + "- Outcome: positive\n"
+                + "- Decision: close-positive\n"
+                + "- Closes: claim\n"
+                + "- Round: 001\n"
+                + "- Closed at UTC: 2026-07-12T21:44:52Z\n"
+                + "- Evidence: fixture evidence\n"
+                + "- Uncertainty: bounded\n"
+                + "- Remaining unknown: later work\n"
+                + "- Next smallest step: close the session\n",
+                encoding="utf-8",
+            )
+
+            after = review_pack.build(SessionStore(root).active_session(), "close", report).subject_digest
+
+            self.assertNotEqual(after, before)
+
     def test_malformed_generated_summary_marker_is_not_stripped(self):
         from rdl import summary
 
@@ -336,6 +475,7 @@ class ReviewPackTests(unittest.TestCase):
             self.assertIn("finding_line_format", task["output"])
             joined_questions = "\n".join(task["questions"])
             self.assertIn("close outcome", joined_questions)
+            self.assertIn("remain faithful after the proposed close", joined_questions)
             self.assertIn("work artifacts", joined_questions)
             self.assertLessEqual(len(task["questions"]), 7)
 
@@ -469,6 +609,15 @@ class ReviewPackTests(unittest.TestCase):
                 {signal["code"] for signal in pack.agent_review_signals},
             )
             self.assertEqual(pack.deterministic_findings, ())
+
+
+def _mark_closed(session_dir: Path) -> None:
+    state_path = session_dir / "state.json"
+    state = store.read_json(state_path)
+    state["status"] = "closed-positive"
+    state["phase"] = "complete"
+    state["updated_at_utc"] = "2026-07-12T21:44:52Z"
+    store.write_json_atomic(state_path, state)
 
 
 def _complete_prior_round(session_dir: Path, round_number: int) -> None:
