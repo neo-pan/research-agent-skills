@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_DIR="${ROOT_DIR}/codex/agents"
 INSTALLER="${ROOT_DIR}/scripts/install_recommended_codex_agents.sh"
+ORCHESTRATOR="${ROOT_DIR}/local/rdl-orchestrator/CODEX.md"
+SEMANTIC_REVIEW="${ROOT_DIR}/local/research-dev-loop/SEMANTIC_REVIEW.md"
+PHASE_REVIEW="${ROOT_DIR}/local/phase-review/SKILL.md"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -15,6 +18,13 @@ assert_setting() {
   local setting="$2"
   grep -Fxq "${setting}" "${file}" \
     || fail "$(basename "${file}") missing expected setting: ${setting}"
+}
+
+assert_contains() {
+  local file="$1"
+  local text="$2"
+  grep -Fqi "${text}" "${file}" \
+    || fail "${file#"${ROOT_DIR}/"} missing expected contract text: ${text}"
 }
 
 reviewer="${SOURCE_DIR}/rdl-reviewer.toml"
@@ -34,6 +44,18 @@ assert_setting "${reviewer}" 'sandbox_mode = "read-only"'
 assert_setting "${explorer}" 'model = "gpt-5.6-terra"'
 assert_setting "${explorer}" 'model_reasoning_effort = "medium"'
 assert_setting "${explorer}" 'sandbox_mode = "read-only"'
+
+for config in "${reviewer}" "${explorer}"; do
+  assert_contains "${config}" "Do not rely on parent conversation history"
+  assert_contains "${config}" "do not return a transcript"
+done
+
+assert_contains "${reviewer}" "action, subject_digest, adapter, verdict, and concise typed findings"
+assert_contains "${explorer}" "contradictions"
+assert_contains "${ORCHESTRATOR}" 'fork_turns="none"'
+assert_contains "${ORCHESTRATOR}" "main transcript"
+assert_contains "${SEMANTIC_REVIEW}" 'fork_turns="none"'
+assert_contains "${PHASE_REVIEW}" 'fork_turns="none"'
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT

@@ -95,6 +95,12 @@ max_threads = 4
 max_depth = 1
 ```
 
+Launch delegated roles without inherited conversation turns. Give the reviewer
+only the generated review pack and named verification artifacts, and give an
+explorer only one bounded question plus its allowed context. The custom-agent
+files define role behavior and sandbox defaults but cannot enforce launch
+context.
+
 Restart Codex or start a new session after installing or changing custom agent
 files. See `local/rdl-orchestrator/CODEX.md` for the role rationale and usage
 constraints. Installing these roles is recommended for RDL orchestration but is

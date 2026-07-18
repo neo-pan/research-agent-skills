@@ -55,15 +55,19 @@ report the tooling blocker instead of completing the review in the main agent.
      been read or listed as not reviewed.
 
 3. Delegate to a subagent.
-   - Spawn a review-only Codex subagent.
+   - Spawn a review-only Codex subagent in a new thread with no inherited
+     conversation turns (`fork_turns="none"`), or use the runtime's equivalent
+     clean-spawn option.
    - Tell the subagent not to edit files, run destructive commands, broaden the
      task, or introduce new requirements.
    - Include the inferred target, explicit boundary, relevant artifacts, and the
      rubric below.
    - Treat subagent findings as review input, not automatic truth; verify enough
      context to avoid passing through false positives.
-   - If the subagent cannot be created, return `BLOCKED` with the tooling
-     blocker and do not continue the review in the main agent.
+   - Give it only the explicit review boundary and target artifacts. Do not pass
+     the parent transcript, search logs, or another agent's working output.
+   - If a clean-spawn subagent cannot be created, return `BLOCKED` with the
+     tooling blocker and do not continue the review in the main agent.
    - Completion check: subagent findings have been received, or the review has
      stopped with a tooling blocker.
 
