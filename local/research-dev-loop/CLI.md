@@ -1,47 +1,28 @@
-# RDL CLI Reference
+# RDL CLI
 
-Run the Python module from a project repository:
+Every command emits one JSON object. Exit `0` means success, `2` a typed blocker, and `1` invalid input or damaged local state.
 
-```bash
-PYTHONPATH=local/research-dev-loop python3 -m rdl start research mission.md --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl start build plan.md --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl status --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl handoff --session-id <id> --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --for next --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --for close --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --for doctor --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl review --pack --session-path <path> --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl memory --check --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl next --mode build --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl next --profile checkpoint --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl progress active --item parser --text "raw parser capability" --trigger "sample coverage review" --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl factors --section "Dataset or Workload" --value "current workload slice" --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl record artifact EV1 log artifacts/run.log "parser smoke output" --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl record artifact EV2 log src/parser.py "live source path" live-path --json
-PYTHONPATH=local/research-dev-loop python3 -m rdl record finding warning evidence rounds/001/evidence.md "coverage is thin" "add fixture evidence" --json
+```text
+rdl start --input <path|-> [--session-id ID]
+rdl handoff [--session-id ID]
+rdl apply --input <path|-> [--session-id ID]
+rdl review --for next|close [--session-id ID]
+rdl next --expected-state-version N [--session-id ID]
+rdl close --expected-state-version N --outcome positive|negative|inconclusive|abandoned [--reason TEXT] [--session-id ID]
+rdl doctor [--session-id ID] [--diagnostics]
 ```
 
-When another tool or agent consumes `--json`, run RDL from a clean shell/session
-so stdout remains parseable JSON.
+Start input contains `mode: research|build` and a mission with `objective`, non-empty `scope` and `success_criteria`, plus optional `out_of_scope`, `invariants`, and `abort_criteria` arrays.
 
-Use `review --pack --for next|close|doctor` when the reviewer should assess a
-specific intended action. `--for next` evaluates the advance gate but exposes
-`next` in the reviewer task. `--for close` infers the outcome from the current
-`Decision: close-*` record and returns `missing_close_outcome` when no such
-decision is recorded. Omitting `--for` preserves the generic review pack. Each
-pack exposes `subject_digest`; record it with the pack `action` as `Review
-Subject Digest` and `Review Subject Action` in `review.md`.
+An ApplyDelta requires `expected_state_version` and `risk: routine|material`. Optional fields are:
 
-RDL requires `python3`. Its implementation lives under
-`local/research-dev-loop/rdl/`.
+- append-only `artifacts`, `evidence`, and `events` maps;
+- whole-value `progress_updates` and `factor_updates` maps, where map-level `null` deletes;
+- current-round `interpretation` and `decision` replacements;
+- one `review_trigger` and one `review_result`.
 
-Before committing changes in this skill pack, run:
+Artifact entries contain `kind`, project-relative `path`, `description`, `stability: snapshot|live`, and an optional compact verifier receipt. Evidence contains `claim`, `summary`, `bearing`, `strength`, artifact refs, and uncertainty. Delta-local refs resolve before durable `A/E/EV/R` IDs are assigned.
 
-```bash
-./scripts/check.sh
-```
+A decision contains `kind`, `subject`, evidence refs, uncertainty, remaining unknowns, next step, `recommended_transition: next|close|none`, optional next mode, and a scientific close outcome when closing.
 
-That check runs manifest/link checks, RDL Python tests, repository prerequisite
-checks, and the dogfood audit.
+All existing-session mutations require the current version. An exact immediate retry returns the previous receipt; a different or older request returns `state_version_conflict`. Use an explicit session ID to retry a lost close response.

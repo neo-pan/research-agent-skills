@@ -63,8 +63,8 @@ agent or project convention for exposing those skill directories.
 
 ### Recommended Codex agents
 
-When using `rdl-orchestrator` with Codex, installing the repository's bounded
-writer, reviewer, and explorer roles is recommended:
+When using material RDL review or bounded exploration with Codex, install the
+repository's optional reviewer and explorer roles:
 
 ```bash
 ./scripts/install_recommended_codex_agents.sh
@@ -83,13 +83,10 @@ The recommended role allocation is:
 
 | Role | Model | Reasoning effort | Sandbox |
 |---|---|---|---|
-| RDL writer | `gpt-5.6-sol` | `medium` | `workspace-write` |
 | RDL reviewer | `gpt-5.6-sol` | `high` | `read-only` |
 | RDL explorer | `gpt-5.6-terra` | `medium` | `read-only` |
 
-The writer remains on Sol because the July 2026 writer A/B did not meet the
-quality or efficiency gates for promoting Terra. For shallow, bounded
-delegation, also add the following to the applicable user or trusted-project
+For shallow, bounded delegation, also add the following to the applicable user or trusted-project
 `config.toml`:
 
 ```toml
@@ -159,7 +156,6 @@ The current local skills are:
 
 - `phase-review` - manual independent gate for research engineering plans,
   implementation phases, evidence, and final readiness.
-- `research-dev-loop` - lightweight evidence-backed Research Development Loop
-  scaffold and CLI for research session records.
-- `rdl-orchestrator` - manual RDL-backed orchestration workflow with a dedicated
-  round writer and conditional semantic reviewer.
+- `research-dev-loop` - durable normalized evidence state and a seven-command
+  Research Development Loop CLI.
+- `rdl-orchestrator` - manual terminal RDL loop with material-only semantic review.

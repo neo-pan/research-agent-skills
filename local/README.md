@@ -9,8 +9,5 @@ notes out of tracked files.
 Current local skills:
 
 - `phase-review` - manual independent review gate.
-- `research-dev-loop` - lightweight Research Development Loop records and CLI;
-  see `local/research-dev-loop/README.md` for current capabilities, dogfood
-  takeover workflow, and deferred automation boundaries.
-- `rdl-orchestrator` - manual RDL-backed orchestration workflow with a dedicated
-  round writer and conditional semantic reviewer.
+- `research-dev-loop` - normalized evidence state and a seven-command RDL CLI.
+- `rdl-orchestrator` - manual terminal RDL loop with material-only review.

@@ -69,6 +69,10 @@ bash "${ROOT_DIR}/tests/check-recommended-codex-agents.sh" >/dev/null
 
 echo "Recommended Codex agent configs ok"
 
+bash "${ROOT_DIR}/tests/check-rdl-skill-budgets.sh" >/dev/null
+
+echo "RDL skill budgets ok"
+
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Missing python3: RDL Python tests require python3 for repository checks." >&2
   exit 1
