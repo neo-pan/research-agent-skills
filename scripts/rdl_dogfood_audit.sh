@@ -35,7 +35,7 @@ run_command() {
   set +e
   (
     cd "${PROJECT_ROOT}"
-    PYTHONPATH="${ROOT_DIR}/local/research-dev-loop" python3 -m rdl "$@" "${selector[@]}"
+    "${ROOT_DIR}/local/research-dev-loop/bin/rdl" "$@" "${selector[@]}"
   ) >"${tmp_dir}/${name}.json" 2>"${tmp_dir}/${name}.err"
   echo "$?" >"${tmp_dir}/${name}.status"
   set -e
@@ -55,15 +55,18 @@ print("RDL Dogfood Audit")
 for name in ("handoff", "doctor"):
     code = int((root / f"{name}.status").read_text(encoding="utf-8"))
     raw = (root / f"{name}.json").read_text(encoding="utf-8")
+    diagnostic = (root / f"{name}.err").read_text(encoding="utf-8").strip()
     try:
         result = json.loads(raw)
     except json.JSONDecodeError:
-        result = {"status": "error", "code": "invalid_json"}
+        result = {"status": "error", "code": "bootstrap_error" if diagnostic else "invalid_json"}
     print(f"{name}: {result.get('status', 'error')}")
     if result.get("session_id"):
         print(f"  session: {result['session_id']}")
     if result.get("code"):
         print(f"  code: {result['code']}")
+    if diagnostic:
+        print(f"  stderr: {diagnostic}")
     findings = result.get("findings", [])
     if findings:
         print("  findings: " + ", ".join(item.get("code", "unknown") for item in findings))

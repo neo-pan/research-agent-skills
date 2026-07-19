@@ -17,6 +17,11 @@ across local projects.
   `./scripts/install_recommended_codex_agents.sh [target-agents-dir]`.
   Do not make custom-agent installation an implicit side effect of skill
   installation.
+- Install the optional RDL shell adapter separately and explicitly with
+  `scripts/install_rdl_command.py install --bin-dir <existing-user-bin>`. It manages
+  only the canonical `local/research-dev-loop/bin/rdl` launcher; never scan for
+  executables or run skill hooks. Command and custom-agent installation must not
+  be skill-install side effects.
 
 ## Repository Rules
 
@@ -72,22 +77,20 @@ submodule pointer updates.
 
 ## RDL Design Principle
 
-- Keep deterministic RDL gates limited to protocol, schema, local artifact
-  integrity, and managed-summary facts that can be verified without judging
-  research meaning.
-- Do not encode semantic judgments as ad hoc parser rules. Questions such as
-  whether evidence is decision-grade, an active item is truly stale, a review
-  trigger has semantically occurred, session memory faithfully represents
-  research state, or a claim overreaches belong in semantic review.
-- Treat independent subagents, `phase-review`, manual review, and project
-  reviewers as adapters behind the semantic review gate. Record the adapter and
-  findings in `review.md` or gate report details; do not add extra user-facing
-  ceremony when the normal `rdl review`, `rdl doctor`, `rdl next`, and
-  `rdl close` flow can carry the result.
-- Preserve single-writer discipline for canonical RDL files. Subagents may
-  inspect context and produce findings, but the main agent or user remains
-  responsible for accepting judgment-heavy changes to `decision.md`,
-  `progress.md`, `factors.md`, and final reports.
+- Keep deterministic RDL gates limited to protocol, schema, normalized state,
+  local artifact integrity, action/digest binding, and facts that can be checked
+  without judging research meaning.
+- Do not encode semantic judgments as ad hoc parser rules. Evidence quality,
+  claim scope, staleness, handoff fidelity, and next-action suitability belong
+  in fresh-context semantic review.
+- Treat independent subagents and project reviewers as adapters behind the
+  semantic review gate. Resolve the loaded `research-dev-loop` skill's `bin/rdl`
+  as `RDL`; apply accepted findings through `"$RDL" apply`. `"$RDL" next` and
+  `"$RDL" close` consume only a current action/digest-bound review.
+- Treat `state.json` in the current immutable generation as authoritative and
+  Markdown records as derived views. Never edit canonical RDL files directly;
+  the main agent, user, or scoped subagent submits all research changes through
+  `"$RDL" apply`.
 
 ## Agent skills
 

@@ -81,4 +81,19 @@ if "${AUDIT}" "${tmp_dir}/missing" >"${tmp_dir}/missing.out" 2>"${tmp_dir}/missi
 fi
 grep -q "project root is not a directory" "${tmp_dir}/missing.err" || fail "non-directory error missing"
 
+broken_root="${tmp_dir}/broken-repo"
+mkdir -p "${broken_root}/scripts" "${broken_root}/local/research-dev-loop/bin"
+cp "${AUDIT}" "${broken_root}/scripts/rdl_dogfood_audit.sh"
+cat >"${broken_root}/local/research-dev-loop/bin/rdl" <<'EOF'
+#!/bin/sh
+echo 'rdl bundled package is missing from the installed skill.' >&2
+exit 1
+EOF
+chmod +x "${broken_root}/local/research-dev-loop/bin/rdl"
+if "${broken_root}/scripts/rdl_dogfood_audit.sh" "${empty}" >"${tmp_dir}/bootstrap.out"; then
+  fail "launcher bootstrap failure should fail"
+fi
+grep -q "bootstrap_error" "${tmp_dir}/bootstrap.out" || fail "bootstrap error code missing"
+grep -q "bundled package is missing" "${tmp_dir}/bootstrap.out" || fail "bootstrap stderr missing"
+
 echo "RDL dogfood audit ok"

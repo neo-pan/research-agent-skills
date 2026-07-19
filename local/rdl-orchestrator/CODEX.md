@@ -5,7 +5,7 @@ Install the reviewed configs with `scripts/install_recommended_codex_agents.sh` 
 - `rdl-reviewer.toml`: fresh-context, read-only semantic reviewer.
 - `rdl-explorer.toml`: optional read-only explorer for one bounded question.
 
-The main agent submits `rdl apply`; no dedicated writer role is required.
+The main agent resolves the loaded `research-dev-loop` skill's `bin/rdl` as `RDL` and submits `"$RDL" apply`; no dedicated writer role is required.
 
 ## Clean Spawn Contract
 

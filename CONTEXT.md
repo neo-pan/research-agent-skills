@@ -6,13 +6,13 @@ skills in this repository.
 ## Language
 
 **Deterministic readiness**:
-Protocol, schema, managed-summary, state, and local artifact checks that can be
-verified without judging research meaning.
+Protocol, schema, normalized canonical state, review binding, and local artifact
+checks that can be verified without judging research meaning.
 _Avoid_: semantic readiness, review quality checks
 
 **Semantic review output**:
 Reviewer-produced judgment about evidence quality, claim scope, staleness,
-memory fidelity, or next-action suitability.
+handoff fidelity, or next-action suitability.
 _Avoid_: deterministic finding, parser rule
 
 **Semantic gate finding**:

@@ -36,6 +36,7 @@ source for the selected upstream entries.
 | `codex/agents/` | Recommended Codex role configurations for the RDL orchestrator. |
 | `scripts/link_selected_skills.sh` | Rebuilds `skills/` symlinks from the selected list. |
 | `scripts/install_selected_skills.sh` | Installs selected skill links into a target skill directory. |
+| `scripts/install_rdl_command.py` | Explicitly manages the optional `rdl` symlink in an existing user PATH directory. |
 | `scripts/install_recommended_codex_agents.sh` | Installs the recommended RDL Codex role configurations. |
 | `scripts/check.sh` | Runs repository checks. |
 | `scripts/update_upstream.sh` | Explicitly updates the upstream submodule and relinks. |
@@ -60,6 +61,18 @@ If no target is provided, the script installs into
 `${CODEX_HOME:-$HOME/.codex}/skills`. Different agents discover skills
 differently; use `skills/` as the prepared selected source and follow the target
 agent or project convention for exposing those skill directories.
+
+Skill installation does not modify `PATH`. RDL can always be invoked through
+the installed skill's `bin/rdl`. To explicitly install the optional `rdl`
+adapter into an existing private user directory already on `PATH`, run:
+
+```bash
+./scripts/install_rdl_command.py install --bin-dir "$HOME/.local/bin"
+```
+
+The adapter is a conservatively managed same-name symlink; it does not modify
+shell files or Python environments. See [INSTALL.md](INSTALL.md) for status,
+uninstall, relocation, platform, and collision behavior.
 
 ### Recommended Codex agents
 

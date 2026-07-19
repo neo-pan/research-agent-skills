@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+
+import os
+from pathlib import Path
+import sys
+
+
+if sys.version_info < (3, 9):
+    print("rdl requires Python 3.9 or newer.", file=sys.stderr)
+    raise SystemExit(1)
+
+if os.name != "posix":
+    print("rdl requires a Unix-like environment; use WSL on Windows.", file=sys.stderr)
+    raise SystemExit(1)
+
+sys.dont_write_bytecode = True
+skill_dir = Path(__file__).resolve().parent.parent
+if not (skill_dir / "rdl" / "__init__.py").is_file():
+    print("rdl bundled package is missing from the installed skill.", file=sys.stderr)
+    raise SystemExit(1)
+sys.path.insert(0, str(skill_dir))
+
+from rdl.cli import main
+
+raise SystemExit(main())

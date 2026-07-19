@@ -73,6 +73,9 @@ bash "${ROOT_DIR}/tests/check-rdl-skill-budgets.sh" >/dev/null
 
 echo "RDL skill budgets ok"
 
+RDL_LAUNCHER="${ROOT_DIR}/local/research-dev-loop/bin/rdl"
+[[ -x "${RDL_LAUNCHER}" ]] || { echo "RDL launcher is not executable: ${RDL_LAUNCHER}" >&2; exit 1; }
+
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Missing python3: RDL Python tests require python3 for repository checks." >&2
   exit 1
@@ -82,6 +85,10 @@ PYTHONPATH="${ROOT_DIR}/local/research-dev-loop" \
   python3 -m unittest discover -s "${ROOT_DIR}/local/research-dev-loop/tests_py" >/dev/null
 
 echo "RDL Python tests ok"
+
+"${ROOT_DIR}/tests/check-rdl-command-installer.py" >/dev/null
+
+echo "RDL command installer ok"
 
 bash "${ROOT_DIR}/tests/check-removed-check-modes.sh" >/dev/null
 

@@ -2,7 +2,7 @@
 
 Use this branch only when an apply receipt requires review.
 
-1. Run `rdl review --for next|close`. Start an independent reviewer without
+1. Run `"$RDL" review --for next|close`, where `RDL` is this loaded skill's canonical `bin/rdl`. Start an independent reviewer without
    inherited conversation turns (`fork_turns="none"` in Codex, or the runtime's
    equivalent) and give it only the returned pack plus explicitly named
    verification artifacts. Completion: it returns the exact action and subject
