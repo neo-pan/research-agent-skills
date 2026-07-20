@@ -1,23 +1,19 @@
 # Material Review
 
-Use this branch only when an apply receipt requires review.
+On review-required receipt, run `"$RDL" review --for next|close`. Spawn a clean reviewer (`fork_turns="none"` in Codex). Give only this task, schema, pack, and adapter label:
 
-1. Run `"$RDL" review --for next|close`, where `RDL` is this loaded skill's canonical `bin/rdl`. Start an independent reviewer without
-   inherited conversation turns (`fork_turns="none"` in Codex, or the runtime's
-   equivalent) and give it only the returned pack plus explicitly named
-   verification artifacts. Completion: it returns the exact action and subject
-   digest, an adapter name, a verdict, and concise typed findings without a
-   transcript or working log.
-2. Accept or reject every finding. Submit one `review_result` in the next apply; record each finding's disposition and rationale, and include accepted subject corrections in that same delta. The main agent or user owns these judgments.
-3. Branch on the new receipt:
-   - `ready`: transition with its state version.
-   - `needs_review` after a changed digest: review the corrected subject once and apply a binding-only result.
-   - new external evidence required: return to execution, write-through the evidence, and review the new subject cycle.
+```text
+You are the configured independent RDL semantic reviewer. Review only the supplied review-pack JSON. Do not use tools, inspect files, rely on parent context, or infer unstated external facts. Copy the supplied action, subject_digest, and adapter label exactly. Return only one JSON object matching the supplied output schema, with no Markdown fence or extra text. Use the relevant progress key as finding.category when it identifies a defect.
+```
 
-The same action/digest is reviewed once. One consecutive evidence-free subject correction is allowed; another requires new evidence. Review output, bindings, receipts, versions, timestamps, and rendered views never enter the subject digest.
+Raw-output schema:
 
-Do not forward the main transcript, search logs, or another agent's working
-output. Treat the generated pack and explicitly named verification artifacts as
-the complete allowed semantic-review context.
+```json
+{"type":"object","additionalProperties":false,"required":["action","subject_digest","adapter","verdict","findings"],"properties":{"action":{"enum":["next","close"]},"subject_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"adapter":{"type":"string","minLength":1},"verdict":{"enum":["pass","pass_with_notes","revise","block","inconclusive"]},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","category","claim","required_resolution"],"properties":{"severity":{"enum":["blocking","warning","note"]},"category":{"type":"string","minLength":1},"claim":{"type":"string","minLength":1},"required_resolution":{"type":"string","minLength":1}}}}}}
+```
 
-Review adapters inspect and report; they do not edit RDL state or decide the transition. Deterministic checks validate schema, bindings, local artifacts, and typed blocking state without interpreting research meaning.
+Use native schema or inline it. Validate schema and exact action, digest, and adapter. Invalid output is an adapter failure; retry unchanged without applying it.
+
+The main agent accepts or rejects each finding, preserves its four fields, adds `disposition` and `rationale`, and applies one `review_result` with accepted corrections. The reviewer never edits state or decides transition.
+
+On `ready`, transition with the receipt version. After a changed digest, review once and apply its binding-only result. Apply required evidence before a new cycle. One valid review is allowed per action/digest; a second evidence-free correction requires new evidence.

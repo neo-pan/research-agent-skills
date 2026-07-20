@@ -82,6 +82,10 @@ bash "${ROOT_DIR}/tests/check-rdl-skill-budgets.sh" >/dev/null
 
 echo "RDL skill budgets ok"
 
+python3 "${ROOT_DIR}/tests/check-rdl-review-contract.py" >/dev/null
+
+echo "RDL review contract ok"
+
 RDL_LAUNCHER="${ROOT_DIR}/local/research-dev-loop/bin/rdl"
 [[ -x "${RDL_LAUNCHER}" ]] || { echo "RDL launcher is not executable: ${RDL_LAUNCHER}" >&2; exit 1; }
 
