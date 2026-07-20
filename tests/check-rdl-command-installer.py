@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -55,9 +56,10 @@ class InstallerFixture:
         *,
         bin_dir: Path | None = None,
         path: str | None = None,
+        installer: Path = INSTALLER,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [str(INSTALLER), action, "--bin-dir", str(bin_dir or self.bin)],
+            [str(installer), action, "--bin-dir", str(bin_dir or self.bin)],
             cwd=self.project,
             env=self.environment(path=path),
             text=True,
@@ -154,6 +156,41 @@ class RdlCommandInstallerTests(unittest.TestCase):
             self.assertEqual(refused.returncode, 2, refused.stderr)
             self.assertTrue(fixture.target.is_symlink())
             self.assertNotEqual(os.readlink(fixture.target), str(SOURCE))
+
+    def test_uninstall_removes_exact_owned_link_when_source_is_missing(self):
+        with TemporaryDirectory() as tmp:
+            fixture = InstallerFixture(Path(tmp))
+            copied_root = fixture.root / "copied-repo"
+            copied_scripts = copied_root / "scripts"
+            copied_library = copied_scripts / "lib"
+            copied_library.mkdir(parents=True)
+            copied_installer = copied_scripts / "install_rdl_command.py"
+            for source in (
+                INSTALLER,
+                ROOT / "scripts" / "lib" / "__init__.py",
+                ROOT / "scripts" / "lib" / "managed_links.py",
+            ):
+                destination = copied_scripts / source.relative_to(ROOT / "scripts")
+                shutil.copy2(source, destination)
+            missing_source = (
+                copied_root / "local" / "research-dev-loop" / "bin" / "rdl"
+            )
+            fixture.target.symlink_to(missing_source)
+            before = os.readlink(fixture.target)
+
+            status = fixture.run("status", installer=copied_installer)
+            installed = fixture.run("install", installer=copied_installer)
+
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertIn("state=current", status.stdout)
+            self.assertIn("source_available=no", status.stdout)
+            self.assertEqual(installed.returncode, 1, installed.stderr)
+            self.assertEqual(os.readlink(fixture.target), before)
+
+            removed = fixture.run("uninstall", installer=copied_installer)
+
+            self.assertEqual(removed.returncode, 0, removed.stderr)
+            self.assertFalse(os.path.lexists(fixture.target))
 
     def test_cyclic_symlink_is_reported_as_broken_without_mutation(self):
         with TemporaryDirectory() as tmp:

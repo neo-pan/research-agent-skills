@@ -75,7 +75,9 @@ printf 'user-owned\n' >"${tmp_dir}/agents/rdl-reviewer.toml"
 if "${INSTALLER}" "${tmp_dir}/agents" >"${tmp_dir}/stdout" 2>"${tmp_dir}/stderr"; then
   fail "installer should refuse to replace a non-symlink config"
 fi
-grep -q 'Refusing to replace non-symlink agent config' "${tmp_dir}/stderr" \
-  || fail "installer conflict error is missing"
+grep -q 'kind=file' "${tmp_dir}/stderr" \
+  || fail "installer file-conflict details are missing"
+grep -Fxq 'user-owned' "${tmp_dir}/agents/rdl-reviewer.toml" \
+  || fail "installer changed the conflicting user-owned file"
 
 echo "Recommended Codex agent configs ok"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import errno
 import fcntl
 import os
 import stat
@@ -12,6 +11,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
+
+from lib.managed_links import inspect_link, inspect_link_at
 
 
 COMMAND_NAME = "rdl"
@@ -32,12 +33,6 @@ class InstallerError(Exception):
     def __init__(self, message: str, *, blocked: bool = False):
         super().__init__(message)
         self.blocked = blocked
-
-
-@dataclass(frozen=True)
-class TargetState:
-    status: str
-    link_target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,48 +68,6 @@ def path_state(raw: str) -> PathState:
         except (OSError, RuntimeError):
             unsafe = True
     return PathState(tuple(entries), unsafe)
-
-
-def inspect_target(target: Path, source: Path) -> TargetState:
-    try:
-        metadata = target.lstat()
-    except FileNotFoundError:
-        return TargetState("absent")
-    if not stat.S_ISLNK(metadata.st_mode):
-        return TargetState("directory" if stat.S_ISDIR(metadata.st_mode) else "file")
-    link_target = os.readlink(target)
-    if link_target == str(source):
-        return TargetState("current", link_target)
-    try:
-        target.stat()
-    except (FileNotFoundError, RuntimeError):
-        return TargetState("broken", link_target)
-    except OSError as exc:
-        if exc.errno == errno.ELOOP:
-            return TargetState("broken", link_target)
-        raise
-    return TargetState("symlink", link_target)
-
-
-def inspect_at(directory_fd: int, source: Path) -> TargetState:
-    try:
-        metadata = os.stat(COMMAND_NAME, dir_fd=directory_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        return TargetState("absent")
-    if not stat.S_ISLNK(metadata.st_mode):
-        return TargetState("directory" if stat.S_ISDIR(metadata.st_mode) else "file")
-    link_target = os.readlink(COMMAND_NAME, dir_fd=directory_fd)
-    if link_target == str(source):
-        return TargetState("current", link_target)
-    try:
-        os.stat(COMMAND_NAME, dir_fd=directory_fd, follow_symlinks=True)
-    except FileNotFoundError:
-        return TargetState("broken", link_target)
-    except OSError as exc:
-        if exc.errno == errno.ELOOP:
-            return TargetState("broken", link_target)
-        raise
-    return TargetState("symlink", link_target)
 
 
 def executable_shadow(entries: tuple[Path, ...], bin_dir: Path) -> Path | None:
@@ -184,22 +137,37 @@ def locked_directory(bin_dir: Path) -> Iterator[int]:
 
 
 def status(bin_dir: Path, source: Path, paths: PathState) -> int:
-    target = bin_dir / COMMAND_NAME
-    state = inspect_target(target, source)
-    on_path = bin_dir in paths.entries
-    shadow = executable_shadow(paths.entries, bin_dir) if on_path else None
+    report = collect_status(bin_dir, source, paths)
     details = [
-        f"target={target}",
-        f"state={state.status}",
-        f"on_path={'yes' if on_path else 'no'}",
-        f"path={'unsafe' if paths.unsafe else 'safe'}",
-        f"shadowed_by={shadow if shadow else 'none'}",
-        f"source_available={'yes' if source.is_file() and os.access(source, os.X_OK) else 'no'}",
+        f"target={report['target']}",
+        f"state={report['state']}",
+        f"on_path={'yes' if report['on_path'] else 'no'}",
+        f"path={'unsafe' if report['path_unsafe'] else 'safe'}",
+        f"shadowed_by={report['shadowed_by'] or 'none'}",
+        f"source_available={'yes' if report['source_available'] else 'no'}",
     ]
-    if state.link_target is not None:
-        details.append(f"link_target={state.link_target}")
+    if report["link_target"] is not None:
+        details.append(f"link_target={report['link_target']}")
     print("RDL command status: " + "; ".join(details))
     return 0
+
+
+def collect_status(bin_dir: Path, source: Path, paths: PathState) -> dict[str, object]:
+    """Return the read-only command state consumed by status adapters."""
+
+    target = bin_dir / COMMAND_NAME
+    state = inspect_link(target, source, ())
+    on_path = bin_dir in paths.entries
+    shadow = executable_shadow(paths.entries, bin_dir) if on_path else None
+    return {
+        "target": str(target),
+        "state": state.status,
+        "on_path": on_path,
+        "path_unsafe": paths.unsafe,
+        "shadowed_by": str(shadow) if shadow is not None else None,
+        "source_available": source.is_file() and os.access(source, os.X_OK),
+        "link_target": state.link_target,
+    }
 
 
 def install(bin_dir: Path, source: Path, paths: PathState) -> int:
@@ -213,7 +181,7 @@ def install(bin_dir: Path, source: Path, paths: PathState) -> int:
         raise InstallerError(f"An earlier executable shadows rdl: {shadow}", blocked=True)
     target = bin_dir / COMMAND_NAME
     with locked_directory(bin_dir) as directory_fd:
-        state = inspect_at(directory_fd, source)
+        state = inspect_link_at(directory_fd, COMMAND_NAME, source, ())
         if state.status == "current":
             print(f"RDL command unchanged: {target} -> {source}")
             return 0
@@ -222,7 +190,7 @@ def install(bin_dir: Path, source: Path, paths: PathState) -> int:
         try:
             os.symlink(str(source), COMMAND_NAME, dir_fd=directory_fd)
         except FileExistsError:
-            state = inspect_at(directory_fd, source)
+            state = inspect_link_at(directory_fd, COMMAND_NAME, source, ())
             if state.status == "current":
                 print(f"RDL command unchanged: {target} -> {source}")
                 return 0
@@ -234,13 +202,13 @@ def install(bin_dir: Path, source: Path, paths: PathState) -> int:
 def uninstall(bin_dir: Path, source: Path) -> int:
     target = bin_dir / COMMAND_NAME
     with locked_directory(bin_dir) as directory_fd:
-        state = inspect_at(directory_fd, source)
+        state = inspect_link_at(directory_fd, COMMAND_NAME, source, ())
         if state.status == "absent":
             print(f"RDL command absent: {target}")
             return 0
         if state.status != "current":
             raise InstallerError(f"Refusing to remove {state.status} target: {target}", blocked=True)
-        final_state = inspect_at(directory_fd, source)
+        final_state = inspect_link_at(directory_fd, COMMAND_NAME, source, ())
         if final_state.status != "current":
             raise InstallerError(f"RDL command target changed before removal: {target}", blocked=True)
         os.unlink(COMMAND_NAME, dir_fd=directory_fd)

@@ -36,6 +36,7 @@ source for the selected upstream entries.
 | `codex/agents/` | Recommended Codex role configurations for the RDL orchestrator. |
 | `scripts/link_selected_skills.sh` | Rebuilds `skills/` symlinks from the selected list. |
 | `scripts/install_selected_skills.sh` | Installs selected skill links into a target skill directory. |
+| `scripts/codex_installation_status.py` | Reports whether repository-managed resources match a prospective Codex launch environment. |
 | `scripts/install_rdl_command.py` | Explicitly manages the optional `rdl` symlink in an existing user PATH directory. |
 | `scripts/install_recommended_codex_agents.sh` | Installs the recommended RDL Codex role configurations. |
 | `scripts/check.sh` | Runs repository checks. |
@@ -51,6 +52,8 @@ git submodule update --init --recursive
 
 Run `./scripts/check.sh` before committing changes.
 
+Python 3.9+ is required by the shared managed-link installers and the RDL CLI.
+
 Install the selected skills into an agent or project skill directory:
 
 ```bash
@@ -61,6 +64,24 @@ If no target is provided, the script installs into
 `${CODEX_HOME:-$HOME/.codex}/skills`. Different agents discover skills
 differently; use `skills/` as the prepared selected source and follow the target
 agent or project convention for exposing those skill directories.
+
+Installers refuse regular files, directories, foreign links, links from a
+historical checkout, relative links, and broken links whose ownership cannot be
+proven. They replace or prune only links owned by the current checkout, and
+preflight the complete desired set before changing any link.
+
+Check whether skills and recommended agents match the Codex home that a new
+process would use:
+
+```bash
+./scripts/codex_installation_status.py
+./scripts/codex_installation_status.py --json
+```
+
+The command resolves Codex home from `--codex-home`, then `CODEX_HOME`, then
+`$HOME/.codex`. It is read-only and does not infer skill enablement, invocation
+policy, or the home of an already-running Codex process. See [INSTALL.md](INSTALL.md)
+for target overrides, RDL command checks, output, and exit codes.
 
 Skill installation does not modify `PATH`. RDL can always be invoked through
 the installed skill's `bin/rdl`. To explicitly install the optional `rdl`

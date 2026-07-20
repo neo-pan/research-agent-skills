@@ -22,6 +22,13 @@ across local projects.
   only the canonical `local/research-dev-loop/bin/rdl` launcher; never scan for
   executables or run skill hooks. Command and custom-agent installation must not
   be skill-install side effects.
+- Diagnose a prospective Codex launch environment with
+  `scripts/codex_installation_status.py`; pass explicit target overrides only
+  when comparing a non-default installation. Status is read-only and must not
+  claim to inspect an already-running Codex process.
+- Never overwrite foreign, historical-checkout, relative, or unowned broken
+  symlinks. Installers may replace or prune only links provably owned by the
+  current checkout, after a conflict-free batch preflight.
 
 ## Repository Rules
 

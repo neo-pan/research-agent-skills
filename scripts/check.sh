@@ -57,10 +57,6 @@ bash "${ROOT_DIR}/tests/check-selected-skills-module.sh" >/dev/null
 
 echo "Selected skills module ok"
 
-bash "${ROOT_DIR}/tests/check-installed-skills-module.sh" >/dev/null
-
-echo "Installed skills module ok"
-
 bash "${ROOT_DIR}/tests/check-upstream-install-guard.sh" >/dev/null
 
 echo "Upstream install guard ok"
@@ -69,17 +65,25 @@ bash "${ROOT_DIR}/tests/check-recommended-codex-agents.sh" >/dev/null
 
 echo "Recommended Codex agent configs ok"
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Missing python3: repository checks require python3." >&2
+  exit 1
+fi
+
+"${ROOT_DIR}/tests/check-managed-link-installers.py" >/dev/null
+
+echo "Managed link installers ok"
+
+"${ROOT_DIR}/tests/check-codex-installation-status.py" >/dev/null
+
+echo "Codex installation status ok"
+
 bash "${ROOT_DIR}/tests/check-rdl-skill-budgets.sh" >/dev/null
 
 echo "RDL skill budgets ok"
 
 RDL_LAUNCHER="${ROOT_DIR}/local/research-dev-loop/bin/rdl"
 [[ -x "${RDL_LAUNCHER}" ]] || { echo "RDL launcher is not executable: ${RDL_LAUNCHER}" >&2; exit 1; }
-
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "Missing python3: RDL Python tests require python3 for repository checks." >&2
-  exit 1
-fi
 
 PYTHONPATH="${ROOT_DIR}/local/research-dev-loop" \
   python3 -m unittest discover -s "${ROOT_DIR}/local/research-dev-loop/tests_py" >/dev/null
