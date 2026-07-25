@@ -35,6 +35,7 @@ MATERIAL_DECISIONS = frozenset({"accept", "reject", "pivot", "narrow", "broaden"
 TRANSITIONS = frozenset({"next", "close", "none"})
 CLOSE_OUTCOMES = frozenset({"positive", "negative", "inconclusive", "abandoned"})
 STABILITIES = frozenset({"snapshot", "live"})
+ARTIFACT_RESOLUTION_KINDS = frozenset({"retired", "superseded"})
 BEARINGS = frozenset({"supports", "contradicts", "mixed", "context"})
 STRENGTHS = frozenset({"strong", "moderate", "weak", "contradicted", "inconclusive"})
 VERDICTS = frozenset({"pass", "pass_with_notes", "revise", "block", "inconclusive"})
@@ -116,6 +117,7 @@ def validate_delta(value: Any) -> dict[str, Any]:
         "expected_state_version",
         "risk",
         "artifacts",
+        "artifact_resolutions",
         "evidence",
         "events",
         "progress_updates",
@@ -130,6 +132,9 @@ def validate_delta(value: Any) -> dict[str, Any]:
     risk = _enum(data.get("risk"), RISKS, "risk")
     normalized: dict[str, Any] = {"expected_state_version": version, "risk": risk}
     normalized["artifacts"] = _map(data.get("artifacts", {}), "artifacts", _artifact)
+    normalized["artifact_resolutions"] = _map(
+        data.get("artifact_resolutions", {}), "artifact_resolutions", _artifact_resolution
+    )
     normalized["evidence"] = _map(data.get("evidence", {}), "evidence", _evidence)
     normalized["events"] = _map(data.get("events", {}), "events", _event)
     normalized["progress_updates"] = _map(
@@ -202,6 +207,7 @@ def semantic_delta_present(delta: dict[str, Any]) -> bool:
     return any(
         (
             delta.get("artifacts"),
+            delta.get("artifact_resolutions"),
             delta.get("evidence"),
             delta.get("events"),
             delta.get("progress_updates"),
@@ -249,6 +255,26 @@ def _artifact(value: Any, field_name: str) -> dict[str, Any]:
             "status": _text(verifier.get("status"), f"{field_name}.verifier.status"),
             "summary": _text(verifier.get("summary"), f"{field_name}.verifier.summary"),
         }
+    return result
+
+
+def _artifact_resolution(value: Any, field_name: str) -> dict[str, Any]:
+    data = _object(value, field_name)
+    _only(data, {"artifact_ref", "kind", "reason", "replacement_ref"}, field_name)
+    kind = _enum(data.get("kind"), ARTIFACT_RESOLUTION_KINDS, f"{field_name}.kind")
+    result = {
+        "artifact_ref": _reference(data.get("artifact_ref"), f"{field_name}.artifact_ref"),
+        "kind": kind,
+        "reason": _text(data.get("reason"), f"{field_name}.reason"),
+    }
+    if kind == "retired" and "replacement_ref" in data:
+        raise RdlError("invalid_artifact_resolution", "retired artifact resolution forbids replacement_ref")
+    if kind == "superseded":
+        if "replacement_ref" not in data:
+            raise RdlError("invalid_artifact_resolution", "superseded artifact resolution requires replacement_ref")
+        result["replacement_ref"] = _reference(
+            data.get("replacement_ref"), f"{field_name}.replacement_ref"
+        )
     return result
 
 
@@ -452,6 +478,13 @@ def _ref_list(value: Any, name: str, *, required: bool = False) -> list[str]:
         if not KEY_RE.fullmatch(ref):
             raise RdlError("invalid_reference", f"{name} contains an invalid reference: {ref}")
     return result
+
+
+def _reference(value: Any, name: str) -> str:
+    ref = _text(value, name)
+    if not KEY_RE.fullmatch(ref):
+        raise RdlError("invalid_reference", f"{name} contains an invalid reference: {ref}")
+    return ref
 
 
 def _enum(value: Any, allowed: set[str] | frozenset[str], name: str) -> str:

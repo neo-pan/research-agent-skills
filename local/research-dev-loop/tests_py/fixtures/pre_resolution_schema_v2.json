@@ -1,0 +1,157 @@
+{
+  "artifacts": [
+    {
+      "description": "fixture verification receipt",
+      "id": "A000001",
+      "kind": "report",
+      "path": "artifacts/report.json",
+      "round": 1,
+      "sha256": "1ea63e7fda68e7ce49b013af8410102e9228f7591e79ef602dd23d95556d03bc",
+      "size_bytes": 16,
+      "stability": "live",
+      "verifier": {
+        "name": "fixture",
+        "status": "passed",
+        "summary": "direct check passed"
+      }
+    }
+  ],
+  "counters": {
+    "artifact": 1,
+    "event": 0,
+    "evidence": 1,
+    "review": 0
+  },
+  "created_at_utc": "2026-07-25T17:57:42Z",
+  "events": [],
+  "evidence": [
+    {
+      "artifact_refs": [
+        "A000001"
+      ],
+      "bearing": "supports",
+      "claim": "fixture claim",
+      "id": "E000001",
+      "round": 1,
+      "strength": "strong",
+      "summary": "the direct fixture check passed",
+      "uncertainty": "one bounded fixture"
+    }
+  ],
+  "factors": {},
+  "last_mutation": {
+    "base_version": 1,
+    "receipt": {
+      "assigned_ids": {
+        "artifacts": {
+          "report": "A000001"
+        },
+        "evidence": {
+          "result": "E000001"
+        }
+      },
+      "effective_risk": "material",
+      "review_required": true,
+      "review_subject_digest": "c7eba6a2be7027f943634ab58a9364ebb24885f4658e1e9793d6f330b0f3cdb7",
+      "round": 1,
+      "session_id": "legacy-drift",
+      "state_version": 2,
+      "status": "ok",
+      "transition_readiness": "needs_review",
+      "warnings": []
+    },
+    "request_digest": "f4d04298ba5c0670693cb9cc4f5dd38d374e220a059723110a28aa1a427bd555"
+  },
+  "mission": {
+    "abort_criteria": [
+      "required evidence is unavailable"
+    ],
+    "invariants": [
+      "preserve uncertainty"
+    ],
+    "objective": "Determine whether the candidate is supported.",
+    "out_of_scope": [
+      "deployment"
+    ],
+    "scope": [
+      "bounded fixture"
+    ],
+    "success_criteria": [
+      "decision cites direct evidence"
+    ]
+  },
+  "mode": "research",
+  "progress": {
+    "fixture": {
+      "blocking": false,
+      "evidence_refs": [
+        "E000001"
+      ],
+      "status": "completed",
+      "summary": "fixture verification completed"
+    }
+  },
+  "round": 1,
+  "rounds": [
+    {
+      "decision": {
+        "close_outcome": "inconclusive",
+        "evidence_refs": [
+          "E000001"
+        ],
+        "kind": "accept",
+        "next_step": "run the next bounded check",
+        "recommended_transition": "close",
+        "remaining_unknowns": [
+          "larger workloads"
+        ],
+        "subject": "fixture claim",
+        "uncertainty": "bounded fixture uncertainty"
+      },
+      "event_ids": [],
+      "evidence_free_corrections": 0,
+      "evidence_ids": [
+        "E000001"
+      ],
+      "interpretation": {
+        "does_not_show": [
+          "production scale"
+        ],
+        "implications": [
+          "advance the bounded investigation"
+        ],
+        "shows": [
+          "the fixture behaves as claimed"
+        ],
+        "uncertainty": [
+          "larger workloads are untested"
+        ]
+      },
+      "latest_bindings": {},
+      "material_required": true,
+      "mode": "research",
+      "number": 1,
+      "review_history": []
+    }
+  ],
+  "schema_version": 2,
+  "session_id": "legacy-drift",
+  "start_replay": {
+    "receipt": {
+      "assigned_ids": {},
+      "effective_risk": "routine",
+      "review_required": false,
+      "round": 1,
+      "session_id": "legacy-drift",
+      "state_version": 1,
+      "status": "ok",
+      "transition_readiness": "needs_evidence",
+      "warnings": []
+    },
+    "request_digest": "76408e847474adb5ba4393c2f68462aa46509724949027b34e391099cb9e3fde"
+  },
+  "state_digest": "a10b12c4203c76c3c605f5c201b783a2a59f359fae4739a0b73fcbf0610f43ee",
+  "state_version": 2,
+  "status": "active",
+  "updated_at_utc": "2026-07-25T17:57:42Z"
+}

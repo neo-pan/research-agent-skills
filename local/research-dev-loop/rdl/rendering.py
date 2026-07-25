@@ -8,9 +8,16 @@ from typing import Any
 from .model import RdlError, current_round, digest
 
 
-HANDOFF_SOFT_BYTES = 8 * 1024
-HANDOFF_HARD_BYTES = 12 * 1024
+HANDOFF_SOFT_BYTES = 20 * 1024
+HANDOFF_HARD_BYTES = 24 * 1024
 REVIEW_HARD_BYTES = 30 * 1024
+ARTIFACT_LIFECYCLE_GUIDANCE = (
+    "Treat retired artifacts as historical rather than current decision-grade support. "
+    "Check whether each superseding snapshot and verifier actually support the claim. "
+    "Artifact drift establishes loss of the original binding; it does not by itself establish "
+    "a negative scientific result. Require an inconclusive outcome or narrower claim unless "
+    "independent evidence supports the stronger conclusion."
+)
 
 
 def render_views(state: dict[str, Any]) -> dict[str, str]:
@@ -35,28 +42,8 @@ def subject_projection(state: dict[str, Any], action: str, deterministic_finding
     round_state = current_round(state)
     evidence_ids = _relevant_evidence_ids(round_state)
     evidence = [item for item in state["evidence"] if item["id"] in evidence_ids]
-    artifact_ids = {ref for item in evidence for ref in item["artifact_refs"]}
-    decision = round_state.get("decision")
-    if decision:
-        artifact_ids.update(
-            ref
-            for evidence_id in decision["evidence_refs"]
-            for ref in next((item["artifact_refs"] for item in evidence if item["id"] == evidence_id), [])
-        )
-    artifacts = [
-        {
-            "id": item["id"],
-            "kind": item["kind"],
-            "path": item["path"],
-            "description": item["description"],
-            "stability": item["stability"],
-            "size_bytes": item["size_bytes"],
-            "sha256": item["sha256"],
-            **({"verifier": item["verifier"]} if "verifier" in item else {}),
-        }
-        for item in state["artifacts"]
-        if item["id"] in artifact_ids
-    ]
+    artifact_ids = relevant_artifact_closure(state, round_state)
+    artifacts = [_subject_artifact(item) for item in state["artifacts"] if item["id"] in artifact_ids]
     return {
         "action": action,
         "mission": state["mission"],
@@ -88,6 +75,8 @@ def review_pack(state: dict[str, Any], action: str, deterministic_findings: list
         "artifacts": projection["artifacts"],
         "deterministic_findings": projection["deterministic_findings"],
     }
+    if any("resolution" in item for item in projection["artifacts"]):
+        sections["artifact_lifecycle_guidance"] = ARTIFACT_LIFECYCLE_GUIDANCE
     pack = {
         "status": "ok",
         "session_id": state["session_id"],
@@ -116,20 +105,41 @@ def review_pack(state: dict[str, Any], action: str, deterministic_findings: list
 def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
     round_state = current_round(state)
     current_evidence = [item for item in state["evidence"] if item["id"] in _relevant_evidence_ids(round_state)]
+    artifact_ids = relevant_artifact_closure(state, round_state)
+    artifacts = []
+    for item in state["artifacts"]:
+        if item["id"] not in artifact_ids:
+            continue
+        artifact = {
+            "id": item["id"],
+            "kind": item["kind"],
+            "path": item["path"],
+            "stability": item["stability"],
+            "integrity": {"size_bytes": item["size_bytes"], "sha256": item["sha256"]},
+        }
+        if "verifier" in item:
+            artifact["verifier"] = item["verifier"]
+        if "resolution" in item:
+            artifact["resolution"] = item["resolution"]
+        artifacts.append(artifact)
     sections = {
-        "mission": {"objective": state["mission"]["objective"], "scope": state["mission"]["scope"]},
+        "mission": state["mission"],
         "progress": state["progress"],
         "factors": state["factors"],
         "round": {
             "number": state["round"],
             "mode": state["mode"],
             "evidence": [
-                {key: item[key] for key in ("id", "claim", "summary", "bearing", "strength", "uncertainty")}
+                {
+                    key: item[key]
+                    for key in ("id", "claim", "summary", "bearing", "strength", "artifact_refs", "uncertainty")
+                }
                 for item in current_evidence
             ],
             "interpretation": round_state["interpretation"],
             "decision": round_state["decision"],
         },
+        "artifacts": artifacts,
         "readiness": readiness,
     }
     result = {
@@ -301,3 +311,40 @@ def _relevant_evidence_ids(round_state: dict[str, Any]) -> set[str]:
     if decision:
         evidence_ids.update(decision["evidence_refs"])
     return evidence_ids
+
+
+def _subject_artifact(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": item["id"],
+        "kind": item["kind"],
+        "path": item["path"],
+        "description": item["description"],
+        "stability": item["stability"],
+        "size_bytes": item["size_bytes"],
+        "sha256": item["sha256"],
+        **({"verifier": item["verifier"]} if "verifier" in item else {}),
+        **({"resolution": item["resolution"]} if "resolution" in item else {}),
+    }
+
+
+def direct_relevant_artifact_ids(state: dict[str, Any], round_state: dict[str, Any]) -> set[str]:
+    evidence_ids = _relevant_evidence_ids(round_state)
+    return {
+        ref
+        for evidence in state["evidence"]
+        if evidence["id"] in evidence_ids
+        for ref in evidence["artifact_refs"]
+    }
+
+
+def relevant_artifact_closure(state: dict[str, Any], round_state: dict[str, Any]) -> set[str]:
+    artifact_ids = direct_relevant_artifact_ids(state, round_state)
+    artifacts = {item["id"]: item for item in state["artifacts"]}
+    pending = list(artifact_ids)
+    while pending:
+        artifact = artifacts.get(pending.pop())
+        replacement_id = (artifact or {}).get("resolution", {}).get("replacement_artifact_id")
+        if replacement_id and replacement_id not in artifact_ids:
+            artifact_ids.add(replacement_id)
+            pending.append(replacement_id)
+    return artifact_ids

@@ -18,4 +18,6 @@ Use RDL as a write-through evidence record, not a project supervisor. Resolve th
    - Run `"$RDL" next` or `"$RDL" close` only with the receipt's current version and only when readiness is `ready`.
 5. After transition, use the returned state as the next round or terminal completion criterion.
 
+For builds: failing baseline → `apply` → implement/verify → `apply`. Prefer snapshots and short sessions over mutable artifacts. Reconcile changed relevant `live` artifacts by retirement or same-apply snapshot supersession. Never edit `.rdl` or infer a negative result from drift.
+
 Use `"$RDL" doctor` when handoff or a command reports abnormal state. Use `--session-id` for historical state or a lost close response. For request schemas and typed errors, read [CLI.md](CLI.md).

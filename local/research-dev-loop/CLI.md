@@ -17,12 +17,17 @@ Start input contains `mode: research|build` and a mission with `objective`, non-
 An ApplyDelta requires `expected_state_version` and `risk: routine|material`. Optional fields are:
 
 - append-only `artifacts`, `evidence`, and `events` maps;
+- one-shot `artifact_resolutions` map for lifecycle reconciliation;
 - whole-value `progress_updates` and `factor_updates` maps, where map-level `null` deletes;
 - current-round `interpretation` and `decision` replacements;
 - one `review_trigger` and one `review_result`.
 
 Artifact entries contain `kind`, project-relative `path`, `description`, `stability: snapshot|live`, and an optional compact verifier receipt. Evidence contains `claim`, `summary`, `bearing`, `strength`, artifact refs, and uncertainty. Delta-local refs resolve before durable `A/E/EV/R` IDs are assigned.
 
+Resolutions retire relevant `live` artifacts or supersede them with same-apply snapshots; preserve history and require review.
+
 A decision contains `kind`, `subject`, evidence refs, uncertainty, remaining unknowns, next step, `recommended_transition: next|close|none`, optional next mode, and a scientific close outcome when closing.
 
 All existing-session mutations require the current version. An exact immediate retry returns the previous receipt; a different or older request returns `state_version_conflict`. Use an explicit session ID to retry a lost close response.
+
+Lifecycle rejects are atomic: `unknown_reference`, `invalid_artifact_resolution`, `artifact_resolution_not_relevant`, or `artifact_identity_unverifiable`.

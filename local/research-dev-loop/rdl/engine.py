@@ -34,7 +34,24 @@ class EvaluationContext:
         self.read_counts: dict[str, int] = {}
 
     def inspect(self, relative: str) -> dict[str, Any]:
-        path = (self.root / relative).resolve()
+        unresolved_key = f"unresolved:{relative}"
+        if unresolved_key in self.cache:
+            cached = self.cache[unresolved_key]
+            if isinstance(cached, RdlError):
+                raise cached
+            return cached
+        try:
+            path = (self.root / relative).resolve()
+        except (OSError, RuntimeError) as exc:
+            error = RdlError(
+                "artifact_unreadable",
+                f"artifact path cannot be resolved: {relative}",
+                status="blocked",
+                details={"path": relative},
+            )
+            self.read_counts[relative] = self.read_counts.get(relative, 0) + 1
+            self.cache[unresolved_key] = error
+            raise error from exc
         try:
             key = path.relative_to(self.root).as_posix()
         except ValueError as exc:
@@ -156,7 +173,6 @@ class RdlEngine:
         if replay is not None:
             return replay
         self._require_active(state)
-        self.repository.cleanup(state["session_id"], state["state_version"])
         before = deepcopy(state)
         before_round = current_round(before)
         review_result = delta.get("review_result")
@@ -198,6 +214,13 @@ class RdlEngine:
             round_state["review_trigger"] = deepcopy(delta["review_trigger"])
 
         target_version = state["state_version"] + 1
+        self._apply_artifact_resolutions(
+            updated,
+            delta["artifact_resolutions"],
+            artifact_ids,
+            target_version,
+            context,
+        )
         if review_result:
             review_id = self._next_id(updated, "review", "R")
             record = deepcopy(review_result)
@@ -216,6 +239,8 @@ class RdlEngine:
             reasons.append(f"scientific_close:{delta['decision']['close_outcome']}")
         if "review_trigger" in delta:
             reasons.append(f"review_trigger:{delta['review_trigger']['code']}")
+        if delta["artifact_resolutions"]:
+            reasons.append("artifact_resolution")
         effective_risk = "material" if delta["risk"] == "material" or reasons else "routine"
         if effective_risk == "material":
             round_state["material_required"] = True
@@ -268,6 +293,7 @@ class RdlEngine:
             "receipt": deepcopy(receipt),
         }
         updated["state_digest"] = state_digest(updated)
+        self.repository.cleanup(state["session_id"], state["state_version"])
         self.repository.commit(updated["session_id"], updated, rendering.render_views(updated))
         return receipt
 
@@ -278,7 +304,6 @@ class RdlEngine:
         if replay is not None:
             return replay
         self._require_active(state)
-        self.repository.cleanup(state["session_id"], state["state_version"])
         context = EvaluationContext(self.root)
         readiness = self._readiness(state, "next", context=context)
         if readiness["status"] != "ready":
@@ -307,7 +332,6 @@ class RdlEngine:
         if replay is not None:
             return replay
         self._require_active(state)
-        self.repository.cleanup(state["session_id"], state["state_version"])
         updated = deepcopy(state)
         if outcome == "abandoned":
             event_id = self._next_id(updated, "event", "EV")
@@ -360,6 +384,7 @@ class RdlEngine:
             "receipt": deepcopy(receipt),
         }
         updated["state_digest"] = state_digest(updated)
+        self.repository.cleanup(previous["session_id"], previous["state_version"])
         self.repository.commit(updated["session_id"], updated, rendering.render_views(updated))
         return receipt
 
@@ -456,17 +481,13 @@ class RdlEngine:
             if entry["status"] == "blocked" and entry["blocking"]:
                 findings.append({"code": "blocking_progress", "severity": "blocking", "location": key, "message": entry["summary"]})
         round_state = current_round(state)
-        relevant_evidence_ids = set(round_state["evidence_ids"])
-        if round_state.get("decision"):
-            relevant_evidence_ids.update(round_state["decision"]["evidence_refs"])
-        current_artifact_ids = {
-            ref
-            for evidence in state["evidence"]
-            if evidence["id"] in relevant_evidence_ids
-            for ref in evidence["artifact_refs"]
-        }
+        current_artifact_ids = rendering.direct_relevant_artifact_ids(state, round_state)
         for artifact in state["artifacts"]:
-            if artifact["id"] not in current_artifact_ids or artifact["stability"] != "live":
+            if (
+                artifact["id"] not in current_artifact_ids
+                or artifact["stability"] != "live"
+                or "resolution" in artifact
+            ):
                 continue
             try:
                 actual = context.inspect(artifact["path"])
@@ -497,6 +518,133 @@ class RdlEngine:
             local[key] = artifact_id
             assigned.setdefault("artifacts", {})[key] = artifact_id
         return local
+
+    def _apply_artifact_resolutions(
+        self,
+        state: dict[str, Any],
+        entries: dict[str, Any],
+        local_artifacts: dict[str, str],
+        recorded_version: int,
+        context: EvaluationContext,
+    ) -> None:
+        if not entries:
+            return
+        if self._transition_action(state) not in {"next", "close"}:
+            raise RdlError(
+                "artifact_resolution_not_relevant",
+                "artifact resolution requires a candidate transition decision",
+                status="blocked",
+            )
+        artifacts = {item["id"]: item for item in state["artifacts"]}
+        candidate_ids = rendering.direct_relevant_artifact_ids(state, current_round(state))
+        new_artifact_ids = set(local_artifacts.values())
+        seen: set[str] = set()
+        for value in entries.values():
+            target_ref = value["artifact_ref"]
+            if target_ref in local_artifacts or target_ref in new_artifact_ids:
+                raise RdlError(
+                    "invalid_artifact_resolution",
+                    "artifact resolution target must already be durable",
+                    status="blocked",
+                )
+            target = artifacts.get(target_ref)
+            if target is None:
+                raise RdlError("unknown_reference", f"unknown artifact reference: {target_ref}")
+            if target_ref in seen or "resolution" in target or target["stability"] != "live":
+                raise RdlError(
+                    "invalid_artifact_resolution",
+                    "artifact resolution target must be unresolved and live",
+                    status="blocked",
+                )
+            if target_ref not in candidate_ids:
+                raise RdlError(
+                    "artifact_resolution_not_relevant",
+                    "artifact resolution target is not directly relevant to the candidate transition",
+                    status="blocked",
+                )
+            seen.add(target_ref)
+            observed = self._observe_artifact(target, context)
+            resolution = {
+                "kind": value["kind"],
+                "reason": value["reason"],
+                "observed": observed,
+                "recorded_version": recorded_version,
+            }
+            if value["kind"] == "superseded":
+                replacement_ref = value["replacement_ref"]
+                replacement_id = local_artifacts.get(replacement_ref)
+                if replacement_id is None:
+                    raise RdlError(
+                        "invalid_artifact_resolution",
+                        "superseding replacement must be registered in the same apply",
+                        status="blocked",
+                    )
+                replacement = artifacts[replacement_id]
+                if replacement["stability"] != "snapshot":
+                    raise RdlError(
+                        "invalid_artifact_resolution",
+                        "superseding replacement must be a snapshot artifact",
+                        status="blocked",
+                    )
+                self._require_distinct_artifact_identity(target, replacement, observed)
+                resolution["replacement_artifact_id"] = replacement_id
+            target["resolution"] = resolution
+
+    @staticmethod
+    def _observe_artifact(artifact: dict[str, Any], context: EvaluationContext) -> dict[str, Any]:
+        try:
+            actual = context.inspect(artifact["path"])
+        except RdlError as exc:
+            if exc.code == "artifact_missing":
+                return {"status": "missing"}
+            if exc.code == "artifact_unreadable":
+                return {"status": "unreadable"}
+            raise
+        status = (
+            "unchanged"
+            if actual["size_bytes"] == artifact["size_bytes"] and actual["sha256"] == artifact["sha256"]
+            else "drifted"
+        )
+        return {"status": status, **actual}
+
+    def _require_distinct_artifact_identity(
+        self,
+        target: dict[str, Any],
+        replacement: dict[str, Any],
+        observed: dict[str, Any],
+    ) -> None:
+        try:
+            target_path = (self.root / target["path"]).resolve()
+            replacement_path = (self.root / replacement["path"]).resolve()
+        except (OSError, RuntimeError) as exc:
+            raise RdlError(
+                "artifact_identity_unverifiable",
+                "artifact filesystem identity could not be verified",
+                status="blocked",
+            ) from exc
+        if target_path == replacement_path:
+            raise RdlError(
+                "invalid_artifact_resolution",
+                "superseding replacement must use a distinct canonical path",
+                status="blocked",
+            )
+        if observed["status"] == "missing":
+            return
+        try:
+            target_stat = target_path.stat()
+            replacement_stat = replacement_path.stat()
+        except OSError as exc:
+            raise RdlError(
+                "artifact_identity_unverifiable",
+                "artifact filesystem identity could not be verified",
+                status="blocked",
+            ) from exc
+        if (target_stat.st_dev, target_stat.st_ino) == (replacement_stat.st_dev, replacement_stat.st_ino):
+            raise RdlError(
+                "invalid_artifact_resolution",
+                "superseding replacement must not alias the target artifact",
+                status="blocked",
+            )
 
     def _apply_evidence(
         self,
