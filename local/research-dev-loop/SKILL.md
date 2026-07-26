@@ -10,7 +10,7 @@ Use RDL as write-through evidence, not a supervisor. Resolve this skill's absolu
 ## Run the loop
 
 1. Start from mission JSON or `"$RDL" handoff`; any `current_action` is the accepted takeover contract.
-2. Execute its smallest evidence step; retain results, uncertainty, and receipts.
+2. Execute its smallest evidence step; retain results, uncertainty, and receipts. Do not precompute file sizes or checksums for artifact entries: `apply` records size and SHA-256. Run a verifier only when it tests the substantive claim; checksum-only commands such as `sha256sum` are redundant.
 3. Before more external work, `apply`; retain the returned IDs and version.
 4. Branch on the receipt:
    - Continue evidence while readiness is not `ready`.

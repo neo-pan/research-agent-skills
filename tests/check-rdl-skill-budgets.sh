@@ -16,6 +16,11 @@ orchestrator_body="$(body_bytes "${ORCHESTRATOR}")"
 semantic_bytes="$(wc -c <"${SEMANTIC}")"
 routine_bytes="$(( $(wc -c <"${BASE}") + $(wc -c <"${ORCHESTRATOR}") + $(wc -c <"${CLI_REFERENCE}") ))"
 
+grep -Fq 'Do not precompute file sizes or checksums for artifact entries' "${BASE}" \
+  || { echo "research-dev-loop must delegate artifact integrity metadata to apply" >&2; exit 1; }
+grep -Fq 'checksum-only commands such as `sha256sum` are redundant' "${BASE}" \
+  || { echo "research-dev-loop must reject redundant checksum-only verification" >&2; exit 1; }
+
 [[ "${base_body}" -le 2867 ]] || { echo "research-dev-loop body exceeds 2.8 KiB" >&2; exit 1; }
 [[ "${orchestrator_body}" -le 2048 ]] || { echo "rdl-orchestrator body exceeds 2 KiB" >&2; exit 1; }
 [[ "${semantic_bytes}" -le 2048 ]] || { echo "semantic reference exceeds 2 KiB" >&2; exit 1; }
