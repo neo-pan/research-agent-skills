@@ -74,6 +74,10 @@ fi
 
 echo "Managed link installers ok"
 
+"${ROOT_DIR}/tests/check-installer-wrapper-cli.py" >/dev/null
+
+echo "Installer wrapper CLI ok"
+
 "${ROOT_DIR}/tests/check-codex-installation-status.py" >/dev/null
 
 echo "Codex installation status ok"
