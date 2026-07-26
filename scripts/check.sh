@@ -78,6 +78,10 @@ echo "Managed link installers ok"
 
 echo "Installer wrapper CLI ok"
 
+"${ROOT_DIR}/tests/check-link-generation-concurrency.py" >/dev/null
+
+echo "Link generation concurrency ok"
+
 "${ROOT_DIR}/tests/check-codex-installation-status.py" >/dev/null
 
 echo "Codex installation status ok"

@@ -53,6 +53,7 @@ git submodule update --init --recursive
 Run `./scripts/check.sh` before committing changes.
 
 Python 3.9+ is required by the shared managed-link installers and the RDL CLI.
+The Linux/WSL Bash installation chain also requires `flock` from util-linux.
 
 Install the selected skills into an agent or project skill directory:
 

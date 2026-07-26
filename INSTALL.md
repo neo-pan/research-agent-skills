@@ -19,8 +19,9 @@ The installable skill set is defined by `selected-skills.conf` and materialized
 as symlinks under `skills/`. Installers must not scan
 `upstream/mattpocock-skills` or install every skill found there.
 
-Python 3.9+ is required by the managed-link installers. Skills and recommended
-Codex agents are installed as absolute symlinks. Installation refuses to
+Python 3.9+ and `flock` from util-linux are required by the Linux/WSL
+installation chain. Skills and recommended Codex agents are installed as
+absolute symlinks. Installation refuses to
 overwrite regular files, directories, foreign links, links from a historical
 checkout, relative links, or broken links whose ownership cannot be proven.
 Only links owned by the current checkout may be replaced or pruned. The full
