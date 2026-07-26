@@ -370,6 +370,97 @@ class ReplayAndGateTests(unittest.TestCase):
                 size = len(json.dumps(pack, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8"))
                 self.assertLessEqual(size, rendering.REVIEW_HARD_BYTES)
 
+    def test_review_pack_exposes_decisive_evidence_artifact_coverage_without_blocking(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="coverage", request=START)
+            delta = routine_delta(risk="material")
+            delta["evidence"]["result"]["artifact_refs"] = []
+            applied = engine.execute("apply", session_id="coverage", request=delta)
+            self.assertEqual(applied["transition_readiness"], "needs_review")
+
+            pack = engine.execute("review", session_id="coverage", action="next")
+
+            self.assertEqual(
+                pack["evidence_coverage"],
+                [
+                    {
+                        "evidence_id": "E000001",
+                        "claim": "fixture claim",
+                        "artifact_refs": [],
+                        "artifact_binding": "absent",
+                    }
+                ],
+            )
+            self.assertEqual(pack["prior_review_context"], [])
+            self.assertEqual(pack["deterministic_findings"], [])
+
+    def test_fresh_review_pack_preserves_same_round_prior_finding_adjudication(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="prior-finding", request=START)
+            applied = engine.execute("apply", session_id="prior-finding", request=routine_delta(risk="material"))
+            first = review_result(2, applied["review_subject_digest"], action="next", verdict="revise")
+            finding = {
+                "severity": "blocking",
+                "category": "evidence",
+                "claim": "the decision lacks an independent correction receipt",
+                "required_resolution": "add direct correction evidence and narrow the claim",
+                "disposition": "accepted",
+                "rationale": "the requested evidence is material to the candidate transition",
+            }
+            first["review_result"]["findings"] = [finding]
+            blocked = engine.execute("apply", session_id="prior-finding", request=first)
+            self.assertEqual(blocked["transition_readiness"], "blocked")
+            corrected = engine.execute(
+                "apply",
+                session_id="prior-finding",
+                request={
+                    "expected_state_version": 3,
+                    "risk": "routine",
+                    "evidence": {
+                        "correction": {
+                            "claim": "the bounded correction has a direct receipt",
+                            "summary": "the correction check passed against the frozen fixture",
+                            "bearing": "supports",
+                            "strength": "strong",
+                            "artifact_refs": ["A000001"],
+                            "uncertainty": "the receipt remains fixture-scoped",
+                        }
+                    },
+                    "decision": {
+                        "kind": "accept",
+                        "subject": "the fixture-scoped correction is ready for the next bounded round",
+                        "evidence_refs": ["E000001", "correction"],
+                        "uncertainty": "production scale remains untested",
+                        "remaining_unknowns": ["larger workloads"],
+                        "next_step": "run the next bounded check",
+                        "recommended_transition": "next",
+                    },
+                },
+            )
+            self.assertEqual(corrected["transition_readiness"], "needs_review")
+
+            pack = engine.execute("review", session_id="prior-finding", action="next")
+
+            self.assertEqual(
+                pack["prior_review_context"],
+                [
+                    {
+                        "review_id": "R000001",
+                        "action": "next",
+                        "subject_digest": applied["review_subject_digest"],
+                        "verdict": "revise",
+                        "recorded_version": 3,
+                        "findings": [finding],
+                    }
+                ],
+            )
+            rebound = engine.execute(
+                "apply",
+                session_id="prior-finding",
+                request=review_result(4, pack["subject_digest"], action="next"),
+            )
+            self.assertEqual(rebound["transition_readiness"], "ready")
+
 
 if __name__ == "__main__":
     unittest.main()

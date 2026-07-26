@@ -32,6 +32,102 @@ class InterfaceTests(unittest.TestCase):
             code, doctor = run_cli(root, ["doctor", "--diagnostics"])
             self.assertEqual((code, doctor["status"]), (0, "ok"))
 
+    def test_post_next_handoff_exposes_the_accepted_action_and_durable_protocol(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="takeover", request=START)
+            delta = routine_delta(risk="material")
+            instruction = (
+                "Run the focused CLI matrix and freeze its receipt; completion requires the focused and existing "
+                "integration suites to pass, then record a next decision for the independent terminal audit."
+            )
+            delta["decision"]["subject"] = "Advance to the bounded implementation and verification phase."
+            delta["decision"]["next_step"] = instruction
+            delta["progress_updates"].update(
+                {
+                    "phase-2-implementation": {
+                        "status": "active",
+                        "summary": "Implement and verify the bounded CLI contract.",
+                        "blocking": False,
+                    },
+                    "phase-3-terminal-audit": {
+                        "status": "open_question",
+                        "summary": "Run the independent terminal audit before close.",
+                        "blocking": False,
+                    },
+                    "phase-4-portability": {
+                        "status": "deferred",
+                        "summary": "Retain the portability boundary for a later supported environment.",
+                        "blocking": False,
+                        "reason": "The current task supports Linux and WSL only.",
+                        "revisit_trigger": "A supported macOS or Windows execution environment becomes available.",
+                    },
+                }
+            )
+            applied = engine.execute("apply", session_id="takeover", request=delta)
+            review = engine.execute("review", session_id="takeover", action="next")
+            self.assertEqual(review["subject_digest"], applied["review_subject_digest"])
+            bound = engine.execute(
+                "apply",
+                session_id="takeover",
+                request=review_result(2, review["subject_digest"], action="next"),
+            )
+            self.assertEqual(bound["transition_readiness"], "ready")
+            engine.execute("next", session_id="takeover", expected_state_version=3)
+
+            handoff = engine.execute("handoff", session_id="takeover")
+
+            self.assertEqual(
+                handoff["current_action"],
+                {
+                    "source_round": 1,
+                    "instruction": instruction,
+                    "decision_subject": "Advance to the bounded implementation and verification phase.",
+                    "evidence": [
+                        {
+                            "id": "E000001",
+                            "claim": "fixture claim",
+                            "summary": "the direct fixture check passed",
+                            "bearing": "supports",
+                            "strength": "strong",
+                            "artifact_refs": ["A000001"],
+                            "uncertainty": "one bounded fixture",
+                        }
+                    ],
+                    "write_through_gate": (
+                        "Execute the instruction, freeze the smallest sufficient receipt or snapshot, then apply "
+                        "the current round's evidence, interpretation, and decision before any transition."
+                    ),
+                    "remaining_protocol": {
+                        "success_criteria": START["mission"]["success_criteria"],
+                        "unfinished_progress": [
+                            {
+                                "key": "phase-2-implementation",
+                                "status": "active",
+                                "summary": "Implement and verify the bounded CLI contract.",
+                                "blocking": False,
+                            },
+                            {
+                                "key": "phase-3-terminal-audit",
+                                "status": "open_question",
+                                "summary": "Run the independent terminal audit before close.",
+                                "blocking": False,
+                            },
+                            {
+                                "key": "phase-4-portability",
+                                "status": "deferred",
+                                "summary": "Retain the portability boundary for a later supported environment.",
+                                "blocking": False,
+                                "reason": "The current task supports Linux and WSL only.",
+                                "revisit_trigger": (
+                                    "A supported macOS or Windows execution environment becomes available."
+                                ),
+                            },
+                        ],
+                    },
+                },
+            )
+            self.assertEqual([item["id"] for item in handoff["artifacts"]], ["A000001"])
+
     def test_material_review_binding_and_scientific_close(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="material", request=START)

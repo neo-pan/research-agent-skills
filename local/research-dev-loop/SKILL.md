@@ -5,19 +5,19 @@ description: Durable RDL sessions for multi-round research or build work that mu
 
 # Research Development Loop
 
-Use RDL as a write-through evidence record, not a project supervisor. Resolve this loaded skill's absolute `bin/rdl` path once as `RDL`; do not discover it by bare command name. The CLI owns normalized state and renders the files under `.rdl/`; treat those files as inspectable views and submit changes with `"$RDL" apply`.
+Use RDL as write-through evidence, not a supervisor. Resolve this skill's absolute `bin/rdl` as `RDL`, never by bare command. The CLI owns state; change `.rdl/` only through `"$RDL" apply`.
 
 ## Run the loop
 
-1. Start with structured mission JSON, or take over an existing session with `"$RDL" handoff`. Completion: the current action, blockers, and smallest evidence step are explicit.
-2. Execute that evidence step. Completion: retain the raw result, uncertainty, and any artifact or verifier receipt.
-3. Write-through with one `"$RDL" apply --input <path|->` before starting more external work. Completion: a successful receipt returns durable IDs and a new state version.
+1. Start from mission JSON or `"$RDL" handoff`; any `current_action` is the accepted takeover contract.
+2. Execute its smallest evidence step; retain results, uncertainty, and receipts.
+3. Before more external work, `apply`; retain the returned IDs and version.
 4. Branch on the receipt:
-   - Continue evidence work while `transition_readiness` is not `ready`.
-   - When `review_required` is true, obtain a fresh material review and apply its result. Read [SEMANTIC_REVIEW.md](SEMANTIC_REVIEW.md) for this branch.
-   - Run `"$RDL" next` or `"$RDL" close` only with the receipt's current version and only when readiness is `ready`.
-5. After transition, use the returned state as the next round or terminal completion criterion.
+   - Continue evidence while readiness is not `ready`.
+   - If `review_required`, follow [SEMANTIC_REVIEW.md](SEMANTIC_REVIEW.md) and apply the result.
+   - Run `next` or `close` only with the current version when ready.
+5. Continue from the returned round or terminal state. Before `next`, persist the next action and remaining phases in mission, unfinished progress, or `decision.next_step`.
 
-For builds: failing baseline → `apply` → implement/verify → `apply`. Prefer snapshots and short sessions over mutable artifacts. Reconcile changed relevant `live` artifacts by retirement or same-apply snapshot supersession. Never edit `.rdl` or infer a negative result from drift.
+For builds: failing baseline → `apply` → implement/verify → `apply`. Freeze receipts; prefer snapshots and short sessions. Reconcile changed relevant `live` artifacts by retirement or same-apply snapshot supersession. Never edit `.rdl` or infer a result from drift. See [OPERATIONS.md](OPERATIONS.md).
 
-Use `"$RDL" doctor` when handoff or a command reports abnormal state. Use `--session-id` for historical state or a lost close response. For request schemas and typed errors, read [CLI.md](CLI.md).
+Use `doctor` for abnormal state and `--session-id` for history or lost close responses. See [CLI.md](CLI.md) for schemas and errors.

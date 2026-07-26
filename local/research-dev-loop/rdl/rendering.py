@@ -18,6 +18,10 @@ ARTIFACT_LIFECYCLE_GUIDANCE = (
     "a negative scientific result. Require an inconclusive outcome or narrower claim unless "
     "independent evidence supports the stronger conclusion."
 )
+POST_NEXT_WRITE_THROUGH_GATE = (
+    "Execute the instruction, freeze the smallest sufficient receipt or snapshot, then apply "
+    "the current round's evidence, interpretation, and decision before any transition."
+)
 
 
 def render_views(state: dict[str, Any]) -> dict[str, str]:
@@ -68,12 +72,16 @@ def subject_digest(state: dict[str, Any], action: str, deterministic_findings: l
 
 def review_pack(state: dict[str, Any], action: str, deterministic_findings: list[dict[str, Any]]) -> dict[str, Any]:
     projection = subject_projection(state, action, deterministic_findings)
+    evidence_coverage = _evidence_coverage(projection["round"])
+    prior_review_context = _prior_review_context(current_round(state))
     sections = {
         "mission": projection["mission"],
         "session": {"mode": projection["mode"], "progress": projection["progress"], "factors": projection["factors"]},
         "round": projection["round"],
         "artifacts": projection["artifacts"],
         "deterministic_findings": projection["deterministic_findings"],
+        "evidence_coverage": evidence_coverage,
+        "prior_review_context": prior_review_context,
     }
     if any("resolution" in item for item in projection["artifacts"]):
         sections["artifact_lifecycle_guidance"] = ARTIFACT_LIFECYCLE_GUIDANCE
@@ -87,6 +95,8 @@ def review_pack(state: dict[str, Any], action: str, deterministic_findings: list
             "role": "fresh-context semantic reviewer",
             "questions": [
                 "Does the evidence support the proposed decision without overclaim?",
+                "For each cited decisive claim, are the current artifact or receipt bindings sufficient for its role? Empty artifact refs are a review signal, not an automatic failure.",
+                "When prior findings are supplied, does the current subject resolve accepted findings and preserve the rationale for rejected findings?",
                 "Are counterevidence, confounders, staleness, and remaining uncertainty preserved?",
                 "Is the proposed transition justified by the supplied subject?",
             ],
@@ -102,10 +112,43 @@ def review_pack(state: dict[str, Any], action: str, deterministic_findings: list
     return pack
 
 
+def _evidence_coverage(round_projection: dict[str, Any]) -> list[dict[str, Any]]:
+    decision = round_projection.get("decision")
+    if not decision:
+        return []
+    evidence = {item["id"]: item for item in round_projection["evidence"]}
+    return [
+        {
+            "evidence_id": evidence_id,
+            "claim": evidence[evidence_id]["claim"],
+            "artifact_refs": evidence[evidence_id]["artifact_refs"],
+            "artifact_binding": "present" if evidence[evidence_id]["artifact_refs"] else "absent",
+        }
+        for evidence_id in decision["evidence_refs"]
+    ]
+
+
+def _prior_review_context(round_state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "review_id": item["id"],
+            "action": item["action"],
+            "subject_digest": item["subject_digest"],
+            "verdict": item["verdict"],
+            "recorded_version": item["recorded_version"],
+            "findings": item["findings"],
+        }
+        for item in round_state["review_history"]
+        if item["findings"]
+    ]
+
+
 def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
     round_state = current_round(state)
     current_evidence = [item for item in state["evidence"] if item["id"] in _relevant_evidence_ids(round_state)]
     artifact_ids = relevant_artifact_closure(state, round_state)
+    current_action, action_artifact_ids = _post_next_current_action(state)
+    artifact_ids.update(action_artifact_ids)
     artifacts = []
     for item in state["artifacts"]:
         if item["id"] not in artifact_ids:
@@ -142,6 +185,8 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
         "artifacts": artifacts,
         "readiness": readiness,
     }
+    if current_action is not None:
+        sections["current_action"] = current_action
     result = {
         "status": "ok",
         "session_id": state["session_id"],
@@ -156,6 +201,43 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
     if size > HANDOFF_SOFT_BYTES:
         result["warnings"].append("handoff_soft_budget_exceeded")
     return result
+
+
+def _post_next_current_action(state: dict[str, Any]) -> tuple[dict[str, Any] | None, set[str]]:
+    if state["status"] != "active" or state["round"] <= 1 or current_round(state).get("decision") is not None:
+        return None, set()
+    source_round = state["rounds"][state["round"] - 2]
+    decision = source_round.get("decision")
+    if not decision or decision.get("recommended_transition") != "next":
+        return None, set()
+    evidence_ids = set(decision["evidence_refs"])
+    evidence_by_id = {item["id"]: item for item in state["evidence"]}
+    evidence = [
+        {
+            key: evidence_by_id[evidence_id][key]
+            for key in ("id", "claim", "summary", "bearing", "strength", "artifact_refs", "uncertainty")
+        }
+        for evidence_id in decision["evidence_refs"]
+    ]
+    unfinished_progress = [
+        {"key": key, **entry}
+        for key, entry in sorted(state["progress"].items())
+        if entry["status"] in {"active", "blocked", "deferred", "open_question"}
+    ]
+    return (
+        {
+            "source_round": source_round["number"],
+            "instruction": decision["next_step"],
+            "decision_subject": decision["subject"],
+            "evidence": evidence,
+            "write_through_gate": POST_NEXT_WRITE_THROUGH_GATE,
+            "remaining_protocol": {
+                "success_criteria": state["mission"]["success_criteria"],
+                "unfinished_progress": unfinished_progress,
+            },
+        },
+        _artifact_closure_for_evidence_ids(state, evidence_ids),
+    )
 
 
 def section_accounting(sections: dict[str, Any]) -> dict[str, int]:
@@ -338,7 +420,16 @@ def direct_relevant_artifact_ids(state: dict[str, Any], round_state: dict[str, A
 
 
 def relevant_artifact_closure(state: dict[str, Any], round_state: dict[str, Any]) -> set[str]:
-    artifact_ids = direct_relevant_artifact_ids(state, round_state)
+    return _artifact_closure_for_evidence_ids(state, _relevant_evidence_ids(round_state))
+
+
+def _artifact_closure_for_evidence_ids(state: dict[str, Any], evidence_ids: set[str]) -> set[str]:
+    artifact_ids = {
+        ref
+        for evidence in state["evidence"]
+        if evidence["id"] in evidence_ids
+        for ref in evidence["artifact_refs"]
+    }
     artifacts = {item["id"]: item for item in state["artifacts"]}
     pending = list(artifact_ids)
     while pending:
