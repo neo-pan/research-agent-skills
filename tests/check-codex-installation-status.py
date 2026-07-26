@@ -58,7 +58,10 @@ class CodexInstallationStatusTests(unittest.TestCase):
                 report["codex_home"],
                 {"path": str(codex_home), "source": "environment"},
             )
-            self.assertEqual(report["skills"]["counts"]["expected"], 18)
+            self.assertEqual(
+                report["skills"]["counts"]["expected"],
+                report["skills"]["counts"]["desired"],
+            )
             self.assertEqual(report["agents"]["counts"]["expected"], 2)
             self.assertIsNone(report["rdl_command"])
             self.assertEqual(report["findings"], [])
@@ -116,7 +119,10 @@ class CodexInstallationStatusTests(unittest.TestCase):
                 report["codex_home"],
                 {"path": str(argument_home), "source": "argument"},
             )
-            self.assertEqual(report["skills"]["counts"]["missing"], 18)
+            self.assertEqual(
+                report["skills"]["counts"]["missing"],
+                report["skills"]["counts"]["desired"],
+            )
             self.assertEqual(report["agents"]["counts"]["missing"], 2)
 
     def test_unset_codex_home_uses_default_under_home(self):

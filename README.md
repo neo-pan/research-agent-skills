@@ -180,6 +180,7 @@ The current selected upstream skills are:
 - `codebase-design`
 - `improve-codebase-architecture`
 - `diagnosing-bugs`
+- `research`
 - `setup-matt-pocock-skills`
 - `tdd`
 - `to-spec`
