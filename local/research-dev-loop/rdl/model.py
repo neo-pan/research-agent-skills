@@ -44,7 +44,9 @@ DISPOSITIONS = frozenset({"accepted", "rejected"})
 KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 
-@dataclass(frozen=True)
+# Exception machinery and context managers update runtime attributes such as
+# __traceback__, so this dataclass must remain mutable.
+@dataclass
 class RdlError(Exception):
     code: str
     message: str

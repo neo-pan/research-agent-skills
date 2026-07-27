@@ -18,6 +18,18 @@ from rdl_test_support import START, project, routine_delta
 
 
 class StorageAndArtifactTests(unittest.TestCase):
+    def test_rdl_error_crosses_session_lock_without_losing_its_type(self):
+        with project() as (root, _engine):
+            repository = Repository(root)
+
+            with self.assertRaises(RdlError) as raised:
+                with repository.session_lock("typed-error"):
+                    raise RdlError("review_not_required", "the current subject does not require review")
+
+            self.assertEqual(raised.exception.code, "review_not_required")
+            raised.exception.__traceback__ = None
+            self.assertIsNone(raised.exception.__traceback__)
+
     def test_generation_layout_and_relative_pointer(self):
         with project() as (root, engine):
             engine.execute("start", session_id="layout", request=START)
