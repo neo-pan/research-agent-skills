@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from rdl import rendering
@@ -13,6 +14,78 @@ from rdl_test_support import START, project, review_result, routine_delta
 
 
 class ReplayAndGateTests(unittest.TestCase):
+    def test_transition_projection_failure_leaves_the_current_generation_unchanged(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="projection-preflight", request=START)
+            engine.execute("apply", session_id="projection-preflight", request=routine_delta())
+            pointer_before = engine.repository.pointer("projection-preflight").readlink()
+            generations_before = sorted(
+                path.name
+                for path in engine.repository.generation("projection-preflight", 2).parent.iterdir()
+                if path.is_dir()
+            )
+
+            with patch("rdl.rendering.HANDOFF_HARD_BYTES", 1):
+                with self.assertRaisesRegex(RdlError, "hard limit"):
+                    engine.execute(
+                        "next",
+                        session_id="projection-preflight",
+                        expected_state_version=2,
+                    )
+
+            state = engine.repository.load("projection-preflight")
+            self.assertEqual(state["state_version"], 2)
+            self.assertEqual(engine.repository.pointer("projection-preflight").readlink(), pointer_before)
+            self.assertEqual(
+                sorted(
+                    path.name
+                    for path in engine.repository.generation("projection-preflight", 2).parent.iterdir()
+                    if path.is_dir()
+                ),
+                generations_before,
+            )
+
+    def test_close_projection_failure_leaves_the_reviewed_generation_unchanged(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="close-projection-preflight", request=START)
+            applied = engine.execute(
+                "apply",
+                session_id="close-projection-preflight",
+                request=routine_delta(transition="close", outcome="positive", risk="material"),
+            )
+            engine.execute(
+                "apply",
+                session_id="close-projection-preflight",
+                request=review_result(2, applied["review_subject_digest"]),
+            )
+            pointer_before = engine.repository.pointer("close-projection-preflight").readlink()
+            generations_before = sorted(
+                path.name
+                for path in engine.repository.generation("close-projection-preflight", 3).parent.iterdir()
+                if path.is_dir()
+            )
+
+            with patch("rdl.rendering.HANDOFF_HARD_BYTES", 1):
+                with self.assertRaisesRegex(RdlError, "hard limit"):
+                    engine.execute(
+                        "close",
+                        session_id="close-projection-preflight",
+                        expected_state_version=3,
+                        outcome="positive",
+                    )
+
+            state = engine.repository.load("close-projection-preflight")
+            self.assertEqual(state["state_version"], 3)
+            self.assertEqual(engine.repository.pointer("close-projection-preflight").readlink(), pointer_before)
+            self.assertEqual(
+                sorted(
+                    path.name
+                    for path in engine.repository.generation("close-projection-preflight", 3).parent.iterdir()
+                    if path.is_dir()
+                ),
+                generations_before,
+            )
+
     def test_explicit_start_and_immediate_apply_replay_return_exact_receipt(self):
         with project() as (_root, engine):
             first = engine.execute("start", session_id="replay", request=START)

@@ -384,6 +384,10 @@ class RdlEngine:
             "receipt": deepcopy(receipt),
         }
         updated["state_digest"] = state_digest(updated)
+        rendering.handoff(
+            updated,
+            {"status": readiness, "blockers": [], "warnings": []},
+        )
         self.repository.cleanup(previous["session_id"], previous["state_version"])
         self.repository.commit(updated["session_id"], updated, rendering.render_views(updated))
         return receipt
@@ -412,6 +416,36 @@ class RdlEngine:
     def _doctor(self, state: dict[str, Any], diagnostics: bool) -> dict[str, Any]:
         context = EvaluationContext(self.root)
         findings = self._deterministic_findings(state, context)
+        readiness = self._readiness(
+            state,
+            self._transition_action(state),
+            context=context,
+            deterministic_findings=findings,
+        )
+        handoff_projection = rendering.handoff_diagnostics(state, readiness)
+        review_projection = None
+        if state["status"] == "active" and readiness["status"] == "needs_review":
+            review_projection = rendering.review_pack_diagnostics(
+                state,
+                self._transition_action(state),
+                findings,
+            )
+            if review_projection["hard_limit_exceeded"]:
+                findings.append(
+                    {
+                        "code": "review_pack_over_budget",
+                        "severity": "blocking",
+                        "message": "the required semantic review pack exceeds its hard budget",
+                    }
+                )
+            elif review_projection["soft_limit_exceeded"]:
+                findings.append(
+                    {
+                        "code": "review_pack_soft_budget_exceeded",
+                        "severity": "warning",
+                        "message": "the required semantic review pack exceeds its soft budget",
+                    }
+                )
         expected_views = {key: value.encode("utf-8") for key, value in rendering.render_views(state).items()}
         actual_views = self.repository.read_views(state["session_id"])
         if actual_views != expected_views:
@@ -427,7 +461,14 @@ class RdlEngine:
             "findings": findings,
         }
         if diagnostics:
-            result["diagnostics"] = {"artifact_read_counts": context.read_counts, "generations": generation}
+            projections = {"handoff": handoff_projection}
+            if review_projection is not None:
+                projections["review"] = review_projection
+            result["diagnostics"] = {
+                "artifact_read_counts": context.read_counts,
+                "generations": generation,
+                "projections": projections,
+            }
         return result
 
     def _readiness(

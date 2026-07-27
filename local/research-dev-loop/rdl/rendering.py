@@ -10,7 +10,8 @@ from .model import RdlError, current_round, digest
 
 HANDOFF_SOFT_BYTES = 20 * 1024
 HANDOFF_HARD_BYTES = 24 * 1024
-REVIEW_HARD_BYTES = 30 * 1024
+REVIEW_SOFT_BYTES = 32 * 1024
+REVIEW_HARD_BYTES = 48 * 1024
 ARTIFACT_LIFECYCLE_GUIDANCE = (
     "Treat retired artifacts as historical rather than current decision-grade support. "
     "Check whether each superseding snapshot and verifier actually support the claim. "
@@ -70,7 +71,9 @@ def subject_digest(state: dict[str, Any], action: str, deterministic_findings: l
     return digest(subject_projection(state, action, deterministic_findings))
 
 
-def review_pack(state: dict[str, Any], action: str, deterministic_findings: list[dict[str, Any]]) -> dict[str, Any]:
+def _review_pack(
+    state: dict[str, Any], action: str, deterministic_findings: list[dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any]]:
     projection = subject_projection(state, action, deterministic_findings)
     evidence_coverage = _evidence_coverage(projection["round"])
     prior_review_context = _prior_review_context(current_round(state))
@@ -108,8 +111,30 @@ def review_pack(state: dict[str, Any], action: str, deterministic_findings: list
         },
         **sections,
     }
+    return pack, sections
+
+
+def review_pack(
+    state: dict[str, Any], action: str, deterministic_findings: list[dict[str, Any]]
+) -> dict[str, Any]:
+    pack, sections = _review_pack(state, action, deterministic_findings)
     _enforce_budget(pack, REVIEW_HARD_BYTES, "review_pack_over_budget", sections)
     return pack
+
+
+def review_pack_diagnostics(
+    state: dict[str, Any], action: str, deterministic_findings: list[dict[str, Any]]
+) -> dict[str, Any]:
+    pack, sections = _review_pack(state, action, deterministic_findings)
+    size = _encoded_size(pack)
+    return {
+        "size_bytes": size,
+        "soft_limit_bytes": REVIEW_SOFT_BYTES,
+        "hard_limit_bytes": REVIEW_HARD_BYTES,
+        "soft_limit_exceeded": size > REVIEW_SOFT_BYTES,
+        "hard_limit_exceeded": size > REVIEW_HARD_BYTES,
+        "sections": section_accounting(sections),
+    }
 
 
 def _evidence_coverage(round_projection: dict[str, Any]) -> list[dict[str, Any]]:
@@ -195,12 +220,88 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
         **sections,
         "warnings": [],
     }
-    size = _encoded_size(result)
-    if size > HANDOFF_HARD_BYTES:
-        _over_budget("handoff_over_budget", HANDOFF_HARD_BYTES, sections, size)
-    if size > HANDOFF_SOFT_BYTES:
-        result["warnings"].append("handoff_soft_budget_exceeded")
-    return result
+    full_size = _encoded_size(result)
+    if full_size <= HANDOFF_HARD_BYTES:
+        return result
+
+    read_sections = ["/mission", "/progress", "/factors"]
+    if current_action is not None:
+        read_sections.append(f"/rounds/{state['round'] - 2}")
+    read_sections.extend(
+        (
+            f"/rounds/{state['round'] - 1}",
+            "/evidence",
+            "/artifacts",
+            "/events",
+        )
+    )
+    omitted = ["mission", "progress", "factors", "round", "artifacts"]
+    if current_action is not None:
+        omitted.append("current_action")
+    manifest = {
+        "status": "ok",
+        "session_id": state["session_id"],
+        "state_version": state["state_version"],
+        "session_status": state["status"],
+        "projection_profile": "compact_manifest",
+        "readiness": readiness,
+        "canonical_state": {
+            "path": (
+                f".rdl/.store/{state['session_id']}/{state['state_version']}/state.json"
+            ),
+            "state_digest": state["state_digest"],
+            "read_sections": read_sections,
+        },
+        "omitted_inline_sections": omitted,
+        "warnings": ["handoff_full_inline_over_budget"],
+        "accounting": {
+            "full_inline_size_bytes": full_size,
+            "inline_limit_bytes": HANDOFF_HARD_BYTES,
+            "sections": section_accounting(sections),
+        },
+    }
+    if state["status"] != "active":
+        manifest["canonical_state"]["final_report_path"] = (
+            f".rdl/.store/{state['session_id']}/{state['state_version']}/final-report.md"
+        )
+    manifest_size = _encoded_size(manifest)
+    if manifest_size > HANDOFF_HARD_BYTES:
+        _over_budget("handoff_over_budget", HANDOFF_HARD_BYTES, manifest, manifest_size)
+    return manifest
+
+
+def handoff_diagnostics(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
+    result = handoff(state, readiness)
+    profile = result.get("projection_profile", "full_inline")
+    final_size = _encoded_size(result)
+    if profile == "compact_manifest":
+        full_size = result["accounting"]["full_inline_size_bytes"]
+        sections = result["accounting"]["sections"]
+    else:
+        full_size = final_size
+        sections = section_accounting(
+            {
+                key: result[key]
+                for key in (
+                    "mission",
+                    "progress",
+                    "factors",
+                    "round",
+                    "artifacts",
+                    "readiness",
+                    "current_action",
+                )
+                if key in result
+            }
+        )
+    return {
+        "profile": profile,
+        "full_inline_size_bytes": full_size,
+        "final_size_bytes": final_size,
+        "optimization_target_exceeded": full_size > HANDOFF_SOFT_BYTES,
+        "inline_limit_bytes": HANDOFF_HARD_BYTES,
+        "sections": sections,
+    }
 
 
 def _post_next_current_action(state: dict[str, Any]) -> tuple[dict[str, Any] | None, set[str]]:

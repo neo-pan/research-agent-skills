@@ -128,6 +128,28 @@ class InterfaceTests(unittest.TestCase):
             )
             self.assertEqual([item["id"] for item in handoff["artifacts"]], ["A000001"])
 
+            engine.execute(
+                "apply",
+                session_id="takeover",
+                request={
+                    "expected_state_version": 4,
+                    "risk": "routine",
+                    "factor_updates": {
+                        "large-context": {
+                            "category": "projection",
+                            "value": "x" * 32000,
+                        }
+                    },
+                },
+            )
+            compact = engine.execute("handoff", session_id="takeover")
+            self.assertEqual(compact["projection_profile"], "compact_manifest")
+            self.assertEqual(
+                compact["canonical_state"]["read_sections"][:5],
+                ["/mission", "/progress", "/factors", "/rounds/0", "/rounds/1"],
+            )
+            self.assertIn("current_action", compact["omitted_inline_sections"])
+
     def test_material_review_binding_and_scientific_close(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="material", request=START)
@@ -159,6 +181,55 @@ class InterfaceTests(unittest.TestCase):
             generation = engine.repository.current_generation("abandoned")
             report = (generation / "final-report.md").read_text(encoding="utf-8")
             self.assertIn("Scientific outcome claimed: none", report)
+
+    def test_all_terminal_outcomes_have_a_bounded_manifest(self):
+        for outcome in ("positive", "negative", "inconclusive", "abandoned"):
+            with self.subTest(outcome=outcome), project() as (_root, engine):
+                start = json.loads(json.dumps(START))
+                start["mission"]["scope"] = ["x" * 32000]
+                session_id = f"terminal-{outcome}"
+                engine.execute("start", session_id=session_id, request=start)
+                if outcome == "abandoned":
+                    engine.execute(
+                        "close",
+                        session_id=session_id,
+                        expected_state_version=1,
+                        outcome=outcome,
+                        reason="the bounded fixture is complete",
+                    )
+                else:
+                    applied = engine.execute(
+                        "apply",
+                        session_id=session_id,
+                        request=routine_delta(
+                            transition="close",
+                            outcome=outcome,
+                            risk="material",
+                        ),
+                    )
+                    engine.execute(
+                        "apply",
+                        session_id=session_id,
+                        request=review_result(2, applied["review_subject_digest"]),
+                    )
+                    engine.execute(
+                        "close",
+                        session_id=session_id,
+                        expected_state_version=3,
+                        outcome=outcome,
+                    )
+
+                handoff = engine.execute("handoff", session_id=session_id)
+                self.assertEqual(handoff["projection_profile"], "compact_manifest")
+                self.assertEqual(handoff["session_status"], f"closed-{outcome}" if outcome != "abandoned" else outcome)
+                self.assertEqual(
+                    handoff["canonical_state"]["final_report_path"],
+                    f".rdl/.store/{session_id}/{handoff['state_version']}/final-report.md",
+                )
+                self.assertLessEqual(
+                    len(json.dumps(handoff, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()),
+                    24 * 1024,
+                )
 
     def test_invalid_input_is_machine_readable(self):
         with project() as (root, _engine):
@@ -198,19 +269,148 @@ class InterfaceTests(unittest.TestCase):
                     request={"expected_state_version": 3, "risk": "routine", "interpretation": None},
                 )
 
-    def test_handoff_and_review_budgets_block_without_truncation(self):
+    def test_oversized_handoff_returns_bounded_manifest(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="budget", request=START)
             huge = "x" * 32000
             delta = routine_delta(risk="material")
             delta["progress_updates"]["fixture"]["summary"] = huge
             engine.execute("apply", session_id="budget", request=delta)
-            with self.assertRaisesRegex(RdlError, "hard limit") as handoff_error:
-                engine.execute("handoff", session_id="budget")
-            self.assertIn("sections", handoff_error.exception.details)
+
+            handoff = engine.execute("handoff", session_id="budget")
+            state = engine.repository.load("budget")
+            encoded = json.dumps(handoff, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+
+            self.assertLessEqual(len(encoded), 24 * 1024)
+            self.assertEqual(handoff["projection_profile"], "compact_manifest")
+            self.assertEqual(
+                handoff["canonical_state"],
+                {
+                    "path": ".rdl/.store/budget/2/state.json",
+                    "state_digest": state["state_digest"],
+                    "read_sections": [
+                        "/mission",
+                        "/progress",
+                        "/factors",
+                        "/rounds/0",
+                        "/evidence",
+                        "/artifacts",
+                        "/events",
+                    ],
+                },
+            )
+            self.assertEqual(
+                handoff["omitted_inline_sections"],
+                ["mission", "progress", "factors", "round", "artifacts"],
+            )
+            self.assertEqual(handoff["warnings"], ["handoff_full_inline_over_budget"])
+            self.assertGreater(handoff["accounting"]["full_inline_size_bytes"], 24 * 1024)
+            self.assertEqual(handoff["accounting"]["inline_limit_bytes"], 24 * 1024)
+
+    def test_observed_24581_byte_handoff_shape_uses_the_manifest(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="observed-budget", request=START)
+            delta = routine_delta()
+            delta["factor_updates"] = {
+                "padding": {
+                    "category": "projection",
+                    "value": "x" * 22976,
+                }
+            }
+            engine.execute("apply", session_id="observed-budget", request=delta)
+
+            handoff = engine.execute("handoff", session_id="observed-budget")
+
+            self.assertEqual(handoff["accounting"]["full_inline_size_bytes"], 24581)
+            self.assertEqual(handoff["projection_profile"], "compact_manifest")
+
+    def test_handoff_budget_uses_final_utf8_json_bytes(self):
+        cases = (
+            ("ascii", "x" * 8000, "full_inline"),
+            ("chinese", "研" * 8000, "compact_manifest"),
+            ("escaped", '"\\' * 6000, "compact_manifest"),
+        )
+        for session_id, value, expected_profile in cases:
+            with self.subTest(session_id=session_id), project() as (_root, engine):
+                engine.execute("start", session_id=session_id, request=START)
+                delta = routine_delta()
+                delta["factor_updates"] = {
+                    "padding": {
+                        "category": "projection",
+                        "value": value,
+                    }
+                }
+                engine.execute("apply", session_id=session_id, request=delta)
+
+                handoff = engine.execute("handoff", session_id=session_id)
+                profile = handoff.get("projection_profile", "full_inline")
+
+                self.assertEqual(profile, expected_profile)
+
+    def test_doctor_reports_handoff_projection_diagnostics(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="projection-doctor", request=START)
+            delta = routine_delta()
+            delta["progress_updates"]["fixture"]["summary"] = "x" * 32000
+            engine.execute("apply", session_id="projection-doctor", request=delta)
+
+            doctor = engine.execute("doctor", session_id="projection-doctor", diagnostics=True)
+            handoff = doctor["diagnostics"]["projections"]["handoff"]
+
+            self.assertEqual(doctor["status"], "ok")
+            self.assertEqual(doctor["findings"], [])
+            self.assertEqual(handoff["profile"], "compact_manifest")
+            self.assertGreater(handoff["full_inline_size_bytes"], 24 * 1024)
+            self.assertLessEqual(handoff["final_size_bytes"], 24 * 1024)
+            self.assertTrue(handoff["optimization_target_exceeded"])
+            self.assertIn("progress", handoff["sections"])
+
+    def test_review_soft_budget_warns_without_blocking_the_pack(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="review-soft-budget", request=START)
+            delta = routine_delta(risk="material")
+            delta["progress_updates"]["fixture"]["summary"] = "x" * 34000
+            engine.execute("apply", session_id="review-soft-budget", request=delta)
+
+            doctor = engine.execute("doctor", session_id="review-soft-budget", diagnostics=True)
+            review = engine.execute("review", session_id="review-soft-budget", action="next")
+            review_size = len(
+                json.dumps(review, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+            )
+
+            self.assertEqual(doctor["status"], "ok")
+            self.assertEqual(
+                [finding["code"] for finding in doctor["findings"]],
+                ["review_pack_soft_budget_exceeded"],
+            )
+            self.assertGreater(review_size, 32 * 1024)
+            self.assertLessEqual(review_size, 48 * 1024)
+            self.assertEqual(
+                doctor["diagnostics"]["projections"]["review"]["size_bytes"],
+                review_size,
+            )
+
+    def test_review_hard_budget_fails_closed_while_the_session_remains_recoverable(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="review-hard-budget", request=START)
+            delta = routine_delta(risk="material")
+            delta["progress_updates"]["fixture"]["summary"] = "x" * 52000
+            engine.execute("apply", session_id="review-hard-budget", request=delta)
+
+            doctor = engine.execute("doctor", session_id="review-hard-budget", diagnostics=True)
+            handoff = engine.execute("handoff", session_id="review-hard-budget")
             with self.assertRaisesRegex(RdlError, "hard limit") as review_error:
-                engine.execute("review", session_id="budget", action="next")
-            self.assertIn("sections", review_error.exception.details)
+                engine.execute("review", session_id="review-hard-budget", action="next")
+
+            self.assertEqual(doctor["status"], "blocked")
+            self.assertEqual(
+                [finding["code"] for finding in doctor["findings"]],
+                ["review_pack_over_budget"],
+            )
+            self.assertTrue(doctor["diagnostics"]["projections"]["review"]["hard_limit_exceeded"])
+            self.assertEqual(review_error.exception.details["limit_bytes"], 48 * 1024)
+            self.assertEqual(handoff["projection_profile"], "compact_manifest")
+            self.assertEqual(engine.repository.load("review-hard-budget")["state_version"], 2)
 
     def test_handoff_preserves_full_mission_and_lifecycle_closure(self):
         with project() as (root, engine):
@@ -247,8 +447,13 @@ class InterfaceTests(unittest.TestCase):
 
     def test_representative_three_resolution_handoff_stays_within_frozen_budget(self):
         self.assertEqual(
-            (rendering.HANDOFF_SOFT_BYTES, rendering.HANDOFF_HARD_BYTES, rendering.REVIEW_HARD_BYTES),
-            (20 * 1024, 24 * 1024, 30 * 1024),
+            (
+                rendering.HANDOFF_SOFT_BYTES,
+                rendering.HANDOFF_HARD_BYTES,
+                rendering.REVIEW_SOFT_BYTES,
+                rendering.REVIEW_HARD_BYTES,
+            ),
+            (20 * 1024, 24 * 1024, 32 * 1024, 48 * 1024),
         )
         with project() as (root, engine):
             actual_session_detail = (
@@ -398,7 +603,7 @@ class InterfaceTests(unittest.TestCase):
             )
             self.assertGreater(maximum_size, rendering.HANDOFF_SOFT_BYTES)
             self.assertLess(maximum_size, rendering.HANDOFF_HARD_BYTES)
-            self.assertIn("handoff_soft_budget_exceeded", maximum["warnings"])
+            self.assertEqual(maximum["warnings"], [])
 
 
 if __name__ == "__main__":

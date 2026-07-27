@@ -36,6 +36,10 @@ review: exact action/digest/adapter + adjudicated findings -> apply review_resul
 
 Use `"$RDL" apply --input <file>` for each payload. Do not copy placeholder values into a session.
 
+## Compact handoff
+
+Handoff normally returns the complete inline projection. Above 24 KiB it returns a bounded `compact_manifest` with the immutable generation's authoritative `state.json`, state digest, required JSON sections, omitted inline sections, and full-projection byte accounting. Read those sections before acting. The 20 KiB target is diagnostic only. Semantic review remains complete and all-inline: 32 KiB is a diagnostic soft budget and 48 KiB is the fail-closed hard budget.
+
 ## Terminal audit
 
-After close, retain one compact audit covering final handoff and doctor, exact close replay, current-version terminal mutation rejection, stale-request rejection, and unchanged pointer, generation set, state version, and recursive store digest.
+After close, retain one compact audit covering final handoff and doctor, exact close replay, current-version terminal mutation rejection, stale-request rejection, and unchanged pointer, generation set, state version, and recursive store digest. For every probe, record the command/arguments, exit code, and decisive typed result. For the store digest, also record the exact algorithm or command, digest root, and exclusions so another agent can reproduce it.
