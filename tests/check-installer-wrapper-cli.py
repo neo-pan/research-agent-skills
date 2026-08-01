@@ -55,6 +55,7 @@ class InstallerWrapperCliTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["CODEX_HOME"] = str(fixture / "codex-home")
+        env["HOME"] = str(fixture / "user-home")
         env["WRAPPER_TRACE"] = str(trace)
         return subprocess.run(
             [str(wrapper), *args],
@@ -109,7 +110,7 @@ class InstallerWrapperCliTests(unittest.TestCase):
                         self.assertFalse(trace.exists())
                         self.assertFalse((fixture / "codex-home").exists())
 
-    def test_zero_and_one_argument_targets_retain_existing_behavior(self):
+    def test_zero_and_one_argument_targets_use_documented_defaults(self):
         for wrapper_name in WRAPPERS:
             target_kind = "skills" if wrapper_name == WRAPPERS[0] else "agents"
             for explicit in (False, True):
@@ -120,7 +121,11 @@ class InstallerWrapperCliTests(unittest.TestCase):
                         target = (
                             fixture / "explicit-target"
                             if explicit
-                            else fixture / "codex-home" / target_kind
+                            else (
+                                fixture / "user-home" / ".agents" / "skills"
+                                if target_kind == "skills"
+                                else fixture / "codex-home" / "agents"
+                            )
                         )
 
                         result = self.run_wrapper(
@@ -143,6 +148,35 @@ class InstallerWrapperCliTests(unittest.TestCase):
                             backend_line,
                         )
                         self.assertIn(f"backend {target_kind} --root ", backend_line)
+
+    def test_default_skill_install_retires_existing_legacy_links(self):
+        with TemporaryDirectory() as tmp:
+            fixture = Path(tmp)
+            scripts, trace = self.make_fixture(fixture)
+            (fixture / "codex-home" / "skills").mkdir(parents=True)
+
+            result = self.run_wrapper(
+                scripts / "install_selected_skills.sh",
+                [],
+                fixture,
+                trace,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = trace.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(lines[0], "check")
+            self.assertTrue(
+                lines[1].endswith(
+                    f"--target-dir {fixture / 'user-home' / '.agents' / 'skills'}"
+                ),
+                lines[1],
+            )
+            self.assertTrue(
+                lines[2].endswith(
+                    f"--target-dir {fixture / 'codex-home' / 'skills'} --retire-all"
+                ),
+                lines[2],
+            )
 
 
 if __name__ == "__main__":

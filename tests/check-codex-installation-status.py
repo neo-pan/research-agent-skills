@@ -23,23 +23,28 @@ import codex_installation_status as status_module  # noqa: E402
 
 class CodexInstallationStatusTests(unittest.TestCase):
     @staticmethod
-    def install(codex_home: Path) -> None:
-        skills = codex_home / "skills"
-        agents = codex_home / "agents"
+    def install_skills(skills: Path) -> None:
         skills.mkdir(parents=True)
-        agents.mkdir(parents=True)
         for source in (ROOT / "skills").iterdir():
             if source.is_symlink():
                 (skills / source.name).symlink_to(source.resolve(strict=True))
+
+    @classmethod
+    def install(cls, skills: Path, agents: Path) -> None:
+        cls.install_skills(skills)
+        agents.mkdir(parents=True)
         for source in (ROOT / "codex" / "agents").glob("*.toml"):
             (agents / source.name).symlink_to(source.resolve(strict=True))
 
     def test_json_reports_environment_home_as_healthy(self):
         with TemporaryDirectory() as tmp:
-            codex_home = Path(tmp) / "codex-home"
-            self.install(codex_home)
+            fixture = Path(tmp)
+            codex_home = fixture / "codex-home"
+            user_home = fixture / "user-home"
+            self.install(user_home / ".agents" / "skills", codex_home / "agents")
             environment = os.environ.copy()
             environment["CODEX_HOME"] = str(codex_home)
+            environment["HOME"] = str(user_home)
 
             result = subprocess.run(
                 [str(STATUS), "--json"],
@@ -58,6 +63,7 @@ class CodexInstallationStatusTests(unittest.TestCase):
                 report["codex_home"],
                 {"path": str(codex_home), "source": "environment"},
             )
+            self.assertEqual(report["skills"]["target_source"], "user-home")
             self.assertEqual(
                 report["skills"]["counts"]["expected"],
                 report["skills"]["counts"]["desired"],
@@ -70,13 +76,15 @@ class CodexInstallationStatusTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             fixture = Path(tmp)
             codex_home = fixture / "codex-home"
+            user_home = fixture / "user-home"
             bin_dir = fixture / "bin"
             bin_dir.mkdir()
             launcher = ROOT / "local" / "research-dev-loop" / "bin" / "rdl"
             (bin_dir / "rdl").symlink_to(launcher)
-            self.install(codex_home)
+            self.install(user_home / ".agents" / "skills", codex_home / "agents")
             environment = os.environ.copy()
             environment["CODEX_HOME"] = str(codex_home)
+            environment["HOME"] = str(user_home)
             environment["PATH"] = os.pathsep.join((str(bin_dir), environment.get("PATH", "")))
 
             result = subprocess.run(
@@ -95,12 +103,16 @@ class CodexInstallationStatusTests(unittest.TestCase):
             self.assertTrue(report["rdl_command"]["on_path"])
             self.assertIsNone(report["rdl_command"]["shadowed_by"])
 
-    def test_argument_home_precedes_environment_and_missing_links_return_two(self):
+    def test_argument_codex_home_precedes_environment_for_agents(self):
         with TemporaryDirectory() as tmp:
             fixture = Path(tmp)
             argument_home = fixture / "argument-home"
+            user_home = fixture / "user-home"
+            skills = user_home / ".agents" / "skills"
+            self.install_skills(skills)
             environment = os.environ.copy()
             environment["CODEX_HOME"] = str(fixture / "environment-home")
+            environment["HOME"] = str(user_home)
 
             result = subprocess.run(
                 [str(STATUS), "--codex-home", str(argument_home), "--json"],
@@ -120,16 +132,21 @@ class CodexInstallationStatusTests(unittest.TestCase):
                 {"path": str(argument_home), "source": "argument"},
             )
             self.assertEqual(
-                report["skills"]["counts"]["missing"],
+                report["skills"]["counts"]["expected"],
                 report["skills"]["counts"]["desired"],
             )
+            self.assertEqual(report["skills"]["target"], str(skills))
             self.assertEqual(report["agents"]["counts"]["missing"], 2)
+            self.assertEqual(
+                {item["code"] for item in report["findings"]},
+                {"agents_link_missing"},
+            )
 
     def test_unset_codex_home_uses_default_under_home(self):
         with TemporaryDirectory() as tmp:
             fixture = Path(tmp)
             codex_home = fixture / ".codex"
-            self.install(codex_home)
+            self.install(fixture / ".agents" / "skills", codex_home / "agents")
             environment = os.environ.copy()
             environment.pop("CODEX_HOME", None)
             environment["HOME"] = str(fixture)
@@ -152,8 +169,12 @@ class CodexInstallationStatusTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             fixture = Path(tmp)
             codex_home = fixture / "codex-home"
-            installed = fixture / "installed"
-            self.install(installed)
+            user_home = fixture / "user-home"
+            installed_skills = fixture / "installed-skills"
+            installed_agents = fixture / "installed-agents"
+            self.install(installed_skills, installed_agents)
+            environment = os.environ.copy()
+            environment["HOME"] = str(user_home)
 
             result = subprocess.run(
                 [
@@ -161,12 +182,13 @@ class CodexInstallationStatusTests(unittest.TestCase):
                     "--codex-home",
                     str(codex_home),
                     "--skills-dir",
-                    str(installed / "skills"),
+                    str(installed_skills),
                     "--agents-dir",
-                    str(installed / "agents"),
+                    str(installed_agents),
                     "--json",
                 ],
                 cwd=ROOT,
+                env=environment,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -184,10 +206,13 @@ class CodexInstallationStatusTests(unittest.TestCase):
 
     def test_default_text_is_compact_and_machine_readable_json_is_opt_in(self):
         with TemporaryDirectory() as tmp:
-            codex_home = Path(tmp) / "codex-home"
-            self.install(codex_home)
+            fixture = Path(tmp)
+            codex_home = fixture / "codex-home"
+            user_home = fixture / "user-home"
+            self.install(user_home / ".agents" / "skills", codex_home / "agents")
             environment = os.environ.copy()
             environment["CODEX_HOME"] = str(codex_home)
+            environment["HOME"] = str(user_home)
 
             result = subprocess.run(
                 [str(STATUS)],
@@ -208,13 +233,15 @@ class CodexInstallationStatusTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             fixture = Path(tmp)
             codex_home = fixture / "codex-home"
+            user_home = fixture / "user-home"
             bin_dir = fixture / "bin"
             bin_dir.mkdir()
             launcher = ROOT / "local" / "research-dev-loop" / "bin" / "rdl"
             (bin_dir / "rdl").symlink_to(launcher)
-            self.install(codex_home)
+            self.install(user_home / ".agents" / "skills", codex_home / "agents")
             environment = os.environ.copy()
             environment["CODEX_HOME"] = str(codex_home)
+            environment["HOME"] = str(user_home)
             environment["PATH"] = os.pathsep.join((str(bin_dir), "/usr/bin", "/bin"))
 
             result = subprocess.run(
@@ -276,13 +303,15 @@ class CodexInstallationStatusTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             fixture = Path(tmp)
             codex_home = fixture / "codex-home"
+            user_home = fixture / "user-home"
             bin_dir = fixture / "bin"
             bin_dir.mkdir()
             launcher = ROOT / "local" / "research-dev-loop" / "bin" / "rdl"
             (bin_dir / "rdl").symlink_to(launcher)
-            self.install(codex_home)
+            self.install(user_home / ".agents" / "skills", codex_home / "agents")
             environment = os.environ.copy()
             environment["CODEX_HOME"] = str(codex_home)
+            environment["HOME"] = str(user_home)
             environment["PATH"] = "/usr/bin:/bin"
 
             result = subprocess.run(
@@ -299,6 +328,37 @@ class CodexInstallationStatusTests(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertFalse(report["rdl_command"]["on_path"])
             self.assertIn("rdl_command_mismatch", {item["code"] for item in report["findings"]})
+
+    def test_owned_legacy_skill_links_are_a_mismatch(self):
+        with TemporaryDirectory() as tmp:
+            fixture = Path(tmp)
+            codex_home = fixture / "codex-home"
+            user_home = fixture / "user-home"
+            self.install(user_home / ".agents" / "skills", codex_home / "agents")
+            legacy_skills = codex_home / "skills"
+            legacy_skills.mkdir()
+            legacy = legacy_skills / "phase-review"
+            legacy.symlink_to(ROOT / "local" / "phase-review")
+            environment = os.environ.copy()
+            environment["CODEX_HOME"] = str(codex_home)
+            environment["HOME"] = str(user_home)
+
+            result = subprocess.run(
+                [str(STATUS), "--json"],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertIn(
+                "skills_legacy_link",
+                {item["code"] for item in report["findings"]},
+            )
 
     def test_exact_owned_missing_rdl_source_is_a_combined_mismatch(self):
         with TemporaryDirectory() as tmp:

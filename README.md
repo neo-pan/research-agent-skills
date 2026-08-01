@@ -55,34 +55,40 @@ Run `./scripts/check.sh` before committing changes.
 Python 3.9+ is required by the shared managed-link installers and the RDL CLI.
 The Linux/WSL Bash installation chain also requires `flock` from util-linux.
 
-Install the selected skills into an agent or project skill directory:
+Install the selected skills for the current Codex user:
 
 ```bash
-./scripts/install_selected_skills.sh <target-skills-dir>
+./scripts/install_selected_skills.sh
 ```
 
-If no target is provided, the script installs into
-`${CODEX_HOME:-$HOME/.codex}/skills`. Different agents discover skills
-differently; use `skills/` as the prepared selected source and follow the target
-agent or project convention for exposing those skill directories.
+The default target is Codex's user skill directory, `$HOME/.agents/skills`.
+After a successful default installation, the script also retires only
+current-checkout-owned links from the legacy
+`${CODEX_HOME:-$HOME/.codex}/skills` directory. To install into an agent or
+project skill directory instead, pass `<target-skills-dir>` explicitly.
+Different agents discover skills differently; use `skills/` as the prepared
+selected source and follow the target agent or project convention for exposing
+those skill directories.
 
 Installers refuse regular files, directories, foreign links, links from a
 historical checkout, relative links, and broken links whose ownership cannot be
 proven. They replace or prune only links owned by the current checkout, and
 preflight the complete desired set before changing any link.
 
-Check whether skills and recommended agents match the Codex home that a new
-process would use:
+Check whether skills match the user home and recommended agents match the Codex
+home that a new process would use:
 
 ```bash
 ./scripts/codex_installation_status.py
 ./scripts/codex_installation_status.py --json
 ```
 
-The command resolves Codex home from `--codex-home`, then `CODEX_HOME`, then
-`$HOME/.codex`. It is read-only and does not infer skill enablement, invocation
-policy, or the home of an already-running Codex process. See [INSTALL.md](INSTALL.md)
-for target overrides, RDL command checks, output, and exit codes.
+The command resolves the default skill target from `$HOME/.agents/skills` and
+Codex home from `--codex-home`, then `CODEX_HOME`, then `$HOME/.codex`. It also
+reports current-checkout-owned links left in the legacy Codex skill directory.
+It is read-only and does not infer skill enablement, invocation policy, or the
+home of an already-running Codex process. See [INSTALL.md](INSTALL.md) for target
+overrides, RDL command checks, output, and exit codes.
 
 Skill installation does not modify `PATH`. RDL can always be invoked through
 the installed skill's `bin/rdl`. To explicitly install the optional `rdl`

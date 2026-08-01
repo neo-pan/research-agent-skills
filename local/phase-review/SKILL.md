@@ -1,7 +1,6 @@
 ---
 name: phase-review
 description: Manual independent review gate for research engineering plans, implementation phases, evidence, and final readiness.
-disable-model-invocation: true
 ---
 
 # Phase Review

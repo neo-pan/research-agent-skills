@@ -6,7 +6,7 @@ This repository is installed from the repository root only.
 git clone --recurse-submodules <repository-url>
 cd research-agent-skills
 ./scripts/link_selected_skills.sh
-./scripts/install_selected_skills.sh <target-skills-dir>
+./scripts/install_selected_skills.sh
 ```
 
 If the repository was cloned without submodules, run this before installing:
@@ -18,6 +18,12 @@ git submodule update --init --recursive
 The installable skill set is defined by `selected-skills.conf` and materialized
 as symlinks under `skills/`. Installers must not scan
 `upstream/mattpocock-skills` or install every skill found there.
+
+The default Codex user target is `$HOME/.agents/skills`. A successful default
+installation retires only current-checkout-owned links from the legacy
+`${CODEX_HOME:-$HOME/.codex}/skills` directory. Pass an explicit
+`<target-skills-dir>` to install for another agent or one project; explicit
+targets do not trigger legacy migration.
 
 Python 3.9+ and `flock` from util-linux are required by the Linux/WSL
 installation chain. Skills and recommended Codex agents are installed as
@@ -41,10 +47,12 @@ same home. Diagnose the prospective launch environment independently:
   --agents-dir /absolute/installed-agents
 ```
 
-Codex home precedence is `--codex-home`, `CODEX_HOME`, then `$HOME/.codex`.
-The skills and agents directories default under that home; explicit directory
-arguments compare another installation to that launch home. The command reports
-only filesystem state for a prospective launch. It does not inspect an
+The user skill directory defaults to `$HOME/.agents/skills`. Codex home
+precedence for recommended agents is `--codex-home`, `CODEX_HOME`, then
+`$HOME/.codex`; agents default under that home. Explicit directory arguments
+compare another installation to those launch defaults. The command also reports
+current-checkout-owned links left under the legacy Codex skill directory. It
+reports only filesystem state for a prospective launch and does not inspect an
 already-running process or infer whether a skill is enabled or can be invoked
 implicitly.
 

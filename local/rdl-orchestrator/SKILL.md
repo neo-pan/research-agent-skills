@@ -1,7 +1,6 @@
 ---
 name: rdl-orchestrator
 description: Drive an RDL session to a terminal result.
-disable-model-invocation: true
 ---
 
 # RDL Orchestrator

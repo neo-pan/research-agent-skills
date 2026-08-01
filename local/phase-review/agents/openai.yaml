@@ -1,0 +1,7 @@
+interface:
+  display_name: "Phase Review"
+  short_description: "Review a bounded research engineering phase."
+  default_prompt: "Use $phase-review to review the current phase without implementing fixes."
+
+policy:
+  allow_implicit_invocation: false

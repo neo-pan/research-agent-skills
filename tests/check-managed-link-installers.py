@@ -87,6 +87,42 @@ class ManagedLinkInstallerTests(unittest.TestCase):
             self.assertIn("do not match selected-skills.conf", result.stderr)
             self.assertTrue(managed.is_symlink())
 
+    def test_retire_all_prunes_only_current_checkout_skill_links(self):
+        with TemporaryDirectory() as tmp:
+            fixture = Path(tmp)
+            _, repo = self.skill_installer_fixture(fixture)
+            target = fixture / "legacy-skills"
+            target.mkdir()
+            managed = target / "demo"
+            managed.symlink_to(repo / "local" / "demo")
+            foreign_source = fixture / "foreign"
+            foreign_source.mkdir()
+            foreign = target / "foreign"
+            foreign.symlink_to(foreign_source)
+
+            result = subprocess.run(
+                [
+                    str(repo / "scripts" / "install_managed_links.py"),
+                    "skills",
+                    "--root",
+                    str(repo),
+                    "--target-dir",
+                    str(target),
+                    "--retire-all",
+                ],
+                cwd=repo,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(os.path.lexists(managed))
+            self.assertTrue(foreign.is_symlink())
+            self.assertIn("desired=0", result.stdout)
+            self.assertIn("pruned=1", result.stdout)
+
     def test_empty_agent_source_is_refused_without_pruning(self):
         with TemporaryDirectory() as tmp:
             fixture = Path(tmp)

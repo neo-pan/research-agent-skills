@@ -7,6 +7,9 @@ INSTALLER="${ROOT_DIR}/scripts/install_recommended_codex_agents.sh"
 ORCHESTRATOR="${ROOT_DIR}/local/rdl-orchestrator/CODEX.md"
 SEMANTIC_REVIEW="${ROOT_DIR}/local/research-dev-loop/SEMANTIC_REVIEW.md"
 PHASE_REVIEW="${ROOT_DIR}/local/phase-review/SKILL.md"
+PHASE_REVIEW_AGENT="${ROOT_DIR}/local/phase-review/agents/openai.yaml"
+RDL_ORCHESTRATOR_SKILL="${ROOT_DIR}/local/rdl-orchestrator/SKILL.md"
+RDL_ORCHESTRATOR_AGENT="${ROOT_DIR}/local/rdl-orchestrator/agents/openai.yaml"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -56,6 +59,11 @@ assert_contains "${ORCHESTRATOR}" 'fork_turns="none"'
 assert_contains "${ORCHESTRATOR}" "main transcript"
 assert_contains "${SEMANTIC_REVIEW}" 'fork_turns="none"'
 assert_contains "${PHASE_REVIEW}" 'fork_turns="none"'
+assert_setting "${PHASE_REVIEW_AGENT}" '  allow_implicit_invocation: false'
+assert_setting "${RDL_ORCHESTRATOR_AGENT}" '  allow_implicit_invocation: false'
+if grep -Fq 'disable-model-invocation' "${PHASE_REVIEW}" "${RDL_ORCHESTRATOR_SKILL}"; then
+  fail "manual skill invocation policy must live in agents/openai.yaml"
+fi
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT

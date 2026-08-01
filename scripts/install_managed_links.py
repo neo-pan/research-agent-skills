@@ -16,6 +16,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("adapter", choices=("skills", "agents"))
     parser.add_argument("--root", required=True)
     parser.add_argument("--target-dir", required=True)
+    parser.add_argument(
+        "--retire-all",
+        action="store_true",
+        help="remove only current-checkout-owned links from a legacy skill directory",
+    )
     return parser
 
 
@@ -24,6 +29,10 @@ def run(argv: list[str] | None = None) -> int:
     root = Path(args.root).resolve(strict=True)
     target_dir = Path(args.target_dir).expanduser().resolve(strict=False)
     desired, owned_roots = repository_resources(root, args.adapter)
+    if args.retire_all:
+        if args.adapter != "skills":
+            raise ManagedLinkError("--retire-all is supported only for skills")
+        desired = {}
     result = install_batch(target_dir, desired, owned_roots)
     print(
         f"adapter={args.adapter} status=ok target={target_dir} desired={result.desired} "

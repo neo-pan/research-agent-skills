@@ -30,9 +30,11 @@ def build_report(
     environment: Mapping[str, str],
 ) -> dict[str, Any]:
     home_path, home_source = _codex_home(codex_home, environment)
-    expected_skills = home_path / "skills"
+    expected_skills = _user_skill_directory(environment)
     expected_agents = home_path / "agents"
-    skills_target, skills_source = _target(skills_dir, expected_skills, "--skills-dir")
+    skills_target, skills_source = _target(
+        skills_dir, expected_skills, "--skills-dir", "user-home"
+    )
     agents_target, agents_source = _target(agents_dir, expected_agents, "--agents-dir")
     findings: list[dict[str, str]] = []
 
@@ -42,6 +44,7 @@ def build_report(
     agents = _resource_report(
         root, "agents", agents_target, agents_source, expected_agents, findings
     )
+    _legacy_skill_findings(root, home_path / "skills", skills_target, findings)
     status = "mismatch" if findings else "ok"
     return {
         "status": status,
@@ -96,10 +99,46 @@ def _codex_home(raw: str | None, environment: Mapping[str, str]) -> tuple[Path, 
     return Path.home().resolve(strict=False) / ".codex", "default"
 
 
-def _target(raw: str | None, expected: Path, name: str) -> tuple[Path, str]:
+def _user_skill_directory(environment: Mapping[str, str]) -> Path:
+    configured_home = environment.get("HOME")
+    if configured_home:
+        home = resolve_absolute_path(configured_home, "HOME")
+    else:
+        home = Path.home().resolve(strict=False)
+    return home / ".agents" / "skills"
+
+
+def _target(
+    raw: str | None,
+    expected: Path,
+    name: str,
+    default_source: str = "codex-home",
+) -> tuple[Path, str]:
     if raw is None:
-        return expected, "codex-home"
+        return expected, default_source
     return resolve_absolute_path(raw, name), "argument"
+
+
+def _legacy_skill_findings(
+    root: Path,
+    legacy_target: Path,
+    active_target: Path,
+    findings: list[dict[str, str]],
+) -> None:
+    if legacy_target == active_target or not legacy_target.is_dir():
+        return
+    _, owned_roots = repository_resources(root, "skills")
+    for target in sorted(legacy_target.iterdir(), key=lambda item: item.name):
+        state = inspect_link(target, None, owned_roots)
+        if state.kind != "symlink" or state.ownership != "current-checkout":
+            continue
+        findings.append(
+            _finding(
+                "skills_legacy_link",
+                target,
+                "rerun the default skill installer to migrate owned links",
+            )
+        )
 
 
 def _resource_report(

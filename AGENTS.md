@@ -75,8 +75,8 @@ submodule pointer updates.
 
 - Follow Codex skill-creation principles: make invocation clear, keep
   `SKILL.md` focused, and move only genuinely optional detail into references.
-- Use `disable-model-invocation: true` for manual workflow gates or router-like
-  skills that should not auto-trigger.
+- Set `policy.allow_implicit_invocation: false` in `agents/openai.yaml` for
+  manual workflow gates or router-like skills that should not auto-trigger.
 - Avoid adding auxiliary files inside a skill directory unless they directly
   support the skill.
 - Prefer review-only skills for gates; implementation should happen in a
