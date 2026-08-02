@@ -8,6 +8,7 @@ ORCHESTRATOR="${ROOT_DIR}/local/rdl-orchestrator/CODEX.md"
 SEMANTIC_REVIEW="${ROOT_DIR}/local/research-dev-loop/SEMANTIC_REVIEW.md"
 PHASE_REVIEW="${ROOT_DIR}/local/phase-review/SKILL.md"
 PHASE_REVIEW_AGENT="${ROOT_DIR}/local/phase-review/agents/openai.yaml"
+RDL_SKILL_AGENT="${ROOT_DIR}/local/research-dev-loop/agents/openai.yaml"
 RDL_ORCHESTRATOR_SKILL="${ROOT_DIR}/local/rdl-orchestrator/SKILL.md"
 RDL_ORCHESTRATOR_AGENT="${ROOT_DIR}/local/rdl-orchestrator/agents/openai.yaml"
 
@@ -65,8 +66,14 @@ assert_contains "${ORCHESTRATOR}" "main transcript"
 assert_contains "${ORCHESTRATOR}" "use at most one"
 assert_contains "${SEMANTIC_REVIEW}" 'fork_turns="none"'
 assert_contains "${PHASE_REVIEW}" 'fork_turns="none"'
+assert_setting "${RDL_SKILL_AGENT}" '  display_name: "Research Development Loop"'
+assert_setting "${RDL_SKILL_AGENT}" '  short_description: "Run durable evidence-backed research and build sessions"'
+assert_contains "${RDL_SKILL_AGENT}" '$research-dev-loop'
 assert_setting "${PHASE_REVIEW_AGENT}" '  allow_implicit_invocation: false'
 assert_setting "${RDL_ORCHESTRATOR_AGENT}" '  allow_implicit_invocation: false'
+if grep -Fq 'allow_implicit_invocation: false' "${RDL_SKILL_AGENT}"; then
+  fail "research-dev-loop must remain available for implicit invocation"
+fi
 if grep -Fq 'disable-model-invocation' "${PHASE_REVIEW}" "${RDL_ORCHESTRATOR_SKILL}"; then
   fail "manual skill invocation policy must live in agents/openai.yaml"
 fi
