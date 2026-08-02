@@ -9,14 +9,14 @@ Drive one existing session until it is terminal. First load and locate `research
 
 ## Take over once
 
-Run `"$RDL" handoff`. Use `"$RDL" doctor` only when handoff reports abnormal state. Completion: recover the current action, blocker, and smallest evidence step.
+Run `"$RDL" handoff` once; repeat only after context loss or takeover. Use `"$RDL" doctor` only for abnormal state. Completion: recover the current action, blocker, and smallest evidence step.
 
 ## Terminal loop
 
 1. Execute the smallest evidence step. Completion: raw results, uncertainty, and artifacts are available.
-2. Write-through with `"$RDL" apply` before more external work. Completion: a successful receipt returns the new version.
-3. If the receipt requires material review, follow the material reference from `research-dev-loop`, accept or reject each finding, and apply the result. Completion: the current action and subject digest are matched.
-4. If review remains required, repeat it for the current digest. Otherwise, when readiness is not `ready`, repeat from evidence work in the same round.
-5. If readiness is `ready`, run `"$RDL" next` or `"$RDL" close` with the current version, then continue from the returned state.
+2. Write-through with `"$RDL" apply` before more external work; routine receipts stay in-round with no reviewer.
+3. Before a material build's final decision, follow the project-review reference and apply its current receipt.
+4. If semantic review is required, follow the material reference, adjudicate findings, and apply the result; repeat only for a changed digest.
+5. When ready, run `"$RDL" next` or `"$RDL" close`; otherwise continue evidence work in-round.
 
 Stop only after a closed/abandoned receipt, an explicit user pause, or a typed external blocker whose required input is write-through and for which no safe work remains.

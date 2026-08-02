@@ -13,12 +13,19 @@ Start each role without parent conversation turns. With the Codex subagent
 adapter, pass `fork_turns="none"`; other adapters must provide an equivalent
 clean-spawn option. Custom-agent files cannot enforce launch context.
 
-Give the reviewer only the generated review pack and explicitly named
-verification artifacts. Give an explorer one bounded question and only the
-context allowed for that question. Do not forward the main transcript, search
-logs, or another agent's working output.
+Give the reviewer only the task, output schema, generated review pack, and
+adapter label. If artifact content is needed, first bind a digest-bound receipt
+or excerpt into RDL evidence and regenerate the pack. Give an explorer one bounded
+question and only its allowed context. Do not forward the main transcript,
+search logs, or another agent's working output.
 
-Default to no explorer. Use one when isolating a bounded, high-noise question
-materially reduces main-context load; use two only for independent questions
-that materially benefit from parallel work. Explorers return evidence inputs,
-not decisions, and never write shared state or spawn more agents.
+Default to no explorer; use at most one when isolating a bounded, high-noise
+question materially reduces main-context load. Explorers return evidence
+inputs, not decisions, and never write shared state or spawn more agents.
+
+For a material build's final code/config/script claim, use the project's single
+configured read-only project reviewer before semantic close review. Bind its
+final diff and verification receipt through RDL evidence; any relevant change
+requires verification and project review again. This reviewer never performs
+the RDL transition. Pure research and no-code claims skip this gate unless the
+mission explicitly requires it.

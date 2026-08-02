@@ -137,10 +137,11 @@ max_depth = 1
 ```
 
 Launch delegated roles without inherited conversation turns. Give the reviewer
-only the generated review pack and named verification artifacts, and give an
-explorer only one bounded question plus its allowed context. The custom-agent
-files define role behavior and sandbox defaults but cannot enforce launch
-context.
+only the task, output schema, generated review pack, and adapter label. Artifact
+content must first be represented by a digest-bound receipt or excerpt inside
+the pack. Give an explorer only one bounded question plus its allowed context.
+The custom-agent files define role behavior and sandbox defaults but cannot
+enforce launch context.
 
 Restart Codex or start a new session after installing or changing custom agent
 files. See `local/rdl-orchestrator/CODEX.md` for the role rationale and usage

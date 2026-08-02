@@ -49,7 +49,7 @@ def subject_projection(state: dict[str, Any], action: str, deterministic_finding
     evidence = [item for item in state["evidence"] if item["id"] in evidence_ids]
     artifact_ids = relevant_artifact_closure(state, round_state)
     artifacts = [_subject_artifact(item) for item in state["artifacts"] if item["id"] in artifact_ids]
-    return {
+    projection = {
         "action": action,
         "mission": state["mission"],
         "mode": state["mode"],
@@ -65,6 +65,10 @@ def subject_projection(state: dict[str, Any], action: str, deterministic_finding
         "artifacts": artifacts,
         "deterministic_findings": deterministic_findings,
     }
+    action_context = _review_action_context(state)
+    if action_context is not None:
+        projection["action_context"] = action_context
+    return projection
 
 
 def subject_digest(state: dict[str, Any], action: str, deterministic_findings: list[dict[str, Any]]) -> str:
@@ -80,6 +84,7 @@ def _review_pack(
     sections = {
         "mission": projection["mission"],
         "session": {"mode": projection["mode"], "progress": projection["progress"], "factors": projection["factors"]},
+        "action_context": projection.get("action_context"),
         "round": projection["round"],
         "artifacts": projection["artifacts"],
         "deterministic_findings": projection["deterministic_findings"],
@@ -96,22 +101,61 @@ def _review_pack(
         "subject_digest": digest(projection),
         "reviewer_task": {
             "role": "fresh-context semantic reviewer",
-            "questions": [
-                "Does the evidence support the proposed decision without overclaim?",
-                "For each cited decisive claim, are the current artifact or receipt bindings sufficient for its role? Empty artifact refs are a review signal, not an automatic failure.",
-                "When prior findings are supplied, does the current subject resolve accepted findings and preserve the rationale for rejected findings?",
-                "Are counterevidence, confounders, staleness, and remaining uncertainty preserved?",
-                "Is the proposed transition justified by the supplied subject?",
-            ],
+            "questions": _reviewer_questions(projection, action),
             "return": "action, subject_digest, adapter, verdict, and concise typed findings",
         },
         "finding_schema": {
             "severity": ["blocking", "warning", "note"],
+            "category": "use success_criteria[i], a progress key, or a stable protocol category",
             "disposition": "assigned later by the main agent when applying the result",
         },
         **sections,
     }
     return pack, sections
+
+
+def _review_action_context(state: dict[str, Any]) -> dict[str, Any] | None:
+    if state["round"] <= 1:
+        return None
+    source_round = state["rounds"][state["round"] - 2]
+    decision = source_round.get("decision")
+    if not decision or decision.get("recommended_transition") != "next":
+        return None
+    return {
+        "source_round": source_round["number"],
+        "instruction": decision["next_step"],
+        "decision_subject": decision["subject"],
+    }
+
+
+def _reviewer_questions(projection: dict[str, Any], action: str) -> list[str]:
+    questions = [
+        "Does the current evidence support the round decision without overclaim, including sufficient artifact or receipt bindings for decisive claims?",
+        "Are counterevidence, confounders, staleness, and remaining uncertainty preserved?",
+        "Are accepted prior findings resolved and rejected findings supported by retained rationale?",
+    ]
+    if action == "next":
+        questions.extend(
+            (
+                "Does the supplied action_context, when present, have its checkable completion condition satisfied by this round?",
+                "Are mission scope, out-of-scope boundaries, and invariants preserved?",
+                "Is decision.next_step executable and does it retain all unfinished phases without hiding deferrals or unknowns?",
+            )
+        )
+        return questions
+
+    questions.extend(
+        f"Is mission.success_criteria[{index}] evidence-backed within its stated scope: {criterion}"
+        for index, criterion in enumerate(projection["mission"]["success_criteria"])
+    )
+    questions.extend(
+        (
+            "Is every active, blocked, deferred, or open-question progress entry reconciled with the proposed outcome?",
+            "For a material build that closes a code, config, or script claim, is a current final-diff project-review receipt supplied and consistent with the claim?",
+            "Is the positive, negative, or inconclusive outcome consistent with the decision, evidence, counterevidence, and remaining uncertainty?",
+        )
+    )
+    return questions
 
 
 def review_pack(
@@ -190,6 +234,9 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
         if "resolution" in item:
             artifact["resolution"] = item["resolution"]
         artifacts.append(artifact)
+    decision = round_state["decision"]
+    if state["status"] != "active" and decision is not None:
+        decision = {key: value for key, value in decision.items() if key != "next_step"}
     sections = {
         "mission": state["mission"],
         "progress": state["progress"],
@@ -205,11 +252,14 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
                 for item in current_evidence
             ],
             "interpretation": round_state["interpretation"],
-            "decision": round_state["decision"],
+            "decision": decision,
         },
         "artifacts": artifacts,
         "readiness": readiness,
     }
+    terminal_summary = _terminal_summary(state)
+    if terminal_summary is not None:
+        sections["terminal_summary"] = terminal_summary
     if current_action is not None:
         sections["current_action"] = current_action
     result = {
@@ -261,6 +311,7 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
         },
     }
     if state["status"] != "active":
+        manifest["terminal_summary"] = _terminal_summary(state, compact=True)
         manifest["canonical_state"]["final_report_path"] = (
             f".rdl/.store/{state['session_id']}/{state['state_version']}/final-report.md"
         )
@@ -290,6 +341,7 @@ def handoff_diagnostics(state: dict[str, Any], readiness: dict[str, Any]) -> dic
                     "artifacts",
                     "readiness",
                     "current_action",
+                    "terminal_summary",
                 )
                 if key in result
             }
@@ -320,11 +372,7 @@ def _post_next_current_action(state: dict[str, Any]) -> tuple[dict[str, Any] | N
         }
         for evidence_id in decision["evidence_refs"]
     ]
-    unfinished_progress = [
-        {"key": key, **entry}
-        for key, entry in sorted(state["progress"].items())
-        if entry["status"] in {"active", "blocked", "deferred", "open_question"}
-    ]
+    unfinished_progress = _unfinished_progress(state, compact=False)
     return (
         {
             "source_round": source_round["number"],
@@ -339,6 +387,60 @@ def _post_next_current_action(state: dict[str, Any]) -> tuple[dict[str, Any] | N
         },
         _artifact_closure_for_evidence_ids(state, evidence_ids),
     )
+
+
+def _terminal_summary(state: dict[str, Any], *, compact: bool = False) -> dict[str, Any] | None:
+    if state["status"] == "active":
+        return None
+    round_state = current_round(state)
+    decision = round_state.get("decision")
+    binding = round_state["latest_bindings"].get("close")
+    unfinished_progress: list[dict[str, Any]] | dict[str, Any] = _unfinished_progress(state, compact=True)
+    if compact:
+        status_counts: dict[str, int] = {}
+        for item in unfinished_progress:
+            status = item["status"]
+            status_counts[status] = status_counts.get(status, 0) + 1
+        unfinished_progress = {
+            "count": sum(status_counts.values()),
+            "status_counts": status_counts,
+            "read_section": "/progress",
+        }
+    historical_next_step = None
+    if decision and decision.get("next_step"):
+        historical_next_step = {"status": "pre_close_instruction"}
+        if compact:
+            historical_next_step["read_section"] = f"/rounds/{state['round'] - 1}/decision/next_step"
+        else:
+            historical_next_step["text"] = decision["next_step"]
+    return {
+        "outcome": state["status"].removeprefix("closed-"),
+        "state_version": state["state_version"],
+        "closed_at_utc": state["updated_at_utc"],
+        "final_review_binding": (
+            {
+                "action": "close",
+                "review_id": binding["review_id"],
+                "subject_digest": binding["subject_digest"],
+            }
+            if state["status"].startswith("closed-") and binding is not None
+            else None
+        ),
+        "unfinished_progress": unfinished_progress,
+        "historical_next_step": historical_next_step,
+    }
+
+
+def _unfinished_progress(state: dict[str, Any], *, compact: bool) -> list[dict[str, Any]]:
+    entries = []
+    for key, entry in sorted(state["progress"].items()):
+        if entry["status"] not in {"active", "blocked", "deferred", "open_question"}:
+            continue
+        if compact:
+            entries.append({"key": key, "status": entry["status"], "blocking": entry["blocking"]})
+        else:
+            entries.append({"key": key, **entry})
+    return entries
 
 
 def section_accounting(sections: dict[str, Any]) -> dict[str, int]:
@@ -470,9 +572,38 @@ def _ledger(state: dict[str, Any]) -> str:
 def _final_report(state: dict[str, Any]) -> str:
     round_state = current_round(state)
     decision = round_state.get("decision")
+    summary = _terminal_summary(state)
+    terminal_lines = [
+        "## Terminal Summary",
+        "",
+        f"- State version: {summary['state_version']}",
+        f"- Closed at: {summary['closed_at_utc']}",
+        "- Final review: "
+        + (
+            f"{summary['final_review_binding']['review_id']} / {summary['final_review_binding']['subject_digest']}"
+            if summary["final_review_binding"]
+            else "none"
+        ),
+        "",
+        "## Unfinished Progress",
+        "",
+        _bullets(
+            [f"{item['key']}: {item['status']}" for item in summary["unfinished_progress"]]
+        ).rstrip(),
+        "",
+        "## Historical Next Step",
+        "",
+        (
+            f"pre_close_instruction: {summary['historical_next_step']['text']}"
+            if summary["historical_next_step"]
+            else "None."
+        ),
+        "",
+    ]
+    terminal_text = "\n".join(terminal_lines)
     if state["status"] == "abandoned":
         reason = next((event["summary"] for event in reversed(state["events"]) if event["kind"] == "abandoned"), "not recorded")
-        return f"# Final Report\n\n## Outcome\n\nabandoned\n\nScientific outcome claimed: none\n\n## Reason\n\n{reason}\n"
+        return f"# Final Report\n\n## Outcome\n\nabandoned\n\nScientific outcome claimed: none\n\n## Reason\n\n{reason}\n\n{terminal_text}"
     outcome = state["status"].removeprefix("closed-")
     return (
         "# Final Report\n\n"
@@ -481,6 +612,7 @@ def _final_report(state: dict[str, Any]) -> str:
         f"## Evidence Cited\n\n{_bullets(decision['evidence_refs'] if decision else [])}\n"
         f"## Uncertainty\n\n{decision['uncertainty'] if decision else 'not recorded'}\n\n"
         f"## Remaining Unknowns\n\n{_bullets(decision['remaining_unknowns'] if decision else [])}\n"
+        f"{terminal_text}"
     )
 
 

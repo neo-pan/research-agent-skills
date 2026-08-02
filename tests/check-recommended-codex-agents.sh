@@ -54,9 +54,15 @@ for config in "${reviewer}" "${explorer}"; do
 done
 
 assert_contains "${reviewer}" "action, subject_digest, adapter, verdict, and concise typed findings"
+assert_contains "${reviewer}" "Do not use tools or inspect files"
+assert_contains "${reviewer}" "digest-bound receipt or excerpt"
+if grep -Fqi 'verification artifacts' "${reviewer}" "${ORCHESTRATOR}"; then
+  fail "semantic reviewer inputs must be pack-only"
+fi
 assert_contains "${explorer}" "contradictions"
 assert_contains "${ORCHESTRATOR}" 'fork_turns="none"'
 assert_contains "${ORCHESTRATOR}" "main transcript"
+assert_contains "${ORCHESTRATOR}" "use at most one"
 assert_contains "${SEMANTIC_REVIEW}" 'fork_turns="none"'
 assert_contains "${PHASE_REVIEW}" 'fork_turns="none"'
 assert_setting "${PHASE_REVIEW_AGENT}" '  allow_implicit_invocation: false'

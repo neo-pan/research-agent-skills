@@ -467,6 +467,52 @@ class ReplayAndGateTests(unittest.TestCase):
             self.assertEqual(pack["prior_review_context"], [])
             self.assertEqual(pack["deterministic_findings"], [])
 
+    def test_review_questions_are_action_specific_and_bind_the_accepted_action(self):
+        with project() as (_root, engine):
+            start = json.loads(json.dumps(START))
+            start["mission"]["success_criteria"].append("unfinished work is explicit")
+            engine.execute("start", session_id="action-questions", request=start)
+
+            first = routine_delta(risk="material")
+            first["decision"]["next_step"] = (
+                "Run the final bounded check; complete when its frozen receipt passes; "
+                "retain the terminal projection phase."
+            )
+            applied = engine.execute("apply", session_id="action-questions", request=first)
+            next_pack = engine.execute("review", session_id="action-questions", action="next")
+
+            self.assertIsNone(next_pack["action_context"])
+            self.assertTrue(any("action_context" in item for item in next_pack["reviewer_task"]["questions"]))
+            self.assertFalse(any("success_criteria[" in item for item in next_pack["reviewer_task"]["questions"]))
+
+            engine.execute(
+                "apply",
+                session_id="action-questions",
+                request=review_result(2, applied["review_subject_digest"], action="next"),
+            )
+            engine.execute("next", session_id="action-questions", expected_state_version=3)
+            second = engine.execute(
+                "apply",
+                session_id="action-questions",
+                request=routine_delta(version=4, transition="close", outcome="positive", risk="material"),
+            )
+            close_pack = engine.execute("review", session_id="action-questions", action="close")
+
+            self.assertEqual(second["review_subject_digest"], close_pack["subject_digest"])
+            self.assertEqual(
+                close_pack["action_context"],
+                {
+                    "source_round": 1,
+                    "instruction": first["decision"]["next_step"],
+                    "decision_subject": first["decision"]["subject"],
+                },
+            )
+            questions = close_pack["reviewer_task"]["questions"]
+            self.assertTrue(any("mission.success_criteria[0]" in item for item in questions))
+            self.assertTrue(any("mission.success_criteria[1]" in item for item in questions))
+            self.assertTrue(any("project-review receipt" in item for item in questions))
+            self.assertFalse(any("decision.next_step executable" in item for item in questions))
+
     def test_fresh_review_pack_preserves_same_round_prior_finding_adjudication(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="prior-finding", request=START)

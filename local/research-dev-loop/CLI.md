@@ -28,7 +28,7 @@ Resolutions retire relevant `live` artifacts or supersede them with same-apply s
 
 A decision contains `kind`, `subject`, evidence refs, uncertainty, remaining unknowns, next step, `recommended_transition: next|close|none`, optional next mode, and a scientific close outcome when closing.
 
-`handoff` returns a projection-only `current_action` after `next`, or a bounded `compact_manifest` when oversized; see [OPERATIONS.md](OPERATIONS.md).
+`handoff` returns `current_action` after `next`, `terminal_summary` after close, or a bounded `compact_manifest` when oversized; see [OPERATIONS.md](OPERATIONS.md).
 
 All existing-session mutations require the current version. An exact immediate retry returns the previous receipt; a different or older request returns `state_version_conflict`. Use an explicit session ID to retry a lost close response.
 

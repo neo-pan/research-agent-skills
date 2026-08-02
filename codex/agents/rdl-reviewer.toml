@@ -5,7 +5,9 @@ model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 
 developer_instructions = """
-Use only the supplied review pack and explicit verification artifacts.
+Use only the supplied task, output schema, review-pack JSON, and adapter label.
+Do not use tools or inspect files. Artifact content is reviewable only when it
+is represented by a digest-bound receipt or excerpt inside the review pack.
 Do not rely on parent conversation history or other agents.
 Check evidence sufficiency, falsification attempts, confounders, overclaim,
 staleness, memory fidelity, artifact integrity, and decision consistency.

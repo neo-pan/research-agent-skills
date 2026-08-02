@@ -11,6 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SEMANTIC = ROOT / "local" / "research-dev-loop" / "SEMANTIC_REVIEW.md"
+REVIEWER = ROOT / "codex" / "agents" / "rdl-reviewer.toml"
+ORCHESTRATOR = ROOT / "local" / "rdl-orchestrator" / "CODEX.md"
+README = ROOT / "README.md"
 sys.path.insert(0, str(ROOT / "local" / "research-dev-loop"))
 
 from rdl.model import SEVERITIES, VERDICTS  # noqa: E402
@@ -91,6 +94,18 @@ class ReviewContractTests(unittest.TestCase):
         self.assertIn("retry unchanged without applying it", self.text)
         self.assertIn("adds `disposition` and `rationale`", self.text)
         self.assertIn("One valid review is allowed per action/digest", self.text)
+
+    def test_every_reviewer_entrypoint_is_pack_only(self):
+        for path in (SEMANTIC, REVIEWER, ORCHESTRATOR, README):
+            with self.subTest(path=path.relative_to(ROOT)):
+                text = path.read_text(encoding="utf-8").lower()
+                self.assertNotIn("verification artifacts", text)
+                self.assertIn("review pack", text.replace("review-pack", "review pack"))
+        reviewer = REVIEWER.read_text(encoding="utf-8")
+        self.assertIn("Do not use tools or inspect files", reviewer)
+        self.assertIn("digest-bound receipt or excerpt", reviewer)
+        orchestrator = " ".join(ORCHESTRATOR.read_text(encoding="utf-8").split())
+        self.assertIn("digest-bound receipt or excerpt", orchestrator)
 
 
 if __name__ == "__main__":

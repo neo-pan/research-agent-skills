@@ -169,7 +169,28 @@ class InterfaceTests(unittest.TestCase):
                 "close", session_id="material", expected_state_version=3, outcome="positive"
             )
             self.assertEqual(closed["transition_readiness"], "terminal")
-            self.assertEqual(engine.execute("handoff", session_id="material")["session_status"], "closed-positive")
+            handoff = engine.execute("handoff", session_id="material")
+            self.assertEqual(handoff["session_status"], "closed-positive")
+            self.assertNotIn("current_action", handoff)
+            self.assertNotIn("next_step", handoff["round"]["decision"])
+            self.assertEqual(
+                handoff["terminal_summary"],
+                {
+                    "outcome": "positive",
+                    "state_version": 4,
+                    "closed_at_utc": engine.repository.load("material")["updated_at_utc"],
+                    "final_review_binding": {
+                        "action": "close",
+                        "review_id": "R000001",
+                        "subject_digest": applied["review_subject_digest"],
+                    },
+                    "unfinished_progress": [],
+                    "historical_next_step": {
+                        "status": "pre_close_instruction",
+                        "text": "run the next bounded check",
+                    },
+                },
+            )
 
     def test_abandoned_close_bypasses_round_readiness(self):
         with project() as (_root, engine):
@@ -222,6 +243,18 @@ class InterfaceTests(unittest.TestCase):
                 handoff = engine.execute("handoff", session_id=session_id)
                 self.assertEqual(handoff["projection_profile"], "compact_manifest")
                 self.assertEqual(handoff["session_status"], f"closed-{outcome}" if outcome != "abandoned" else outcome)
+                self.assertEqual(handoff["terminal_summary"]["outcome"], outcome)
+                self.assertEqual(handoff["terminal_summary"]["state_version"], handoff["state_version"])
+                self.assertNotIn("current_action", handoff)
+                if outcome == "abandoned":
+                    self.assertIsNone(handoff["terminal_summary"]["final_review_binding"])
+                    self.assertIsNone(handoff["terminal_summary"]["historical_next_step"])
+                else:
+                    self.assertEqual(handoff["terminal_summary"]["final_review_binding"]["action"], "close")
+                    self.assertEqual(
+                        handoff["terminal_summary"]["historical_next_step"]["status"],
+                        "pre_close_instruction",
+                    )
                 self.assertEqual(
                     handoff["canonical_state"]["final_report_path"],
                     f".rdl/.store/{session_id}/{handoff['state_version']}/final-report.md",
@@ -230,6 +263,141 @@ class InterfaceTests(unittest.TestCase):
                     len(json.dumps(handoff, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()),
                     24 * 1024,
                 )
+
+    def test_terminal_summary_lists_only_unfinished_progress(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="terminal-progress", request=START)
+            delta = routine_delta(transition="close", outcome="inconclusive", risk="material")
+            delta["progress_updates"].update(
+                {
+                    "pending": {"status": "active", "summary": "work remains", "blocking": False},
+                    "deferred": {
+                        "status": "deferred",
+                        "summary": "portable execution remains deferred",
+                        "blocking": False,
+                        "reason": "environment unavailable",
+                        "revisit_trigger": "supported environment becomes available",
+                    },
+                    "historical": {
+                        "status": "direction_tried",
+                        "summary": "the rejected path is historical",
+                        "blocking": False,
+                    },
+                }
+            )
+            applied = engine.execute("apply", session_id="terminal-progress", request=delta)
+            engine.execute(
+                "apply",
+                session_id="terminal-progress",
+                request=review_result(2, applied["review_subject_digest"]),
+            )
+            engine.execute(
+                "close",
+                session_id="terminal-progress",
+                expected_state_version=3,
+                outcome="inconclusive",
+            )
+
+            handoff = engine.execute("handoff", session_id="terminal-progress")
+            self.assertEqual(
+                handoff["terminal_summary"]["unfinished_progress"],
+                [
+                    {"key": "deferred", "status": "deferred", "blocking": False},
+                    {"key": "pending", "status": "active", "blocking": False},
+                ],
+            )
+            report = (
+                engine.repository.current_generation("terminal-progress") / "final-report.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("## Terminal Summary", report)
+            self.assertIn("deferred: deferred", report)
+            self.assertIn("pending: active", report)
+            self.assertNotIn("historical: direction_tried", report)
+            self.assertIn("pre_close_instruction: run the next bounded check", report)
+
+    def test_terminal_compact_summary_references_unbounded_details_and_close_succeeds(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="terminal-compact-details", request=START)
+            delta = routine_delta(transition="close", outcome="inconclusive", risk="material")
+            delta["decision"]["next_step"] = "x" * 28000
+            delta["progress_updates"].update(
+                {
+                    f"pending-{index}": {
+                        "status": "active",
+                        "summary": f"bounded unfinished item {index}",
+                        "blocking": False,
+                    }
+                    for index in range(12)
+                }
+            )
+            applied = engine.execute("apply", session_id="terminal-compact-details", request=delta)
+            pack = engine.execute("review", session_id="terminal-compact-details", action="close")
+            self.assertLessEqual(
+                len(json.dumps(pack, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()),
+                rendering.REVIEW_HARD_BYTES,
+            )
+            engine.execute(
+                "apply",
+                session_id="terminal-compact-details",
+                request=review_result(2, applied["review_subject_digest"]),
+            )
+
+            closed = engine.execute(
+                "close",
+                session_id="terminal-compact-details",
+                expected_state_version=3,
+                outcome="inconclusive",
+            )
+            handoff = engine.execute("handoff", session_id="terminal-compact-details")
+
+            self.assertEqual(closed["transition_readiness"], "terminal")
+            self.assertEqual(handoff["projection_profile"], "compact_manifest")
+            self.assertLessEqual(
+                len(json.dumps(handoff, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()),
+                rendering.HANDOFF_HARD_BYTES,
+            )
+            self.assertEqual(
+                handoff["terminal_summary"]["unfinished_progress"],
+                {
+                    "count": 12,
+                    "status_counts": {"active": 12},
+                    "read_section": "/progress",
+                },
+            )
+            self.assertEqual(
+                handoff["terminal_summary"]["historical_next_step"],
+                {
+                    "status": "pre_close_instruction",
+                    "read_section": "/rounds/0/decision/next_step",
+                },
+            )
+
+    def test_abandoned_after_close_review_has_no_final_review_binding(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="abandoned-after-review", request=START)
+            applied = engine.execute(
+                "apply",
+                session_id="abandoned-after-review",
+                request=routine_delta(transition="close", outcome="positive", risk="material"),
+            )
+            engine.execute(
+                "apply",
+                session_id="abandoned-after-review",
+                request=review_result(2, applied["review_subject_digest"]),
+            )
+            engine.execute(
+                "close",
+                session_id="abandoned-after-review",
+                expected_state_version=3,
+                outcome="abandoned",
+                reason="the bounded task was superseded",
+            )
+
+            state = engine.repository.load("abandoned-after-review")
+            handoff = engine.execute("handoff", session_id="abandoned-after-review")
+            self.assertEqual(len(state["rounds"][0]["review_history"]), 1)
+            self.assertEqual(handoff["terminal_summary"]["outcome"], "abandoned")
+            self.assertIsNone(handoff["terminal_summary"]["final_review_binding"])
 
     def test_invalid_input_is_machine_readable(self):
         with project() as (root, _engine):
