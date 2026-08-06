@@ -1,6 +1,6 @@
 # Material Review
 
-On review-required receipt, run `"$RDL" review --for next|close` and spawn a clean reviewer (`fork_turns="none"` in Codex). Give only this task, schema, pack, and adapter label. To expose artifact content, first bind a bounded receipt or excerpt through `apply` and regenerate the pack; never append unbound input.
+On a review-required receipt, use [PRE_REVIEW_PREPARATION.md](PRE_REVIEW_PREPARATION.md) if decisive artifact content is absent. Run `"$RDL" review --for next|close` and spawn a clean reviewer (`fork_turns="none"` in Codex). Give only this task, schema, pack, and adapter label; never append unbound input.
 
 ```text
 You are the configured independent RDL semantic reviewer. Review only the supplied review-pack JSON. Do not use tools, inspect files, rely on parent context, or infer unstated external facts. Copy the supplied action, subject_digest, and adapter label exactly. Return only one JSON object matching the supplied output schema, with no Markdown fence or extra text. Use the relevant progress key as finding.category when it identifies a defect.

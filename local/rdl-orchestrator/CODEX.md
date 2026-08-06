@@ -14,10 +14,11 @@ adapter, pass `fork_turns="none"`; other adapters must provide an equivalent
 clean-spawn option. Custom-agent files cannot enforce launch context.
 
 Give the reviewer only the task, output schema, generated review pack, and
-adapter label. If artifact content is needed, first bind a digest-bound receipt
-or excerpt into RDL evidence and regenerate the pack. Give an explorer one bounded
-question and only its allowed context. Do not forward the main transcript,
-search logs, or another agent's working output.
+adapter label. If artifact content is needed, follow the loaded RDL skill's
+[preparation reference](../research-dev-loop/PRE_REVIEW_PREPARATION.md), bind its
+digest-bound receipt or excerpt through `apply`, and regenerate the pack. Give an
+explorer one bounded question and only its allowed context. Do not forward the
+main transcript, search logs, or another agent's working output.
 
 Default to no explorer; use at most one when isolating a bounded, high-noise
 question materially reduces main-context load. Explorers return evidence

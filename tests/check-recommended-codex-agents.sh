@@ -61,6 +61,9 @@ if grep -Fqi 'verification artifacts' "${reviewer}" "${ORCHESTRATOR}"; then
   fail "semantic reviewer inputs must be pack-only"
 fi
 assert_contains "${explorer}" "contradictions"
+assert_contains "${explorer}" "registered artifact IDs and paths"
+assert_contains "${explorer}" "verify observed size_bytes and sha256 against the registered identity before opening"
+assert_contains "${explorer}" "match count, truncation, and zero-match scope"
 assert_contains "${ORCHESTRATOR}" 'fork_turns="none"'
 assert_contains "${ORCHESTRATOR}" "main transcript"
 assert_contains "${ORCHESTRATOR}" "use at most one"
