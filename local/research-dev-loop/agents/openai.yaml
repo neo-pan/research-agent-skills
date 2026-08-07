@@ -1,4 +1,4 @@
 interface:
   display_name: "Research Development Loop"
-  short_description: "Run durable evidence-backed research and build sessions"
-  default_prompt: "Use $research-dev-loop to run or resume a durable evidence-backed research or build session."
+  short_description: "Operate explicit multi-round evidence-backed sessions"
+  default_prompt: "Use $research-dev-loop to resume an existing RDL session or explicitly start one for durable multi-round work."

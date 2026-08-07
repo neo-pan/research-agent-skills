@@ -70,7 +70,7 @@ assert_contains "${ORCHESTRATOR}" "use at most one"
 assert_contains "${SEMANTIC_REVIEW}" 'fork_turns="none"'
 assert_contains "${PHASE_REVIEW}" 'fork_turns="none"'
 assert_setting "${RDL_SKILL_AGENT}" '  display_name: "Research Development Loop"'
-assert_setting "${RDL_SKILL_AGENT}" '  short_description: "Run durable evidence-backed research and build sessions"'
+assert_setting "${RDL_SKILL_AGENT}" '  short_description: "Operate explicit multi-round evidence-backed sessions"'
 assert_contains "${RDL_SKILL_AGENT}" '$research-dev-loop'
 assert_setting "${PHASE_REVIEW_AGENT}" '  allow_implicit_invocation: false'
 assert_setting "${RDL_ORCHESTRATOR_AGENT}" '  allow_implicit_invocation: false'
