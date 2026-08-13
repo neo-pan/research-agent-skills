@@ -272,6 +272,7 @@ class RdlEngine:
             context=context,
             deterministic_findings=deterministic,
         )
+        review_budget = self._review_budget(updated, transition_action, deterministic)
         receipt: dict[str, Any] = {
             "status": "ok",
             "session_id": updated["session_id"],
@@ -281,8 +282,10 @@ class RdlEngine:
             "effective_risk": effective_risk,
             "review_required": readiness["status"] == "needs_review",
             "transition_readiness": readiness["status"],
-            "warnings": readiness["warnings"],
+            "warnings": self._receipt_warnings(readiness["warnings"], review_budget),
         }
+        if review_budget is not None:
+            receipt["review_budget"] = review_budget
         if reasons and delta["risk"] == "routine":
             receipt["risk_upgrade_reasons"] = reasons
         if current_subject is not None and readiness["status"] == "needs_review":
@@ -393,8 +396,11 @@ class RdlEngine:
         return receipt
 
     def _handoff(self, state: dict[str, Any]) -> dict[str, Any]:
-        readiness = self._readiness(state, self._transition_action(state), context=EvaluationContext(self.root))
-        return rendering.handoff(state, readiness)
+        context = EvaluationContext(self.root)
+        action = self._transition_action(state)
+        findings = self._deterministic_findings(state, context)
+        readiness = self._readiness(state, action, context=context, deterministic_findings=findings)
+        return rendering.handoff(state, readiness, self._review_budget(state, action, findings))
 
     def _review(self, state: dict[str, Any], action: str | None) -> dict[str, Any]:
         if action not in {"next", "close"}:
@@ -415,19 +421,21 @@ class RdlEngine:
 
     def _doctor(self, state: dict[str, Any], diagnostics: bool) -> dict[str, Any]:
         context = EvaluationContext(self.root)
+        action = self._transition_action(state)
         findings = self._deterministic_findings(state, context)
         readiness = self._readiness(
             state,
-            self._transition_action(state),
+            action,
             context=context,
             deterministic_findings=findings,
         )
-        handoff_projection = rendering.handoff_diagnostics(state, readiness)
+        review_budget = self._review_budget(state, action, findings)
+        handoff_projection = rendering.handoff_diagnostics(state, readiness, review_budget)
         review_projection = None
         if state["status"] == "active" and readiness["status"] == "needs_review":
             review_projection = rendering.review_pack_diagnostics(
                 state,
-                self._transition_action(state),
+                action,
                 findings,
             )
             if review_projection["hard_limit_exceeded"]:
@@ -516,11 +524,48 @@ class RdlEngine:
             "warnings": [],
         }
 
+    @staticmethod
+    def _receipt_warnings(warnings: list[str], review_budget: dict[str, Any] | None) -> list[str]:
+        result = list(warnings)
+        if review_budget is None:
+            return result
+        if review_budget["hard_limit_exceeded"]:
+            result.append("review_pack_over_budget")
+        elif review_budget["soft_limit_exceeded"]:
+            result.append("review_pack_soft_budget_exceeded")
+        return result
+
+    @staticmethod
+    def _review_budget(
+        state: dict[str, Any], action: str | None, deterministic_findings: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        if state["status"] != "active" or action not in {"next", "close"}:
+            return None
+        diagnostics = rendering.review_pack_diagnostics(state, action, deterministic_findings)
+        return {
+            "action": action,
+            "size_bytes": diagnostics["size_bytes"],
+            "soft_limit_bytes": diagnostics["soft_limit_bytes"],
+            "hard_limit_bytes": diagnostics["hard_limit_bytes"],
+            "soft_limit_exceeded": diagnostics["soft_limit_exceeded"],
+            "hard_limit_exceeded": diagnostics["hard_limit_exceeded"],
+        }
+
     def _deterministic_findings(self, state: dict[str, Any], context: EvaluationContext) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
+        transition_action = self._transition_action(state)
         for key, entry in state["progress"].items():
             if entry["status"] == "blocked" and entry["blocking"]:
                 findings.append({"code": "blocking_progress", "severity": "blocking", "location": key, "message": entry["summary"]})
+            if transition_action == "close" and entry["status"] == "active":
+                findings.append(
+                    {
+                        "code": "unreconciled_active_progress",
+                        "severity": "blocking",
+                        "location": key,
+                        "message": entry["summary"],
+                    }
+                )
         round_state = current_round(state)
         current_artifact_ids = rendering.direct_relevant_artifact_ids(state, round_state)
         for artifact in state["artifacts"]:

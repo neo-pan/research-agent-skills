@@ -212,7 +212,9 @@ def _prior_review_context(round_state: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
+def handoff(
+    state: dict[str, Any], readiness: dict[str, Any], review_budget: dict[str, Any] | None = None
+) -> dict[str, Any]:
     round_state = current_round(state)
     current_evidence = [item for item in state["evidence"] if item["id"] in _relevant_evidence_ids(round_state)]
     artifact_ids = relevant_artifact_closure(state, round_state)
@@ -262,13 +264,21 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
         sections["terminal_summary"] = terminal_summary
     if current_action is not None:
         sections["current_action"] = current_action
+    if review_budget is not None:
+        sections["review_budget"] = review_budget
+    warnings = []
+    if review_budget is not None:
+        if review_budget["hard_limit_exceeded"]:
+            warnings.append("review_pack_over_budget")
+        elif review_budget["soft_limit_exceeded"]:
+            warnings.append("review_pack_soft_budget_exceeded")
     result = {
         "status": "ok",
         "session_id": state["session_id"],
         "state_version": state["state_version"],
         "session_status": state["status"],
         **sections,
-        "warnings": [],
+        "warnings": warnings,
     }
     full_size = _encoded_size(result)
     if full_size <= HANDOFF_HARD_BYTES:
@@ -303,13 +313,15 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
             "read_sections": read_sections,
         },
         "omitted_inline_sections": omitted,
-        "warnings": ["handoff_full_inline_over_budget"],
+        "warnings": ["handoff_full_inline_over_budget", *warnings],
         "accounting": {
             "full_inline_size_bytes": full_size,
             "inline_limit_bytes": HANDOFF_HARD_BYTES,
             "sections": section_accounting(sections),
         },
     }
+    if review_budget is not None:
+        manifest["review_budget"] = review_budget
     if state["status"] != "active":
         manifest["terminal_summary"] = _terminal_summary(state, compact=True)
         manifest["canonical_state"]["final_report_path"] = (
@@ -321,8 +333,10 @@ def handoff(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
     return manifest
 
 
-def handoff_diagnostics(state: dict[str, Any], readiness: dict[str, Any]) -> dict[str, Any]:
-    result = handoff(state, readiness)
+def handoff_diagnostics(
+    state: dict[str, Any], readiness: dict[str, Any], review_budget: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    result = handoff(state, readiness, review_budget)
     profile = result.get("projection_profile", "full_inline")
     final_size = _encoded_size(result)
     if profile == "compact_manifest":
@@ -340,6 +354,7 @@ def handoff_diagnostics(state: dict[str, Any], readiness: dict[str, Any]) -> dic
                     "round",
                     "artifacts",
                     "readiness",
+                    "review_budget",
                     "current_action",
                     "terminal_summary",
                 )

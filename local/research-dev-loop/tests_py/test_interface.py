@@ -264,13 +264,108 @@ class InterfaceTests(unittest.TestCase):
                     24 * 1024,
                 )
 
+    def test_non_abandoned_close_requires_active_progress_reconciliation(self):
+        for outcome in ("positive", "negative", "inconclusive"):
+            with self.subTest(outcome=outcome), project() as (_root, engine):
+                session_id = f"active-close-{outcome}"
+                engine.execute("start", session_id=session_id, request=START)
+                delta = routine_delta(transition="close", outcome=outcome, risk="material")
+                delta["progress_updates"]["pending"] = {
+                    "status": "active",
+                    "summary": "work remains",
+                    "blocking": False,
+                }
+
+                applied = engine.execute("apply", session_id=session_id, request=delta)
+
+                self.assertEqual(applied["transition_readiness"], "blocked")
+                self.assertNotIn("review_subject_digest", applied)
+                with self.assertRaisesRegex(RdlError, "not ready") as close_error:
+                    engine.execute(
+                        "close",
+                        session_id=session_id,
+                        expected_state_version=2,
+                        outcome=outcome,
+                    )
+                self.assertIn("unreconciled_active_progress", close_error.exception.details["blockers"])
+                self.assertEqual(engine.repository.load(session_id)["state_version"], 2)
+
+    def test_reconciled_and_non_active_progress_can_close(self):
+        for status in ("completed", "deferred", "open_question"):
+            with self.subTest(status=status), project() as (_root, engine):
+                session_id = f"reconciled-{status}"
+                engine.execute("start", session_id=session_id, request=START)
+                delta = routine_delta(transition="close", outcome="inconclusive", risk="material")
+                progress = {
+                    "status": status,
+                    "summary": f"work is explicitly {status}",
+                    "blocking": False,
+                }
+                if status == "deferred":
+                    progress.update({"reason": "environment unavailable", "revisit_trigger": "environment returns"})
+                delta["progress_updates"]["pending"] = progress
+                applied = engine.execute("apply", session_id=session_id, request=delta)
+                engine.execute(
+                    "apply",
+                    session_id=session_id,
+                    request=review_result(2, applied["review_subject_digest"]),
+                )
+
+                engine.execute(
+                    "close",
+                    session_id=session_id,
+                    expected_state_version=3,
+                    outcome="inconclusive",
+                )
+
+                handoff = engine.execute("handoff", session_id=session_id)
+                expected = [] if status == "completed" else [
+                    {"key": "pending", "status": status, "blocking": False}
+                ]
+                self.assertEqual(handoff["terminal_summary"]["unfinished_progress"], expected)
+
+    def test_next_and_abandoned_allow_active_progress(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="active-next", request=START)
+            delta = routine_delta(transition="next", risk="material")
+            delta["progress_updates"]["pending"] = {
+                "status": "active",
+                "summary": "work remains for the next round",
+                "blocking": False,
+            }
+            applied = engine.execute("apply", session_id="active-next", request=delta)
+            self.assertEqual(applied["transition_readiness"], "needs_review")
+
+        with project() as (_root, engine):
+            engine.execute("start", session_id="active-abandoned", request=START)
+            delta = routine_delta()
+            delta.pop("decision")
+            delta["progress_updates"]["pending"] = {
+                "status": "active",
+                "summary": "work remains",
+                "blocking": False,
+            }
+            engine.execute("apply", session_id="active-abandoned", request=delta)
+            engine.execute(
+                "close",
+                session_id="active-abandoned",
+                expected_state_version=2,
+                outcome="abandoned",
+                reason="external input unavailable",
+            )
+            handoff = engine.execute("handoff", session_id="active-abandoned")
+            self.assertEqual(
+                handoff["terminal_summary"]["unfinished_progress"],
+                [{"key": "pending", "status": "active", "blocking": False}],
+            )
+
     def test_terminal_summary_lists_only_unfinished_progress(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="terminal-progress", request=START)
             delta = routine_delta(transition="close", outcome="inconclusive", risk="material")
             delta["progress_updates"].update(
                 {
-                    "pending": {"status": "active", "summary": "work remains", "blocking": False},
+                    "question": {"status": "open_question", "summary": "work remains uncertain", "blocking": False},
                     "deferred": {
                         "status": "deferred",
                         "summary": "portable execution remains deferred",
@@ -303,7 +398,7 @@ class InterfaceTests(unittest.TestCase):
                 handoff["terminal_summary"]["unfinished_progress"],
                 [
                     {"key": "deferred", "status": "deferred", "blocking": False},
-                    {"key": "pending", "status": "active", "blocking": False},
+                    {"key": "question", "status": "open_question", "blocking": False},
                 ],
             )
             report = (
@@ -311,7 +406,7 @@ class InterfaceTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
             self.assertIn("## Terminal Summary", report)
             self.assertIn("deferred: deferred", report)
-            self.assertIn("pending: active", report)
+            self.assertIn("question: open_question", report)
             self.assertNotIn("historical: direction_tried", report)
             self.assertIn("pre_close_instruction: run the next bounded check", report)
 
@@ -323,7 +418,7 @@ class InterfaceTests(unittest.TestCase):
             delta["progress_updates"].update(
                 {
                     f"pending-{index}": {
-                        "status": "active",
+                        "status": "open_question",
                         "summary": f"bounded unfinished item {index}",
                         "blocking": False,
                     }
@@ -360,7 +455,7 @@ class InterfaceTests(unittest.TestCase):
                 handoff["terminal_summary"]["unfinished_progress"],
                 {
                     "count": 12,
-                    "status_counts": {"active": 12},
+                    "status_counts": {"open_question": 12},
                     "read_section": "/progress",
                 },
             )
@@ -471,11 +566,14 @@ class InterfaceTests(unittest.TestCase):
                 handoff["omitted_inline_sections"],
                 ["mission", "progress", "factors", "round", "artifacts"],
             )
-            self.assertEqual(handoff["warnings"], ["handoff_full_inline_over_budget"])
+            self.assertEqual(
+                handoff["warnings"],
+                ["handoff_full_inline_over_budget", "review_pack_soft_budget_exceeded"],
+            )
             self.assertGreater(handoff["accounting"]["full_inline_size_bytes"], 24 * 1024)
             self.assertEqual(handoff["accounting"]["inline_limit_bytes"], 24 * 1024)
 
-    def test_observed_24581_byte_handoff_shape_uses_the_manifest(self):
+    def test_observed_near_limit_handoff_shape_uses_the_manifest(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="observed-budget", request=START)
             delta = routine_delta()
@@ -489,7 +587,7 @@ class InterfaceTests(unittest.TestCase):
 
             handoff = engine.execute("handoff", session_id="observed-budget")
 
-            self.assertEqual(handoff["accounting"]["full_inline_size_bytes"], 24581)
+            self.assertEqual(handoff["accounting"]["full_inline_size_bytes"], 24740)
             self.assertEqual(handoff["projection_profile"], "compact_manifest")
 
     def test_handoff_budget_uses_final_utf8_json_bytes(self):
@@ -533,14 +631,58 @@ class InterfaceTests(unittest.TestCase):
             self.assertTrue(handoff["optimization_target_exceeded"])
             self.assertIn("progress", handoff["sections"])
 
+    def test_review_budget_is_absent_without_a_decision_and_quiet_for_a_small_two_round_flow(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="review-budget-small", request=START)
+            handoff = engine.execute("handoff", session_id="review-budget-small")
+            self.assertNotIn("review_budget", handoff)
+
+            checkpoint = engine.execute(
+                "apply",
+                session_id="review-budget-small",
+                request={"expected_state_version": 1, "risk": "routine"},
+            )
+            self.assertNotIn("review_budget", checkpoint)
+
+            applied = engine.execute(
+                "apply",
+                session_id="review-budget-small",
+                request=routine_delta(version=2, risk="material"),
+            )
+            handoff = engine.execute("handoff", session_id="review-budget-small")
+            pack = engine.execute("review", session_id="review-budget-small", action="next")
+            expected = {
+                "action": "next",
+                "size_bytes": len(json.dumps(pack, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()),
+                "soft_limit_bytes": 32 * 1024,
+                "hard_limit_bytes": 48 * 1024,
+                "soft_limit_exceeded": False,
+                "hard_limit_exceeded": False,
+            }
+            self.assertEqual(applied["review_budget"], expected)
+            self.assertEqual(handoff["review_budget"], expected)
+            self.assertEqual(applied["warnings"], [])
+            self.assertEqual(handoff["warnings"], [])
+
+            engine.execute(
+                "apply",
+                session_id="review-budget-small",
+                request=review_result(3, pack["subject_digest"], action="next"),
+            )
+            engine.execute("next", session_id="review-budget-small", expected_state_version=4)
+            second_round = engine.execute("handoff", session_id="review-budget-small")
+            self.assertNotIn("review_budget", second_round)
+            self.assertEqual(second_round["warnings"], [])
+
     def test_review_soft_budget_warns_without_blocking_the_pack(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="review-soft-budget", request=START)
             delta = routine_delta(risk="material")
             delta["progress_updates"]["fixture"]["summary"] = "x" * 34000
-            engine.execute("apply", session_id="review-soft-budget", request=delta)
+            applied = engine.execute("apply", session_id="review-soft-budget", request=delta)
 
             doctor = engine.execute("doctor", session_id="review-soft-budget", diagnostics=True)
+            handoff = engine.execute("handoff", session_id="review-soft-budget")
             review = engine.execute("review", session_id="review-soft-budget", action="next")
             review_size = len(
                 json.dumps(review, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
@@ -557,13 +699,28 @@ class InterfaceTests(unittest.TestCase):
                 doctor["diagnostics"]["projections"]["review"]["size_bytes"],
                 review_size,
             )
+            expected = {
+                "action": "next",
+                "size_bytes": review_size,
+                "soft_limit_bytes": 32 * 1024,
+                "hard_limit_bytes": 48 * 1024,
+                "soft_limit_exceeded": True,
+                "hard_limit_exceeded": False,
+            }
+            self.assertEqual(applied["review_budget"], expected)
+            self.assertEqual(handoff["review_budget"], expected)
+            self.assertEqual(applied["warnings"], ["review_pack_soft_budget_exceeded"])
+            self.assertEqual(
+                handoff["warnings"],
+                ["handoff_full_inline_over_budget", "review_pack_soft_budget_exceeded"],
+            )
 
     def test_review_hard_budget_fails_closed_while_the_session_remains_recoverable(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="review-hard-budget", request=START)
             delta = routine_delta(risk="material")
             delta["progress_updates"]["fixture"]["summary"] = "x" * 52000
-            engine.execute("apply", session_id="review-hard-budget", request=delta)
+            applied = engine.execute("apply", session_id="review-hard-budget", request=delta)
 
             doctor = engine.execute("doctor", session_id="review-hard-budget", diagnostics=True)
             handoff = engine.execute("handoff", session_id="review-hard-budget")
@@ -578,6 +735,21 @@ class InterfaceTests(unittest.TestCase):
             self.assertTrue(doctor["diagnostics"]["projections"]["review"]["hard_limit_exceeded"])
             self.assertEqual(review_error.exception.details["limit_bytes"], 48 * 1024)
             self.assertEqual(handoff["projection_profile"], "compact_manifest")
+            expected = {
+                "action": "next",
+                "size_bytes": doctor["diagnostics"]["projections"]["review"]["size_bytes"],
+                "soft_limit_bytes": 32 * 1024,
+                "hard_limit_bytes": 48 * 1024,
+                "soft_limit_exceeded": True,
+                "hard_limit_exceeded": True,
+            }
+            self.assertEqual(applied["review_budget"], expected)
+            self.assertEqual(handoff["review_budget"], expected)
+            self.assertEqual(applied["warnings"], ["review_pack_over_budget"])
+            self.assertEqual(
+                handoff["warnings"],
+                ["handoff_full_inline_over_budget", "review_pack_over_budget"],
+            )
             self.assertEqual(engine.repository.load("review-hard-budget")["state_version"], 2)
 
     def test_handoff_preserves_full_mission_and_lifecycle_closure(self):

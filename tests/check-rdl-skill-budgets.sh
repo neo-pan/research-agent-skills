@@ -23,10 +23,14 @@ grep -Fq 'Do not precompute file sizes or checksums for artifact entries' "${BAS
   || { echo "research-dev-loop must delegate artifact integrity metadata to apply" >&2; exit 1; }
 grep -Fq 'checksum-only commands such as `sha256sum` are redundant' "${BASE}" \
   || { echo "research-dev-loop must reject redundant checksum-only verification" >&2; exit 1; }
-grep -Fq 'routine applies stay in-round without review' "${BASE}" \
+grep -Fq 'routine applies stay in-round' "${BASE}" \
   || { echo "research-dev-loop must keep routine checkpoints reviewer-free" >&2; exit 1; }
 grep -Fq 'start one only when explicitly requested' "${BASE}" \
   || { echo "research-dev-loop must require explicit authorization for new sessions" >&2; exit 1; }
+grep -Fq 'obtain its PASS before `start`' "${BASE}" \
+  || { echo "research-dev-loop must review gated missions before start" >&2; exit 1; }
+grep -Fq 'resolve each `active` progress item' "${BASE}" \
+  || { echo "research-dev-loop must reconcile active progress before terminal close" >&2; exit 1; }
 grep -Fq 'Do not run semantic review, `apply`, `next`, or `close` unless the user asks' "${BASE}" \
   || { echo "research-dev-loop inspection must remain read-only" >&2; exit 1; }
 grep -Fq "project-review reference" "${ORCHESTRATOR}" \

@@ -50,6 +50,8 @@ Use `"$RDL" apply --input <file>` for each payload. Do not copy placeholder valu
 
 Handoff normally returns the complete inline projection. Above 24 KiB it returns a bounded `compact_manifest` with the immutable generation's authoritative `state.json`, state digest, required JSON sections, omitted inline sections, and full-projection byte accounting. Read those sections before acting. The 20 KiB target is diagnostic only. Semantic review remains complete and all-inline: 32 KiB is a diagnostic soft budget and 48 KiB is the fail-closed hard budget.
 
+When an active round has a `next` or `close` decision, ordinary apply and handoff receipts include the same compact `review_budget` estimate. A soft or hard crossing adds `review_pack_soft_budget_exceeded` or `review_pack_over_budget` to `warnings`; these are early signals, while formal `review` retains the 48 KiB fail-closed gate. When transition readiness is `needs_review`, detailed section accounting is available from `doctor --diagnostics`.
+
 Terminal handoff has no `current_action`. Its full-inline `terminal_summary` reports outcome, the review binding that authorized that outcome, unfinished progress, and labels the old next-step text as `pre_close_instruction`. A compact manifest keeps only fixed facts, status counts, and canonical section pointers; arbitrary text and lists remain in `state.json`/`final-report.md`. Abandoned sessions have no final review binding.
 
 ## Terminal audit
