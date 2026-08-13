@@ -15,6 +15,7 @@ PREPARATION = ROOT / "local" / "research-dev-loop" / "PRE_REVIEW_PREPARATION.md"
 REVIEWER = ROOT / "codex" / "agents" / "rdl-reviewer.toml"
 EXPLORER = ROOT / "codex" / "agents" / "rdl-explorer.toml"
 ORCHESTRATOR = ROOT / "local" / "rdl-orchestrator" / "CODEX.md"
+OPERATIONS = ROOT / "local" / "research-dev-loop" / "OPERATIONS.md"
 README = ROOT / "README.md"
 sys.path.insert(0, str(ROOT / "local" / "research-dev-loop"))
 
@@ -133,6 +134,26 @@ class ReviewContractTests(unittest.TestCase):
         self.assertIn("one bounded snapshot receipt", preparation)
         self.assertIn("workflow template, not a schema or readiness gate", preparation)
         self.assertIn("semantic reviewer", preparation)
+
+    def test_project_review_delegates_diff_identity_to_git(self):
+        operations = " ".join(OPERATIONS.read_text(encoding="utf-8").split())
+        orchestrator = " ".join(ORCHESTRATOR.read_text(encoding="utf-8").split())
+
+        for text in (operations, orchestrator):
+            self.assertIn(
+                "reviewed diff as the ordered `git diff <base-commit> <result-commit> -- <reviewed-paths>` comparison",
+                text,
+            )
+            self.assertIn("base HEAD", text)
+            self.assertIn(
+                "Git blob object ID produced by piping the exact "
+                "`git diff --binary --full-index --no-ext-diff HEAD -- <paths>` bytes to "
+                "`git hash-object --stdin`",
+                text,
+            )
+            self.assertIn("bind that blob ID to the exact diff byte stream", text)
+            self.assertRegex(text, r"untracked files.*enter that Git diff")
+            self.assertIn("Do not invent an RDL-specific diff digest.", text)
 
 
 if __name__ == "__main__":

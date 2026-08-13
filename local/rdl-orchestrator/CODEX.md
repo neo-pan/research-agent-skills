@@ -25,8 +25,16 @@ question materially reduces main-context load. Explorers return evidence
 inputs, not decisions, and never write shared state or spawn more agents.
 
 For a material build's final code/config/script claim, use the project's single
-configured read-only project reviewer before semantic close review. Bind its
-final diff and verification receipt through RDL evidence; any relevant change
-requires verification and project review again. This reviewer never performs
-the RDL transition. Pure research and no-code claims skip this gate unless the
-mission explicitly requires it.
+configured read-only project reviewer before semantic close review. Prefer a
+committed candidate and bind the reviewed diff as the ordered
+`git diff <base-commit> <result-commit> -- <reviewed-paths>` comparison;
+for necessary pre-commit review, bind the base HEAD, reviewed paths, and Git
+blob object ID produced by piping the exact
+`git diff --binary --full-index --no-ext-diff HEAD -- <paths>` bytes to
+`git hash-object --stdin`, and bind that blob ID to the exact diff byte stream.
+Relevant untracked files must enter that Git diff or
+the review is incomplete. Do not invent an RDL-specific diff digest. Bind the
+project-review and verification receipts through RDL evidence; any relevant
+change requires verification and project review again. This reviewer never
+performs the RDL transition. Pure research and no-code claims skip this gate
+unless the mission explicitly requires it.
