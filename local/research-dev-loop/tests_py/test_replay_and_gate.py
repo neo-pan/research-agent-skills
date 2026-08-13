@@ -616,8 +616,7 @@ class ReplayAndGateTests(unittest.TestCase):
                 },
             )
             questions = close_pack["reviewer_task"]["questions"]
-            self.assertTrue(any("mission.success_criteria[0]" in item for item in questions))
-            self.assertTrue(any("mission.success_criteria[1]" in item for item in questions))
+            self.assertTrue(any("each mission.success_criteria item" in item for item in questions))
             self.assertTrue(any("project-review receipt" in item for item in questions))
             self.assertFalse(any("decision.next_step executable" in item for item in questions))
 
@@ -687,6 +686,26 @@ class ReplayAndGateTests(unittest.TestCase):
                 request=review_result(4, pack["subject_digest"], action="next"),
             )
             self.assertEqual(rebound["transition_readiness"], "ready")
+
+    def test_prior_review_compaction_retains_latest_pass_and_later_findings(self):
+        finding = {
+            "severity": "note",
+            "category": "scope",
+            "claim": "retain this finding",
+            "required_resolution": "keep the boundary visible",
+            "disposition": "accepted",
+            "rationale": "the boundary remains material",
+        }
+        history = [
+            {"id": "R000001", "action": "close", "subject_digest": "1" * 64, "adapter": "test", "verdict": "revise", "recorded_version": 2, "findings": [finding]},
+            {"id": "R000002", "action": "close", "subject_digest": "2" * 64, "adapter": "test", "verdict": "pass", "recorded_version": 3, "findings": []},
+            {"id": "R000003", "action": "close", "subject_digest": "3" * 64, "adapter": "test", "verdict": "pass_with_notes", "recorded_version": 4, "findings": [finding]},
+            {"id": "R000004", "action": "close", "subject_digest": "4" * 64, "adapter": "test", "verdict": "revise", "recorded_version": 5, "findings": [finding]},
+        ]
+
+        compact = rendering._compact_review_history(history)
+
+        self.assertEqual([item["review_id"] for item in compact], ["R000003", "R000004"])
 
 
 if __name__ == "__main__":

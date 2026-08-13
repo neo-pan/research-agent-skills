@@ -49,7 +49,7 @@ def subject_projection(state: dict[str, Any], action: str, deterministic_finding
     evidence = [item for item in state["evidence"] if item["id"] in evidence_ids]
     artifact_ids = relevant_artifact_closure(state, round_state)
     artifacts = [_subject_artifact(item) for item in state["artifacts"] if item["id"] in artifact_ids]
-    projection = {
+    projection: dict[str, Any] = {
         "action": action,
         "mission": state["mission"],
         "mode": state["mode"],
@@ -69,6 +69,9 @@ def subject_projection(state: dict[str, Any], action: str, deterministic_finding
     action_context = _review_action_context(state)
     if action_context is not None:
         projection["action_context"] = action_context
+    projection["evidence_coverage"] = _evidence_coverage(projection["round"])
+    projection["reviewer_questions"] = _reviewer_questions(projection, action)
+    projection["prior_review_context"] = _bound_prior_review_context(state, action, projection)
     return projection
 
 
@@ -80,8 +83,6 @@ def _review_pack(
     state: dict[str, Any], action: str, deterministic_findings: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     projection = subject_projection(state, action, deterministic_findings)
-    evidence_coverage = _evidence_coverage(projection["round"])
-    prior_review_context = _prior_review_context(current_round(state))
     sections = {
         "mission": projection["mission"],
         "session": {"mode": projection["mode"], "progress": projection["progress"], "factors": projection["factors"]},
@@ -89,9 +90,9 @@ def _review_pack(
         "round": projection["round"],
         "artifacts": projection["artifacts"],
         "deterministic_findings": projection["deterministic_findings"],
-        "evidence_coverage": evidence_coverage,
+        "evidence_coverage": projection["evidence_coverage"],
         "evidence_selection": projection["evidence_selection"],
-        "prior_review_context": prior_review_context,
+        "prior_review_context": projection["prior_review_context"],
     }
     if any("resolution" in item for item in projection["artifacts"]):
         sections["artifact_lifecycle_guidance"] = ARTIFACT_LIFECYCLE_GUIDANCE
@@ -103,7 +104,7 @@ def _review_pack(
         "subject_digest": digest(projection),
         "reviewer_task": {
             "role": "fresh-context semantic reviewer",
-            "questions": _reviewer_questions(projection, action),
+            "questions": projection["reviewer_questions"],
             "return": "action, subject_digest, adapter, verdict, and concise typed findings",
         },
         "finding_schema": {
@@ -146,9 +147,8 @@ def _reviewer_questions(projection: dict[str, Any], action: str) -> list[str]:
         )
         return questions
 
-    questions.extend(
-        f"Is mission.success_criteria[{index}] evidence-backed within its stated scope: {criterion}"
-        for index, criterion in enumerate(projection["mission"]["success_criteria"])
+    questions.append(
+        "Is each mission.success_criteria item evidence-backed within its stated scope?"
     )
     questions.extend(
         (
@@ -199,7 +199,22 @@ def _evidence_coverage(round_projection: dict[str, Any]) -> list[dict[str, Any]]
     ]
 
 
-def _prior_review_context(round_state: dict[str, Any]) -> list[dict[str, Any]]:
+def _compact_prior_reviews(round_state: dict[str, Any]) -> list[dict[str, Any]]:
+    return _compact_review_history(round_state["review_history"])
+
+
+def _compact_review_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    passing = [item for item in history if item["verdict"] in {"pass", "pass_with_notes"}]
+    if not passing:
+        selected = [item for item in history if item["findings"]]
+    else:
+        latest_pass = passing[-1]
+        selected = [latest_pass]
+        selected.extend(
+            item
+            for item in history
+            if item["recorded_version"] > latest_pass["recorded_version"] and item["findings"]
+        )
     return [
         {
             "review_id": item["id"],
@@ -209,9 +224,26 @@ def _prior_review_context(round_state: dict[str, Any]) -> list[dict[str, Any]]:
             "recorded_version": item["recorded_version"],
             "findings": item["findings"],
         }
-        for item in round_state["review_history"]
-        if item["findings"]
+        for item in selected
     ]
+
+
+def _bound_prior_review_context(
+    state: dict[str, Any], action: str, projection_without_reviews: dict[str, Any]
+) -> list[dict[str, Any]]:
+    round_state = current_round(state)
+    context = _compact_prior_reviews(round_state)
+    binding = round_state["latest_bindings"].get(action)
+    if not binding:
+        return context
+    previous_context = _compact_review_history(
+        [item for item in round_state["review_history"] if item["id"] != binding["review_id"]]
+    )
+    candidate = dict(projection_without_reviews)
+    candidate["prior_review_context"] = previous_context
+    if digest(candidate) == binding["subject_digest"]:
+        return previous_context
+    return context
 
 
 def handoff(
