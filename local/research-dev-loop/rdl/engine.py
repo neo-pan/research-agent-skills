@@ -567,6 +567,7 @@ class RdlEngine:
                     }
                 )
         round_state = current_round(state)
+        findings.extend(rendering.missing_review_reference_findings(state, round_state))
         current_artifact_ids = rendering.direct_relevant_artifact_ids(state, round_state)
         for artifact in state["artifacts"]:
             if (

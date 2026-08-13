@@ -45,7 +45,7 @@ def render_views(state: dict[str, Any]) -> dict[str, str]:
 
 def subject_projection(state: dict[str, Any], action: str, deterministic_findings: list[dict[str, Any]]) -> dict[str, Any]:
     round_state = current_round(state)
-    evidence_ids = _relevant_evidence_ids(round_state)
+    evidence_ids = _relevant_evidence_ids(state, round_state)
     evidence = [item for item in state["evidence"] if item["id"] in evidence_ids]
     artifact_ids = relevant_artifact_closure(state, round_state)
     artifacts = [_subject_artifact(item) for item in state["artifacts"] if item["id"] in artifact_ids]
@@ -64,6 +64,7 @@ def subject_projection(state: dict[str, Any], action: str, deterministic_finding
         },
         "artifacts": artifacts,
         "deterministic_findings": deterministic_findings,
+        "evidence_selection": _evidence_selection_manifest(state, round_state, evidence_ids),
     }
     action_context = _review_action_context(state)
     if action_context is not None:
@@ -89,6 +90,7 @@ def _review_pack(
         "artifacts": projection["artifacts"],
         "deterministic_findings": projection["deterministic_findings"],
         "evidence_coverage": evidence_coverage,
+        "evidence_selection": projection["evidence_selection"],
         "prior_review_context": prior_review_context,
     }
     if any("resolution" in item for item in projection["artifacts"]):
@@ -216,7 +218,7 @@ def handoff(
     state: dict[str, Any], readiness: dict[str, Any], review_budget: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     round_state = current_round(state)
-    current_evidence = [item for item in state["evidence"] if item["id"] in _relevant_evidence_ids(round_state)]
+    current_evidence = [item for item in state["evidence"] if item["id"] in _relevant_evidence_ids(state, round_state)]
     artifact_ids = relevant_artifact_closure(state, round_state)
     current_action, action_artifact_ids = _post_next_current_action(state)
     artifact_ids.update(action_artifact_ids)
@@ -635,12 +637,79 @@ def _bullets(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in items) + ("\n" if items else "None.\n")
 
 
-def _relevant_evidence_ids(round_state: dict[str, Any]) -> set[str]:
-    evidence_ids = set(round_state["evidence_ids"])
+def _relevant_evidence_ids(state: dict[str, Any], round_state: dict[str, Any]) -> set[str]:
+    evidence_by_id = {item["id"]: item for item in state["evidence"]}
+    evidence_ids = {
+        ref
+        for entry in state["progress"].values()
+        for ref in entry.get("evidence_refs", [])
+    }
     decision = round_state.get("decision")
     if decision:
         evidence_ids.update(decision["evidence_refs"])
+    evidence_ids.update(
+        evidence_id
+        for evidence_id in round_state["evidence_ids"]
+        if evidence_by_id.get(evidence_id, {}).get("bearing") in {"contradicts", "mixed"}
+    )
     return evidence_ids
+
+
+def _evidence_selection_manifest(
+    state: dict[str, Any], round_state: dict[str, Any], selected_ids: set[str]
+) -> dict[str, Any]:
+    available = {item["id"] for item in state["evidence"]}
+    omitted = [
+        evidence_id
+        for evidence_id in round_state["evidence_ids"]
+        if evidence_id in available and evidence_id not in selected_ids
+    ]
+    return {
+        "selected_ids": [item["id"] for item in state["evidence"] if item["id"] in selected_ids],
+        "omitted_current_round_ids": omitted,
+        "omitted_current_round_count": len(omitted),
+    }
+
+
+def missing_review_reference_findings(state: dict[str, Any], round_state: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence_by_id = {item["id"]: item for item in state["evidence"]}
+    artifact_by_id = {item["id"]: item for item in state["artifacts"]}
+    selected_ids = _relevant_evidence_ids(state, round_state)
+    missing: set[tuple[str, str]] = set()
+    for evidence_id in selected_ids:
+        evidence = evidence_by_id.get(evidence_id)
+        if evidence is None:
+            missing.add(("evidence", evidence_id))
+            continue
+        for artifact_id in evidence["artifact_refs"]:
+            if artifact_id not in artifact_by_id:
+                missing.add(("artifact", artifact_id))
+    pending = [
+        artifact_id
+        for evidence_id in selected_ids
+        for artifact_id in evidence_by_id.get(evidence_id, {}).get("artifact_refs", [])
+        if artifact_id in artifact_by_id
+    ]
+    seen: set[str] = set()
+    while pending:
+        artifact_id = pending.pop()
+        if artifact_id in seen:
+            continue
+        seen.add(artifact_id)
+        replacement_id = artifact_by_id[artifact_id].get("resolution", {}).get("replacement_artifact_id")
+        if replacement_id and replacement_id not in artifact_by_id:
+            missing.add(("artifact", replacement_id))
+        elif replacement_id:
+            pending.append(replacement_id)
+    return [
+        {
+            "code": "missing_review_reference",
+            "severity": "blocking",
+            "location": reference,
+            "message": f"selected {kind} reference is missing from canonical state",
+        }
+        for kind, reference in sorted(missing)
+    ]
 
 
 def _subject_artifact(item: dict[str, Any]) -> dict[str, Any]:
@@ -658,7 +727,7 @@ def _subject_artifact(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def direct_relevant_artifact_ids(state: dict[str, Any], round_state: dict[str, Any]) -> set[str]:
-    evidence_ids = _relevant_evidence_ids(round_state)
+    evidence_ids = _relevant_evidence_ids(state, round_state)
     return {
         ref
         for evidence in state["evidence"]
@@ -668,7 +737,7 @@ def direct_relevant_artifact_ids(state: dict[str, Any], round_state: dict[str, A
 
 
 def relevant_artifact_closure(state: dict[str, Any], round_state: dict[str, Any]) -> set[str]:
-    return _artifact_closure_for_evidence_ids(state, _relevant_evidence_ids(round_state))
+    return _artifact_closure_for_evidence_ids(state, _relevant_evidence_ids(state, round_state))
 
 
 def _artifact_closure_for_evidence_ids(state: dict[str, Any], evidence_ids: set[str]) -> set[str]:

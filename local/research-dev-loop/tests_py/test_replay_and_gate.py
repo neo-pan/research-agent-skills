@@ -238,7 +238,7 @@ class ReplayAndGateTests(unittest.TestCase):
         fixture_path = Path(__file__).with_name("fixtures") / "pre_resolution_schema_v2.json"
         legacy_state = json.loads(fixture_path.read_text(encoding="utf-8"))
         self.assertNotIn("resolution", legacy_state["artifacts"][0])
-        self.assertEqual(
+        self.assertNotEqual(
             rendering.subject_digest(legacy_state, "close", []),
             legacy_state["last_mutation"]["receipt"]["review_subject_digest"],
         )
@@ -466,6 +466,114 @@ class ReplayAndGateTests(unittest.TestCase):
             )
             self.assertEqual(pack["prior_review_context"], [])
             self.assertEqual(pack["deterministic_findings"], [])
+
+    def test_review_selection_includes_displayed_and_counterevidence_and_reports_omissions(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="selection", request=START)
+            delta = routine_delta(risk="material")
+            delta["evidence"].update(
+                {
+                    "progress-only": {
+                        "claim": "prior displayed support",
+                        "summary": "displayed progress cites this support",
+                        "bearing": "supports",
+                        "strength": "moderate",
+                        "artifact_refs": ["report"],
+                        "uncertainty": "bounded fixture",
+                    },
+                    "counter": {
+                        "claim": "counterevidence remains visible",
+                        "summary": "the counter check disagrees",
+                        "bearing": "contradicts",
+                        "strength": "strong",
+                        "artifact_refs": ["report"],
+                        "uncertainty": "bounded fixture",
+                    },
+                    "context": {
+                        "claim": "uncited context",
+                        "summary": "background only",
+                        "bearing": "context",
+                        "strength": "weak",
+                        "artifact_refs": [],
+                        "uncertainty": "not cited",
+                    },
+                }
+            )
+            delta["progress_updates"]["fixture"]["evidence_refs"] = ["progress-only"]
+            engine.execute("apply", session_id="selection", request=delta)
+
+            pack = engine.execute("review", session_id="selection", action="next")
+
+            self.assertEqual(
+                [item["id"] for item in pack["round"]["evidence"]],
+                ["E000001", "E000002", "E000003"],
+            )
+            self.assertEqual(
+                pack["evidence_selection"],
+                {
+                    "selected_ids": ["E000001", "E000002", "E000003"],
+                    "omitted_current_round_ids": ["E000004"],
+                    "omitted_current_round_count": 1,
+                },
+            )
+
+    def test_snapshot_bytes_are_hidden_unless_bounded_content_is_in_verifier_summary(self):
+        with project() as (root, engine):
+            engine.execute("start", session_id="artifact-visibility", request=START)
+            delta = routine_delta(risk="material")
+            secret = "A000014 raw snapshot body is not reviewer-visible"
+            (root / "artifacts" / "report.json").write_text(secret, encoding="utf-8")
+            delta["artifacts"]["report"].pop("verifier")
+            first = engine.execute("apply", session_id="artifact-visibility", request=delta)
+            pack = engine.execute("review", session_id="artifact-visibility", action="next")
+            self.assertNotIn(secret, json.dumps(pack, ensure_ascii=False))
+            self.assertNotIn("verifier", pack["artifacts"][0])
+
+            correction = review_result(2, first["review_subject_digest"], action="next", verdict="revise")
+            correction["artifacts"] = {
+                "prepared": {
+                    "kind": "receipt",
+                    "path": "artifacts/report.json",
+                    "description": "A000015 bounded preparation receipt",
+                    "stability": "snapshot",
+                    "verifier": {"name": "preparation", "status": "passed", "summary": "A000015 decisive bounded summary"},
+                }
+            }
+            correction["evidence"] = {
+                "prepared": {
+                    "claim": "bounded preparation is visible",
+                    "summary": "the verifier carries the decisive bounded content",
+                    "bearing": "supports",
+                    "strength": "strong",
+                    "artifact_refs": ["prepared"],
+                    "uncertainty": "raw bytes remain hidden",
+                }
+            }
+            correction["decision"] = delta["decision"] | {"evidence_refs": ["prepared"]}
+            engine.execute("apply", session_id="artifact-visibility", request=correction)
+            rebound = engine.execute("review", session_id="artifact-visibility", action="next")
+            self.assertIn("A000015 decisive bounded summary", json.dumps(rebound, ensure_ascii=False))
+
+    def test_missing_selected_reference_is_a_deterministic_blocker(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="missing-review-ref", request=START)
+            engine.execute("apply", session_id="missing-review-ref", request=routine_delta(risk="material"))
+            state = engine.repository.load("missing-review-ref")
+            state["progress"]["fixture"]["evidence_refs"] = ["E999999"]
+
+            findings = rendering.missing_review_reference_findings(state, state["rounds"][0])
+
+            self.assertEqual(
+                findings,
+                [
+                    {
+                        "code": "missing_review_reference",
+                        "severity": "blocking",
+                        "location": "E999999",
+                        "message": "selected evidence reference is missing from canonical state",
+                    }
+                ],
+            )
 
     def test_review_questions_are_action_specific_and_bind_the_accepted_action(self):
         with project() as (_root, engine):
