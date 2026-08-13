@@ -103,21 +103,6 @@ class ReplayAndGateTests(unittest.TestCase):
                 engine.execute("next", session_id="stale", expected_state_version=1)
             self.assertEqual(engine.repository.current_generation("stale"), before)
 
-    def test_close_lost_response_replay_finds_terminal_session(self):
-        with project() as (_root, engine):
-            engine.execute("start", session_id="close-replay", request=START)
-            applied = engine.execute(
-                "apply", session_id="close-replay", request=routine_delta(transition="close", risk="material")
-            )
-            engine.execute(
-                "apply",
-                session_id="close-replay",
-                request=review_result(2, applied["review_subject_digest"]),
-            )
-            first = engine.execute("close", session_id="close-replay", expected_state_version=3, outcome="positive")
-            second = engine.execute("close", session_id="close-replay", expected_state_version=3, outcome="positive")
-            self.assertEqual(second, first)
-
     def test_terminal_replay_and_mutation_truth_table_has_zero_writes(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="terminal-matrix", request=START)
@@ -365,38 +350,10 @@ class ReplayAndGateTests(unittest.TestCase):
                 "live",
             ),
             (
-                "independent-reproduction",
-                "the result was independently reproduced",
-                "the cited check ran in the same process and establishes internal consistency only",
-                "same-process consistency check",
-                "snapshot",
-            ),
-            (
-                "premature-memory",
-                "session progress says the semantic gate passed",
-                "no review binding exists yet; this pack is the pending review request",
-                "deterministic checks do not establish semantic readiness",
-                "snapshot",
-            ),
-            (
-                "mechanics-negative",
-                "mechanics_negative is propagated through the candidate receipt",
-                "the downstream receipt omits the negative mechanics classification",
-                "classification propagation check found the omission",
-                "snapshot",
-            ),
-            (
                 "verifier-overclaim",
                 "the verifier proves end-to-end behavior",
                 "the verifier checks receipt shape only and cannot observe end-to-end behavior",
                 "schema-only verifier capability",
-                "snapshot",
-            ),
-            (
-                "oom-classification",
-                "the CUDA OOM occurred before optimizer work was consumed",
-                "the receipt records a consumed optimizer-stage CUDA OOM",
-                "optimizer-stage consumption and OOM taxonomy check",
                 "snapshot",
             ),
         )

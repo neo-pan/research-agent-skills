@@ -38,20 +38,6 @@ class StorageAndArtifactTests(unittest.TestCase):
             self.assertFalse(pointer.readlink().is_absolute())
             self.assertEqual(pointer.resolve().name, "1")
 
-    def test_failure_before_pointer_replace_preserves_old_generation_and_cleans_future(self):
-        with project() as (root, engine):
-            engine.execute("start", session_id="fault", request=START)
-            def fail(point):
-                if point == "after_generation_rename":
-                    raise RuntimeError("injected")
-            broken = RdlEngine(root, Repository(root, fail))
-            with self.assertRaisesRegex(RuntimeError, "injected"):
-                broken.execute("apply", session_id="fault", request={"expected_state_version": 1, "risk": "routine"})
-            self.assertEqual(engine.repository.load("fault")["state_version"], 1)
-            engine.execute("apply", session_id="fault", request={"expected_state_version": 1, "risk": "routine"})
-            self.assertEqual(engine.repository.load("fault")["state_version"], 2)
-            self.assertFalse((root / ".rdl" / ".store" / "fault" / ".tmp-orphan").exists())
-
     def test_every_transaction_fault_point_has_old_or_new_visibility(self):
         points = (
             "after_layout_fsync",

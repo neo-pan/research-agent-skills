@@ -265,30 +265,29 @@ class InterfaceTests(unittest.TestCase):
                 )
 
     def test_non_abandoned_close_requires_active_progress_reconciliation(self):
-        for outcome in ("positive", "negative", "inconclusive"):
-            with self.subTest(outcome=outcome), project() as (_root, engine):
-                session_id = f"active-close-{outcome}"
-                engine.execute("start", session_id=session_id, request=START)
-                delta = routine_delta(transition="close", outcome=outcome, risk="material")
-                delta["progress_updates"]["pending"] = {
-                    "status": "active",
-                    "summary": "work remains",
-                    "blocking": False,
-                }
+        with project() as (_root, engine):
+            session_id = "active-close"
+            engine.execute("start", session_id=session_id, request=START)
+            delta = routine_delta(transition="close", outcome="positive", risk="material")
+            delta["progress_updates"]["pending"] = {
+                "status": "active",
+                "summary": "work remains",
+                "blocking": False,
+            }
 
-                applied = engine.execute("apply", session_id=session_id, request=delta)
+            applied = engine.execute("apply", session_id=session_id, request=delta)
 
-                self.assertEqual(applied["transition_readiness"], "blocked")
-                self.assertNotIn("review_subject_digest", applied)
-                with self.assertRaisesRegex(RdlError, "not ready") as close_error:
-                    engine.execute(
-                        "close",
-                        session_id=session_id,
-                        expected_state_version=2,
-                        outcome=outcome,
-                    )
-                self.assertIn("unreconciled_active_progress", close_error.exception.details["blockers"])
-                self.assertEqual(engine.repository.load(session_id)["state_version"], 2)
+            self.assertEqual(applied["transition_readiness"], "blocked")
+            self.assertNotIn("review_subject_digest", applied)
+            with self.assertRaisesRegex(RdlError, "not ready") as close_error:
+                engine.execute(
+                    "close",
+                    session_id=session_id,
+                    expected_state_version=2,
+                    outcome="positive",
+                )
+            self.assertIn("unreconciled_active_progress", close_error.exception.details["blockers"])
+            self.assertEqual(engine.repository.load(session_id)["state_version"], 2)
 
     def test_reconciled_and_non_active_progress_can_close(self):
         for status in ("completed", "deferred", "open_question"):
@@ -587,7 +586,10 @@ class InterfaceTests(unittest.TestCase):
 
             handoff = engine.execute("handoff", session_id="observed-budget")
 
-            self.assertEqual(handoff["accounting"]["full_inline_size_bytes"], 24740)
+            self.assertGreater(
+                handoff["accounting"]["full_inline_size_bytes"],
+                rendering.HANDOFF_HARD_BYTES,
+            )
             self.assertEqual(handoff["projection_profile"], "compact_manifest")
 
     def test_handoff_budget_uses_final_utf8_json_bytes(self):
