@@ -10,6 +10,8 @@ Checkpoint after an expensive external action, before changing hypothesis/phase/
 
 Use the cheapest gate that can falsify the current change: focused red → local repair → focused green → affected regression checks. Run a broader suite when the changed interface or project contract requires it. Freeze each receipt with its executed scope, result, and untested boundary.
 
+Work at the smallest existing seam and require evidence sufficient for the bounded claim; record unrelated uncertainty as an untested boundary. Add abstractions, compatibility or defensive branches, and general-readiness gates only for a supported contract or observed failure. Keep correctness, provenance, and fail-closed protocol checks authoritative.
+
 For large-context LLM calls, hardware experiments, long profiling, or broad benchmarks, add one real confirmation after deterministic green. Before another real attempt, apply the prior result and identify new evidence, a materially changed hypothesis/input/implementation, a low-cost check proving that change, or a directly relevant environment change. Do not set a global retry count.
 
 ## Material build project review

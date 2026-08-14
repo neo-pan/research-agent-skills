@@ -15,12 +15,12 @@ Rounds are material decisions; routine applies stay in-round. Resolve this skill
 ## Run the loop
 
 1. Start an authorized mission; otherwise use `handoff.current_action` as the takeover contract.
-2. Execute its smallest evidence step. Do not precompute file sizes or checksums for artifact entries: `apply` records them. Verify claims; checksum-only commands such as `sha256sum` are redundant.
+2. Work at the smallest existing seam; execute its smallest evidence step. Do not precompute file sizes or checksums for artifact entries: `apply` records them. Verify claims; checksum-only commands such as `sha256sum` are redundant.
 3. At checkpoints or before external work, `apply`; retain receipt. See [OPERATIONS.md](OPERATIONS.md).
 4. On `review_required`, follow [SEMANTIC_REVIEW.md](SEMANTIC_REVIEW.md) and apply the result. Transition only with the ready version.
 5. Before `next`, persist the action, completion condition, remaining phases, and retry unlock in `decision.next_step`.
 6. Before a non-abandoned close, resolve each `active` progress item to `completed`, `deferred`, or `open_question`.
 
-For builds: failing baseline → `apply` → implement/verify → `apply`. Retire changed `live` artifacts or supersede them with same-apply snapshots. See [OPERATIONS.md](OPERATIONS.md).
+For builds: failing baseline → `apply` → implement/verify → `apply`. Retire changed `live` artifacts or supersede them with same-apply snapshots.
 
 Run the protocol audit only after changing RDL, explicit protocol acceptance, or state/terminal anomalies; see [PROTOCOL_AUDIT.md](PROTOCOL_AUDIT.md).
