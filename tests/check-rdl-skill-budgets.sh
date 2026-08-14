@@ -7,6 +7,7 @@ ORCHESTRATOR="${ROOT_DIR}/local/rdl-orchestrator/SKILL.md"
 SEMANTIC="${ROOT_DIR}/local/research-dev-loop/SEMANTIC_REVIEW.md"
 PREPARATION="${ROOT_DIR}/local/research-dev-loop/PRE_REVIEW_PREPARATION.md"
 CLI_REFERENCE="${ROOT_DIR}/local/research-dev-loop/CLI.md"
+PROTOCOL_AUDIT="${ROOT_DIR}/local/research-dev-loop/PROTOCOL_AUDIT.md"
 
 body_bytes() {
   awk 'BEGIN { markers=0; body=0 } /^---$/ { markers++; if (markers == 2) { body=1; next } } body { print }' "$1" | wc -c
@@ -31,8 +32,16 @@ grep -Fq 'obtain its PASS before `start`' "${BASE}" \
   || { echo "research-dev-loop must review gated missions before start" >&2; exit 1; }
 grep -Fq 'resolve each `active` progress item' "${BASE}" \
   || { echo "research-dev-loop must reconcile active progress before terminal close" >&2; exit 1; }
+grep -Fq 'Run the protocol audit only after changing RDL' "${BASE}" \
+  || { echo "research-dev-loop must keep protocol audit conditional" >&2; exit 1; }
 grep -Fq 'Do not run semantic review, `apply`, `next`, or `close` unless the user asks' "${BASE}" \
   || { echo "research-dev-loop inspection must remain read-only" >&2; exit 1; }
+grep -Fq 'Reuse a durable `A` ID' "${ROOT_DIR}/local/research-dev-loop/OPERATIONS.md" \
+  || { echo "research-dev-loop must reuse stable artifact identities" >&2; exit 1; }
+grep -Fq "not evidence that a project's scientific result is correct" "${PROTOCOL_AUDIT}" \
+  || { echo "protocol audit must not stand in for scientific correctness" >&2; exit 1; }
+grep -Fq 'Ordinary research and development sessions end after' "${PROTOCOL_AUDIT}" \
+  || { echo "protocol audit must remain conditional for ordinary sessions" >&2; exit 1; }
 grep -Fq "project-review reference" "${ORCHESTRATOR}" \
   || { echo "rdl-orchestrator must preserve the material-build review gate" >&2; exit 1; }
 

@@ -8,7 +8,9 @@ Before `next`, make `decision.next_step` state the smallest evidence action, its
 
 Checkpoint after an expensive external action, before changing hypothesis/phase/mutation scope, after transition-relevant evidence, before waiting or pausing, and after a build's failing baseline, passing verification, or project-review receipt. Ordinary navigation and short helper commands inside one bounded action need no checkpoint.
 
-For large-context LLM calls, hardware experiments, long profiling, or broad benchmarks use: deterministic red → local repair → deterministic green → one real confirmation. Before another real attempt, apply the prior result and identify new evidence, a materially changed hypothesis/input/implementation, a low-cost check proving that change, or a directly relevant environment change. Do not set a global retry count.
+Use the cheapest gate that can falsify the current change: focused red → local repair → focused green → affected regression checks. Run a broader suite when the changed interface or project contract requires it. Freeze each receipt with its executed scope, result, and untested boundary.
+
+For large-context LLM calls, hardware experiments, long profiling, or broad benchmarks, add one real confirmation after deterministic green. Before another real attempt, apply the prior result and identify new evidence, a materially changed hypothesis/input/implementation, a low-cost check proving that change, or a directly relevant environment change. Do not set a global retry count.
 
 ## Material build project review
 
@@ -17,6 +19,8 @@ Before a build closes a code, config, or script claim—or when the mission or r
 ## Receipt-first apply
 
 Freeze the command, exit, decisive output, environment boundary, and stable project-relative snapshot before composing apply JSON. Replace the example versions, paths, refs, and digest with current values.
+
+Reuse a durable `A` ID when later evidence cites the same registered artifact identity. If later work adds verifier interpretation or bounded excerpts, freeze that material as its own receipt and bind it to the original artifact ID; do not re-register the original path. Register a new artifact only for new bytes, a new path identity, or an explicit live-artifact replacement.
 
 Research — register a frozen receipt and its bounded claim:
 
@@ -53,7 +57,3 @@ Handoff normally returns the complete inline projection. Above 24 KiB it returns
 When an active round has a `next` or `close` decision, ordinary apply and handoff receipts include the same compact `review_budget` estimate. A soft or hard crossing adds `review_pack_soft_budget_exceeded` or `review_pack_over_budget` to `warnings`; these are early signals, while formal `review` retains the 48 KiB fail-closed gate. When transition readiness is `needs_review`, detailed section accounting is available from `doctor --diagnostics`.
 
 Terminal handoff has no `current_action`. Its full-inline `terminal_summary` reports outcome, the review binding that authorized that outcome, unfinished progress, and labels the old next-step text as `pre_close_instruction`. A compact manifest keeps only fixed facts, status counts, and canonical section pointers; arbitrary text and lists remain in `state.json`/`final-report.md`. Abandoned sessions have no final review binding.
-
-## Terminal audit
-
-Run `scripts/rdl_dogfood_audit.sh [--session-id ID] --subagent-calls N [--json-output PATH] PROJECT_ROOT`. `N` is the caller-reported total for the session; the audit validates only that it is a non-negative integer and never infers calls from RDL state or transcripts. Active sessions receive handoff/doctor diagnostics only. Terminal sessions also cover exact close replay, current-version terminal mutation rejection, stale-request rejection, and unchanged pointer, generation set, state version, and recursive store digest. Every probe records argv/input, exit code, and decisive typed result; the receipt also copies `doctor --diagnostics` projection accounting without interpretation. The digest records its algorithm, root, and exclusions. JSON output must remain outside `.rdl`, and the audit must not write RDL state. Reviewers remain responsible for judging whether reported calls and evidence are sufficient.

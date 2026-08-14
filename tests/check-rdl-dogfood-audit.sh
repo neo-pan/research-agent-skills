@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AUDIT="${ROOT_DIR}/scripts/rdl_dogfood_audit.sh"
+AUDIT="${ROOT_DIR}/local/research-dev-loop/bin/rdl-audit"
+COMPAT_AUDIT="${ROOT_DIR}/scripts/rdl_dogfood_audit.sh"
 RDL="${ROOT_DIR}/local/research-dev-loop/bin/rdl"
 
 fail() {
@@ -12,6 +13,13 @@ fail() {
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
+
+"${AUDIT}" --help >"${tmp_dir}/audit-help"
+"${COMPAT_AUDIT}" --help >"${tmp_dir}/compat-help"
+grep -q '^Usage: rdl-audit ' "${tmp_dir}/audit-help" \
+  || fail "skill-local audit help should expose its stable launcher name"
+grep -q '^Usage: scripts/rdl_dogfood_audit.sh ' "${tmp_dir}/compat-help" \
+  || fail "repository audit wrapper should preserve its existing help"
 
 create_session() {
   local project_root="$1"
@@ -228,16 +236,16 @@ if "${AUDIT}" --subagent-calls 0 "${tmp_dir}/missing" >"${tmp_dir}/missing.out" 
 fi
 grep -q "project root is not a directory" "${tmp_dir}/missing.err" || fail "non-directory error missing"
 
-broken_root="${tmp_dir}/broken-repo"
-mkdir -p "${broken_root}/scripts" "${broken_root}/local/research-dev-loop/bin"
-cp "${AUDIT}" "${broken_root}/scripts/rdl_dogfood_audit.sh"
-cat >"${broken_root}/local/research-dev-loop/bin/rdl" <<'EOF'
+broken_skill="${tmp_dir}/broken-skill"
+mkdir -p "${broken_skill}/bin"
+cp "${AUDIT}" "${broken_skill}/bin/rdl-audit"
+cat >"${broken_skill}/bin/rdl" <<'EOF'
 #!/bin/sh
 echo 'rdl bundled package is missing from the installed skill.' >&2
 exit 1
 EOF
-chmod +x "${broken_root}/local/research-dev-loop/bin/rdl"
-if "${broken_root}/scripts/rdl_dogfood_audit.sh" --subagent-calls 0 "${empty}" >"${tmp_dir}/bootstrap.out"; then
+chmod +x "${broken_skill}/bin/rdl" "${broken_skill}/bin/rdl-audit"
+if "${broken_skill}/bin/rdl-audit" --subagent-calls 0 "${empty}" >"${tmp_dir}/bootstrap.out"; then
   fail "launcher bootstrap failure should fail"
 fi
 grep -q "bootstrap_error" "${tmp_dir}/bootstrap.out" || fail "bootstrap error code missing"
