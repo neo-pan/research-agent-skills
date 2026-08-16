@@ -1,4 +1,4 @@
-"""Seven-command JSON CLI for RDL."""
+"""Eight-command JSON CLI for RDL."""
 
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ class JsonParser(argparse.ArgumentParser):
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonParser(prog="rdl", description="Evidence-backed research state.")
     commands = parser.add_subparsers(dest="command", metavar="command")
+
+    commands.add_parser("schema", help="print every closed value set as JSON")
 
     start = commands.add_parser("start", help="create a session")
     _input(start)

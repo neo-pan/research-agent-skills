@@ -11,8 +11,19 @@ from typing import Any
 
 from . import rendering
 from .model import (
+    ARTIFACT_KINDS,
+    BEARINGS,
     CLOSE_OUTCOMES,
+    DECISION_KINDS,
+    DISPOSITIONS,
     MATERIAL_DECISIONS,
+    MODES,
+    PROGRESS_STATUSES,
+    SCHEMA_VERSION,
+    SEVERITIES,
+    STRENGTHS,
+    TRANSITIONS,
+    VERDICTS,
     RdlError,
     canonical_json,
     current_round,
@@ -111,6 +122,8 @@ class RdlEngine:
         reason: str | None = None,
         diagnostics: bool = False,
     ) -> dict[str, Any]:
+        if command == "schema":
+            return self._schema()
         if command == "start":
             return self._start(session_id, request)
         if command == "handoff" and session_id is None:
@@ -454,10 +467,18 @@ class RdlEngine:
                         "message": "the required semantic review pack exceeds its soft budget",
                     }
                 )
-        expected_views = {key: value.encode("utf-8") for key, value in rendering.render_views(state).items()}
-        actual_views = self.repository.read_views(state["session_id"])
-        if actual_views != expected_views:
-            findings.append({"code": "derived_view_drift", "severity": "warning", "message": "derived views differ from state.json"})
+        # Views are a derived cache that the next mutation rewrites, so drift is
+        # only worth reporting where it can still be repaired. A terminal
+        # session's views are frozen output of whichever renderer wrote them;
+        # diffing those against today's renderer measures the renderer's own
+        # history, not the session's integrity, which state.json's digest carries.
+        if state["status"] == "active":
+            expected_views = {key: value.encode("utf-8") for key, value in rendering.render_views(state).items()}
+            actual_views = self.repository.read_views(state["session_id"])
+            # A file this renderer no longer emits is an older renderer's output,
+            # not a disagreement with state.json.
+            if any(actual_views.get(key) != value for key, value in expected_views.items()):
+                findings.append({"code": "derived_view_drift", "severity": "warning", "message": "derived views differ from state.json"})
         generation = self.repository.generation_diagnostics(state["session_id"], state["state_version"])
         if generation["temporary"] or generation["unreferenced"]:
             findings.append({"code": "orphan_generations", "severity": "warning", "message": "temporary or unreferenced generations exist"})
@@ -479,6 +500,38 @@ class RdlEngine:
                 "projections": projections,
             }
         return result
+
+    @staticmethod
+    def _schema() -> dict[str, Any]:
+        """Emit every closed value set, so no caller has to guess one.
+
+        Enum guesses were the second-largest error class in observed use, and
+        prose cannot be read by the thing making the guess.
+        """
+        return {
+            "status": "ok",
+            "schema_version": SCHEMA_VERSION,
+            "enums": {
+                "mode": sorted(MODES),
+                "artifacts.<key>.kind": sorted(ARTIFACT_KINDS),
+                "evidence.<key>.bearing": sorted(BEARINGS),
+                "evidence.<key>.strength": sorted(STRENGTHS),
+                "progress_updates.<key>.status": sorted(PROGRESS_STATUSES),
+                "decision.kind": sorted(DECISION_KINDS),
+                "decision.recommended_transition": sorted(TRANSITIONS),
+                "decision.close_outcome": sorted(CLOSE_OUTCOMES - {"abandoned"}),
+                "review_result.verdict": sorted(VERDICTS),
+                "review_result.findings[].severity": sorted(SEVERITIES),
+                "review_result.findings[].disposition": sorted(DISPOSITIONS),
+                "close --outcome": sorted(CLOSE_OUTCOMES),
+            },
+            "review_required_when": {
+                "decision.kind": sorted(MATERIAL_DECISIONS),
+                "decision.recommended_transition": ["close"],
+                "review_trigger": "present",
+            },
+            "mission_soft_budget_bytes": MISSION_SOFT_BYTES,
+        }
 
     def _terminal_findings(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         """Probe a closed session for the three properties its close receipt claims.

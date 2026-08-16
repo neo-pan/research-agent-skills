@@ -7,13 +7,13 @@ from hashlib import sha256
 
 from rdl import rendering
 from rdl.cli import build_parser
-from rdl.model import RdlError
+from rdl.model import MATERIAL_DECISIONS, RdlError
 
 from rdl_test_support import START, project, review_result, routine_delta, run_cli
 
 
 class InterfaceTests(unittest.TestCase):
-    def test_seven_command_cli_and_routine_round(self):
+    def test_full_cli_surface_and_routine_round(self):
         with project() as (root, _engine):
             code, start = run_cli(root, ["start", "--input", "-", "--session-id", "routine"], START)
             self.assertEqual((code, start["state_version"]), (0, 1))
@@ -150,6 +150,64 @@ class InterfaceTests(unittest.TestCase):
                 ["/mission", "/progress", "/rounds/0", "/rounds/1"],
             )
             self.assertIn("current_action", compact["omitted_inline_sections"])
+
+    def test_schema_publishes_every_closed_value_set_without_a_session(self):
+        with project() as (root, _engine):
+            code, schema = run_cli(root, ["schema"])
+
+            self.assertEqual((code, schema["status"]), (0, "ok"))
+            self.assertEqual(schema["schema_version"], 2)
+            self.assertEqual(schema["enums"]["artifacts.<key>.kind"], ["document", "receipt", "script"])
+            self.assertEqual(
+                schema["review_required_when"]["decision.kind"],
+                sorted(MATERIAL_DECISIONS),
+            )
+            # Every published set must be the one the validator actually enforces.
+            for path, published in schema["enums"].items():
+                with self.subTest(path=path):
+                    self.assertEqual(published, sorted(set(published)))
+            self.assertFalse((root / ".rdl").exists())
+
+    def test_schema_enums_match_what_apply_accepts_and_rejects(self):
+        with project() as (root, engine):
+            code, schema = run_cli(root, ["schema"])
+            self.assertEqual(code, 0)
+            kinds = schema["enums"]["artifacts.<key>.kind"]
+            engine.execute("start", session_id="schema-check", request=START)
+
+            for index, kind in enumerate(kinds, start=1):
+                with self.subTest(kind=kind):
+                    engine.execute(
+                        "apply",
+                        session_id="schema-check",
+                        request={
+                            "expected_state_version": index,
+                            "artifacts": {
+                                kind: {
+                                    "kind": kind,
+                                    "path": "artifacts/report.json",
+                                    "description": f"a {kind} the published schema promises",
+                                }
+                            },
+                        },
+                    )
+            with self.assertRaises(RdlError) as caught:
+                engine.execute(
+                    "apply",
+                    session_id="schema-check",
+                    request={
+                        "expected_state_version": len(kinds) + 1,
+                        "artifacts": {
+                            "legacy": {
+                                "kind": "test-receipt",
+                                "path": "artifacts/report.json",
+                                "description": "a kind the published schema omits",
+                            }
+                        },
+                    },
+                )
+            self.assertEqual(caught.exception.code, "invalid_value")
+            self.assertIn("document, receipt, script", caught.exception.message)
 
     def test_handoff_answers_none_instead_of_blocking_when_no_session_exists(self):
         with project() as (root, engine):
@@ -559,13 +617,16 @@ class InterfaceTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(result["code"], "invalid_type")
 
-    def test_only_seven_commands_are_accepted(self):
+    def test_only_eight_commands_are_accepted(self):
         with project() as (root, _engine):
             code, result = run_cli(root, ["status"])
             self.assertEqual(code, 1)
             self.assertEqual(result["code"], "parser_error")
             subparsers = next(action for action in build_parser()._actions if isinstance(action, argparse._SubParsersAction))
-            self.assertEqual(set(subparsers.choices), {"start", "handoff", "apply", "review", "next", "close", "doctor"})
+            self.assertEqual(
+                set(subparsers.choices),
+                {"schema", "start", "handoff", "apply", "review", "next", "close", "doctor"},
+            )
 
     def test_progress_null_delete_only_at_map_level(self):
         with project() as (_root, engine):

@@ -224,6 +224,50 @@ RdlEngine(Path(sys.argv[1]), Repository(Path(sys.argv[1]), kill)).execute(
             codes = [item["code"] for item in engine.execute("doctor", session_id="views")["findings"]]
             self.assertNotIn("derived_view_drift", codes)
 
+    def test_a_view_an_older_renderer_wrote_is_history_rather_than_drift(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="retired-view", request=START)
+            generation = engine.repository.current_generation("retired-view")
+            (generation / "factors.md").write_text("# Factors\n\nwritten by an older renderer\n", encoding="utf-8")
+
+            codes = [item["code"] for item in engine.execute("doctor", session_id="retired-view")["findings"]]
+
+            self.assertNotIn("derived_view_drift", codes)
+            # A view this renderer still emits must remain under the check.
+            (generation / "mission.md").write_text("tampered\n", encoding="utf-8")
+            codes = [item["code"] for item in engine.execute("doctor", session_id="retired-view")["findings"]]
+            self.assertIn("derived_view_drift", codes)
+
+    def test_a_missing_current_view_is_still_drift(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="missing-view", request=START)
+            (engine.repository.current_generation("missing-view") / "progress.md").unlink()
+
+            codes = [item["code"] for item in engine.execute("doctor", session_id="missing-view")["findings"]]
+
+            self.assertIn("derived_view_drift", codes)
+
+    def test_terminal_views_are_frozen_output_rather_than_repairable_drift(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="terminal-views", request=START)
+            engine.execute("apply", session_id="terminal-views", request=routine_delta())
+            engine.execute(
+                "close",
+                session_id="terminal-views",
+                expected_state_version=2,
+                outcome="abandoned",
+                reason="the bounded fixture is no longer reachable",
+            )
+            generation = engine.repository.current_generation("terminal-views")
+            (generation / "mission.md").write_text("written by a renderer that no longer exists\n", encoding="utf-8")
+
+            doctor = engine.execute("doctor", session_id="terminal-views")
+
+            # No mutation can rewrite these, and state.json's own digest still
+            # guards the authoritative record.
+            self.assertNotIn("derived_view_drift", [item["code"] for item in doctor["findings"]])
+            self.assertEqual(doctor["status"], "ok")
+
 
 if __name__ == "__main__":
     unittest.main()

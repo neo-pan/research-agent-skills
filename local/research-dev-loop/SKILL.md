@@ -17,7 +17,7 @@ An apply that records a directional decision, a close, or a review trigger requi
 ## Run the loop
 
 1. Start an authorized mission; otherwise use `handoff.current_action` as the takeover contract.
-2. Work at the smallest existing seam; execute its smallest evidence step. Do not precompute file sizes or checksums for artifact entries: `apply` records them. Verify claims; checksum-only commands such as `sha256sum` are redundant.
+2. Read `"$RDL" schema` before composing a delta rather than guessing an enum. Work at the smallest existing seam; execute its smallest evidence step. Do not precompute file sizes or checksums for artifact entries: `apply` records them. Verify claims; checksum-only commands such as `sha256sum` are redundant.
 3. At checkpoints or before external work, `apply`; retain receipt. See [OPERATIONS.md](OPERATIONS.md).
 4. On `review_required`, follow [SEMANTIC_REVIEW.md](SEMANTIC_REVIEW.md) and apply the result. Transition only with the ready version.
 5. Before `next`, persist the action, completion condition, remaining phases, and retry unlock in `decision.next_step`.
