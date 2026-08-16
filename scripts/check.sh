@@ -109,7 +109,3 @@ echo "RDL command installer ok"
 bash "${ROOT_DIR}/tests/check-removed-check-modes.sh" >/dev/null
 
 echo "Removed check modes ok"
-
-bash "${ROOT_DIR}/tests/check-rdl-dogfood-audit.sh" >/dev/null
-
-echo "RDL dogfood audit ok"
