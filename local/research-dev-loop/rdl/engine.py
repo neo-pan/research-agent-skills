@@ -14,6 +14,7 @@ from .model import (
     CLOSE_OUTCOMES,
     MATERIAL_DECISIONS,
     RdlError,
+    canonical_json,
     current_round,
     new_round,
     new_state,
@@ -25,6 +26,11 @@ from .model import (
     validate_start,
 )
 from .store import Repository
+
+
+# A mission is resent to every fresh-context reviewer, so its size is paid per
+# review. Warn past this point; never gate on it.
+MISSION_SOFT_BYTES = 2 * 1024
 
 
 class EvaluationContext:
@@ -107,7 +113,16 @@ class RdlEngine:
     ) -> dict[str, Any]:
         if command == "start":
             return self._start(session_id, request)
-        selected = self.repository.select_session_id(session_id)
+        if command == "handoff" and session_id is None:
+            # No session is a fact, not a blocker: handoff is how a new turn asks.
+            try:
+                selected = self.repository.select_session_id(None)
+            except RdlError as exc:
+                if exc.code != "no_active_session":
+                    raise
+                return {"status": "ok", "session_status": "none", "warnings": []}
+        else:
+            selected = self.repository.select_session_id(session_id)
         with self.repository.session_lock(selected):
             state = self.repository.load(selected)
             if command == "handoff":
@@ -150,6 +165,9 @@ class RdlEngine:
                 )
             self.repository.discard_uncommitted_start(session_id)
             state = new_state(session_id, start, digest_value)
+            warnings: list[str] = []
+            if len(canonical_json(state["mission"]).encode("utf-8")) > MISSION_SOFT_BYTES:
+                warnings.append("mission_over_soft_budget")
             receipt = {
                 "status": "ok",
                 "session_id": session_id,
@@ -159,7 +177,7 @@ class RdlEngine:
                 "effective_risk": "routine",
                 "review_required": False,
                 "transition_readiness": "needs_evidence",
-                "warnings": [],
+                "warnings": warnings,
             }
             state["start_replay"]["receipt"] = deepcopy(receipt)
             state["state_digest"] = state_digest(state)
@@ -179,7 +197,7 @@ class RdlEngine:
         previous_subject = None
         context = EvaluationContext(self.root)
         if review_result:
-            deterministic = self._deterministic_findings(before, context)
+            deterministic = self._deterministic_findings(before)
             previous_subject = rendering.subject_digest(before, review_result["action"], deterministic)
             if review_result["subject_digest"] != previous_subject:
                 raise RdlError(
@@ -199,11 +217,7 @@ class RdlEngine:
         assigned: dict[str, dict[str, str]] = {}
         artifact_ids = self._apply_artifacts(updated, delta["artifacts"], context, assigned)
         evidence_ids = self._apply_evidence(updated, delta["evidence"], artifact_ids, assigned)
-        self._apply_events(updated, delta["events"], assigned)
         self._apply_progress(updated, delta["progress_updates"], evidence_ids)
-        self._apply_factors(updated, delta["factor_updates"])
-        if "interpretation" in delta:
-            round_state["interpretation"] = deepcopy(delta["interpretation"])
         if "decision" in delta:
             decision = deepcopy(delta["decision"])
             decision["evidence_refs"] = self._resolve_refs(
@@ -214,13 +228,6 @@ class RdlEngine:
             round_state["review_trigger"] = deepcopy(delta["review_trigger"])
 
         target_version = state["state_version"] + 1
-        self._apply_artifact_resolutions(
-            updated,
-            delta["artifact_resolutions"],
-            artifact_ids,
-            target_version,
-            context,
-        )
         if review_result:
             review_id = self._next_id(updated, "review", "R")
             record = deepcopy(review_result)
@@ -239,13 +246,11 @@ class RdlEngine:
             reasons.append(f"scientific_close:{delta['decision']['close_outcome']}")
         if "review_trigger" in delta:
             reasons.append(f"review_trigger:{delta['review_trigger']['code']}")
-        if delta["artifact_resolutions"]:
-            reasons.append("artifact_resolution")
-        effective_risk = "material" if delta["risk"] == "material" or reasons else "routine"
+        effective_risk = "material" if reasons else "routine"
         if effective_risk == "material":
             round_state["material_required"] = True
 
-        deterministic = self._deterministic_findings(updated, context)
+        deterministic = self._deterministic_findings(updated)
         transition_action = self._transition_action(updated)
         current_subject = (
             rendering.subject_digest(updated, transition_action, deterministic) if transition_action in {"next", "close"} else None
@@ -269,7 +274,6 @@ class RdlEngine:
         readiness = self._readiness(
             updated,
             transition_action,
-            context=context,
             deterministic_findings=deterministic,
         )
         review_budget = self._review_budget(updated, transition_action, deterministic)
@@ -286,7 +290,7 @@ class RdlEngine:
         }
         if review_budget is not None:
             receipt["review_budget"] = review_budget
-        if reasons and delta["risk"] == "routine":
+        if reasons:
             receipt["risk_upgrade_reasons"] = reasons
         if current_subject is not None and readiness["status"] == "needs_review":
             receipt["review_subject_digest"] = current_subject
@@ -307,8 +311,7 @@ class RdlEngine:
         if replay is not None:
             return replay
         self._require_active(state)
-        context = EvaluationContext(self.root)
-        readiness = self._readiness(state, "next", context=context)
+        readiness = self._readiness(state, "next")
         if readiness["status"] != "ready":
             raise RdlError("transition_not_ready", "current round is not ready for next", status="blocked", details=readiness)
         updated = deepcopy(state)
@@ -324,12 +327,13 @@ class RdlEngine:
         if outcome not in CLOSE_OUTCOMES:
             raise RdlError("invalid_close_outcome", "close outcome must be positive, negative, inconclusive, or abandoned")
         request: dict[str, Any] = {"expected_state_version": version, "outcome": outcome}
-        if reason is not None:
-            request["reason"] = reason.strip()
-        if outcome == "abandoned" and not request.get("reason"):
-            raise RdlError("missing_abandon_reason", "abandoned close requires --reason")
-        if outcome != "abandoned" and reason is not None:
-            raise RdlError("unexpected_close_reason", "--reason is only valid for abandoned close")
+        # --reason only carries meaning for an abandon; ignore it elsewhere so a
+        # harmless extra flag never blocks a close, and replay digests stay stable.
+        if outcome == "abandoned":
+            if reason is not None:
+                request["reason"] = reason.strip()
+            if not request.get("reason"):
+                raise RdlError("missing_abandon_reason", "abandoned close requires --reason")
         command_digest = request_digest("close", state["session_id"], request)
         replay = self._replay_or_check_version(state, version, command_digest)
         if replay is not None:
@@ -353,7 +357,7 @@ class RdlEngine:
             decision = current_round(state).get("decision")
             if not decision or decision.get("recommended_transition") != "close" or decision.get("close_outcome") != outcome:
                 raise RdlError("close_decision_mismatch", "close outcome does not match the current decision", status="blocked")
-            readiness = self._readiness(state, "close", context=EvaluationContext(self.root))
+            readiness = self._readiness(state, "close")
             if readiness["status"] != "ready":
                 raise RdlError("transition_not_ready", "current round is not ready to close", status="blocked", details=readiness)
             updated["status"] = f"closed-{outcome}"
@@ -396,10 +400,9 @@ class RdlEngine:
         return receipt
 
     def _handoff(self, state: dict[str, Any]) -> dict[str, Any]:
-        context = EvaluationContext(self.root)
         action = self._transition_action(state)
-        findings = self._deterministic_findings(state, context)
-        readiness = self._readiness(state, action, context=context, deterministic_findings=findings)
+        findings = self._deterministic_findings(state)
+        readiness = self._readiness(state, action, deterministic_findings=findings)
         return rendering.handoff(state, readiness, self._review_budget(state, action, findings))
 
     def _review(self, state: dict[str, Any], action: str | None) -> dict[str, Any]:
@@ -407,9 +410,8 @@ class RdlEngine:
             raise RdlError("invalid_review_action", "review action must be next or close")
         if self._transition_action(state) != action:
             raise RdlError("review_action_mismatch", "review action does not match the current decision", status="blocked")
-        context = EvaluationContext(self.root)
-        findings = self._deterministic_findings(state, context)
-        readiness = self._readiness(state, action, context=context, deterministic_findings=findings)
+        findings = self._deterministic_findings(state)
+        readiness = self._readiness(state, action, deterministic_findings=findings)
         if readiness["status"] != "needs_review":
             raise RdlError(
                 "review_not_required",
@@ -420,13 +422,11 @@ class RdlEngine:
         return rendering.review_pack(state, action, findings)
 
     def _doctor(self, state: dict[str, Any], diagnostics: bool) -> dict[str, Any]:
-        context = EvaluationContext(self.root)
         action = self._transition_action(state)
-        findings = self._deterministic_findings(state, context)
+        findings = self._deterministic_findings(state)
         readiness = self._readiness(
             state,
             action,
-            context=context,
             deterministic_findings=findings,
         )
         review_budget = self._review_budget(state, action, findings)
@@ -461,6 +461,8 @@ class RdlEngine:
         generation = self.repository.generation_diagnostics(state["session_id"], state["state_version"])
         if generation["temporary"] or generation["unreferenced"]:
             findings.append({"code": "orphan_generations", "severity": "warning", "message": "temporary or unreferenced generations exist"})
+        if state["status"] != "active":
+            findings.extend(self._terminal_findings(state))
         result: dict[str, Any] = {
             "status": "blocked" if any(item["severity"] == "blocking" for item in findings) else "ok",
             "session_id": state["session_id"],
@@ -473,18 +475,110 @@ class RdlEngine:
             if review_projection is not None:
                 projections["review"] = review_projection
             result["diagnostics"] = {
-                "artifact_read_counts": context.read_counts,
                 "generations": generation,
                 "projections": projections,
             }
         return result
+
+    def _terminal_findings(self, state: dict[str, Any]) -> list[dict[str, Any]]:
+        """Probe a closed session for the three properties its close receipt claims.
+
+        Every probe calls an internal method rather than execute(): execute()
+        takes the session lock that doctor already holds, and each probe returns
+        or raises during version/status checks, long before any commit.
+        """
+        findings: list[dict[str, Any]] = []
+        last = state.get("last_mutation") or {}
+        base_version = last.get("base_version")
+        stored = last.get("receipt")
+        if not isinstance(base_version, int) or not isinstance(stored, dict):
+            return [
+                {
+                    "code": "terminal_replay_unavailable",
+                    "severity": "blocking",
+                    "message": "the terminal session has no replayable close receipt",
+                }
+            ]
+
+        # Replay reconstructs the close request from what the state now says
+        # happened. A reconstruction that no longer digests to the persisted
+        # request means the state and its receipt disagree about the close.
+        if state["status"] == "abandoned":
+            outcome, reason = "abandoned", self._abandon_reason(state)
+        else:
+            outcome, reason = state["status"].removeprefix("closed-"), None
+        try:
+            self._close(deepcopy(state), base_version, outcome, reason)
+        except RdlError:
+            findings.append(
+                {
+                    "code": "terminal_replay_mismatch",
+                    "severity": "blocking",
+                    "message": "the close request rebuilt from state does not replay to the persisted receipt",
+                }
+            )
+        expected_receipt = {
+            "session_id": state["session_id"],
+            "round": state["round"],
+            "state_version": state["state_version"],
+            "transition_readiness": "terminal",
+        }
+        if {key: stored.get(key) for key in expected_receipt} != expected_receipt:
+            findings.append(
+                {
+                    "code": "terminal_receipt_incoherent",
+                    "severity": "blocking",
+                    "message": "the persisted close receipt disagrees with the state it closed",
+                }
+            )
+
+        current = state["state_version"]
+        mutations = (
+            ("apply", lambda: self._apply(deepcopy(state), {"expected_state_version": current})),
+            ("next", lambda: self._next(deepcopy(state), current)),
+            ("close", lambda: self._close(deepcopy(state), current, "inconclusive", None)),
+        )
+        for command, probe in mutations:
+            if self._rejection_code(probe) != "terminal_session":
+                findings.append(
+                    {
+                        "code": "terminal_mutation_not_rejected",
+                        "severity": "blocking",
+                        "message": f"{command} was not rejected as terminal",
+                    }
+                )
+
+        stale = lambda: self._apply(deepcopy(state), {"expected_state_version": base_version})
+        if self._rejection_code(stale) != "state_version_conflict":
+            findings.append(
+                {
+                    "code": "stale_apply_not_rejected",
+                    "severity": "blocking",
+                    "message": "an apply at the pre-close version was not rejected as stale",
+                }
+            )
+        return findings
+
+    @staticmethod
+    def _abandon_reason(state: dict[str, Any]) -> str | None:
+        for event in reversed(state["events"]):
+            if event["kind"] == "abandoned":
+                return event["summary"]
+        return None
+
+    @staticmethod
+    def _rejection_code(probe) -> str | None:
+        try:
+            probe()
+        except RdlError as exc:
+            return exc.code
+        return None
 
     def _readiness(
         self,
         state: dict[str, Any],
         action: str | None,
         *,
-        context: EvaluationContext,
         deterministic_findings: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if state["status"] != "active":
@@ -494,7 +588,7 @@ class RdlEngine:
         round_state = current_round(state)
         findings = deterministic_findings
         if findings is None:
-            findings = self._deterministic_findings(state, context)
+            findings = self._deterministic_findings(state)
         blockers = [item["code"] for item in findings if item["severity"] == "blocking"]
         decision = round_state.get("decision")
         if not decision:
@@ -551,7 +645,7 @@ class RdlEngine:
             "hard_limit_exceeded": diagnostics["hard_limit_exceeded"],
         }
 
-    def _deterministic_findings(self, state: dict[str, Any], context: EvaluationContext) -> list[dict[str, Any]]:
+    def _deterministic_findings(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
         transition_action = self._transition_action(state)
         for key, entry in state["progress"].items():
@@ -568,21 +662,6 @@ class RdlEngine:
                 )
         round_state = current_round(state)
         findings.extend(rendering.missing_review_reference_findings(state, round_state))
-        current_artifact_ids = rendering.direct_relevant_artifact_ids(state, round_state)
-        for artifact in state["artifacts"]:
-            if (
-                artifact["id"] not in current_artifact_ids
-                or artifact["stability"] != "live"
-                or "resolution" in artifact
-            ):
-                continue
-            try:
-                actual = context.inspect(artifact["path"])
-            except RdlError as exc:
-                findings.append({"code": exc.code, "severity": "blocking", "location": artifact["path"], "message": exc.message})
-                continue
-            if actual["size_bytes"] != artifact["size_bytes"] or actual["sha256"] != artifact["sha256"]:
-                findings.append({"code": "artifact_drift", "severity": "blocking", "location": artifact["path"], "message": "live artifact changed since registration"})
         return sorted(
             findings,
             key=lambda item: (item.get("severity", ""), item.get("code", ""), item.get("location", ""), item.get("message", "")),
@@ -606,133 +685,6 @@ class RdlEngine:
             assigned.setdefault("artifacts", {})[key] = artifact_id
         return local
 
-    def _apply_artifact_resolutions(
-        self,
-        state: dict[str, Any],
-        entries: dict[str, Any],
-        local_artifacts: dict[str, str],
-        recorded_version: int,
-        context: EvaluationContext,
-    ) -> None:
-        if not entries:
-            return
-        if self._transition_action(state) not in {"next", "close"}:
-            raise RdlError(
-                "artifact_resolution_not_relevant",
-                "artifact resolution requires a candidate transition decision",
-                status="blocked",
-            )
-        artifacts = {item["id"]: item for item in state["artifacts"]}
-        candidate_ids = rendering.direct_relevant_artifact_ids(state, current_round(state))
-        new_artifact_ids = set(local_artifacts.values())
-        seen: set[str] = set()
-        for value in entries.values():
-            target_ref = value["artifact_ref"]
-            if target_ref in local_artifacts or target_ref in new_artifact_ids:
-                raise RdlError(
-                    "invalid_artifact_resolution",
-                    "artifact resolution target must already be durable",
-                    status="blocked",
-                )
-            target = artifacts.get(target_ref)
-            if target is None:
-                raise RdlError("unknown_reference", f"unknown artifact reference: {target_ref}")
-            if target_ref in seen or "resolution" in target or target["stability"] != "live":
-                raise RdlError(
-                    "invalid_artifact_resolution",
-                    "artifact resolution target must be unresolved and live",
-                    status="blocked",
-                )
-            if target_ref not in candidate_ids:
-                raise RdlError(
-                    "artifact_resolution_not_relevant",
-                    "artifact resolution target is not directly relevant to the candidate transition",
-                    status="blocked",
-                )
-            seen.add(target_ref)
-            observed = self._observe_artifact(target, context)
-            resolution = {
-                "kind": value["kind"],
-                "reason": value["reason"],
-                "observed": observed,
-                "recorded_version": recorded_version,
-            }
-            if value["kind"] == "superseded":
-                replacement_ref = value["replacement_ref"]
-                replacement_id = local_artifacts.get(replacement_ref)
-                if replacement_id is None:
-                    raise RdlError(
-                        "invalid_artifact_resolution",
-                        "superseding replacement must be registered in the same apply",
-                        status="blocked",
-                    )
-                replacement = artifacts[replacement_id]
-                if replacement["stability"] != "snapshot":
-                    raise RdlError(
-                        "invalid_artifact_resolution",
-                        "superseding replacement must be a snapshot artifact",
-                        status="blocked",
-                    )
-                self._require_distinct_artifact_identity(target, replacement, observed)
-                resolution["replacement_artifact_id"] = replacement_id
-            target["resolution"] = resolution
-
-    @staticmethod
-    def _observe_artifact(artifact: dict[str, Any], context: EvaluationContext) -> dict[str, Any]:
-        try:
-            actual = context.inspect(artifact["path"])
-        except RdlError as exc:
-            if exc.code == "artifact_missing":
-                return {"status": "missing"}
-            if exc.code == "artifact_unreadable":
-                return {"status": "unreadable"}
-            raise
-        status = (
-            "unchanged"
-            if actual["size_bytes"] == artifact["size_bytes"] and actual["sha256"] == artifact["sha256"]
-            else "drifted"
-        )
-        return {"status": status, **actual}
-
-    def _require_distinct_artifact_identity(
-        self,
-        target: dict[str, Any],
-        replacement: dict[str, Any],
-        observed: dict[str, Any],
-    ) -> None:
-        try:
-            target_path = (self.root / target["path"]).resolve()
-            replacement_path = (self.root / replacement["path"]).resolve()
-        except (OSError, RuntimeError) as exc:
-            raise RdlError(
-                "artifact_identity_unverifiable",
-                "artifact filesystem identity could not be verified",
-                status="blocked",
-            ) from exc
-        if target_path == replacement_path:
-            raise RdlError(
-                "invalid_artifact_resolution",
-                "superseding replacement must use a distinct canonical path",
-                status="blocked",
-            )
-        if observed["status"] == "missing":
-            return
-        try:
-            target_stat = target_path.stat()
-            replacement_stat = replacement_path.stat()
-        except OSError as exc:
-            raise RdlError(
-                "artifact_identity_unverifiable",
-                "artifact filesystem identity could not be verified",
-                status="blocked",
-            ) from exc
-        if (target_stat.st_dev, target_stat.st_ino) == (replacement_stat.st_dev, replacement_stat.st_ino):
-            raise RdlError(
-                "invalid_artifact_resolution",
-                "superseding replacement must not alias the target artifact",
-                status="blocked",
-            )
-
     def _apply_evidence(
         self,
         state: dict[str, Any],
@@ -755,15 +707,6 @@ class RdlEngine:
             assigned.setdefault("evidence", {})[key] = evidence_id
         return local
 
-    def _apply_events(self, state: dict[str, Any], entries: dict[str, Any], assigned: dict[str, dict[str, str]]) -> None:
-        for key, value in entries.items():
-            event_id = self._next_id(state, "event", "EV")
-            record = deepcopy(value)
-            record.update({"id": event_id, "round": state["round"]})
-            state["events"].append(record)
-            current_round(state)["event_ids"].append(event_id)
-            assigned.setdefault("events", {})[key] = event_id
-
     def _apply_progress(self, state: dict[str, Any], entries: dict[str, Any], local_evidence: dict[str, str]) -> None:
         existing = {item["id"] for item in state["evidence"]}
         for key, value in entries.items():
@@ -776,14 +719,6 @@ class RdlEngine:
                     record["evidence_refs"], local_evidence, existing, "evidence"
                 )
             state["progress"][key] = record
-
-    @staticmethod
-    def _apply_factors(state: dict[str, Any], entries: dict[str, Any]) -> None:
-        for key, value in entries.items():
-            if value is None:
-                state["factors"].pop(key, None)
-            else:
-                state["factors"][key] = deepcopy(value)
 
     @staticmethod
     def _resolve_refs(refs: list[str], local: dict[str, str], existing: set[str], kind: str) -> list[str]:

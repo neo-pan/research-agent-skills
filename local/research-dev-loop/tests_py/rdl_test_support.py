@@ -25,9 +25,9 @@ START = {
 }
 
 
-def routine_delta(version: int = 1, *, transition: str = "next", outcome: str | None = None, risk: str = "routine"):
+def routine_delta(version: int = 1, *, transition: str = "next", outcome: str | None = None, material: bool = False):
     decision = {
-        "kind": "continue" if risk == "routine" else "accept",
+        "kind": "accept" if material else "continue",
         "subject": "fixture claim",
         "evidence_refs": ["result"],
         "uncertainty": "bounded fixture uncertainty",
@@ -39,14 +39,11 @@ def routine_delta(version: int = 1, *, transition: str = "next", outcome: str | 
         decision["close_outcome"] = outcome or "positive"
     return {
         "expected_state_version": version,
-        "risk": risk,
         "artifacts": {
             "report": {
-                "kind": "report",
+                "kind": "receipt",
                 "path": "artifacts/report.json",
                 "description": "fixture verification receipt",
-                "stability": "snapshot",
-                "verifier": {"name": "fixture", "status": "passed", "summary": "direct check passed"},
             }
         },
         "evidence": {
@@ -67,12 +64,6 @@ def routine_delta(version: int = 1, *, transition: str = "next", outcome: str | 
                 "evidence_refs": ["result"],
             }
         },
-        "interpretation": {
-            "shows": ["the fixture behaves as claimed"],
-            "does_not_show": ["production scale"],
-            "uncertainty": ["larger workloads are untested"],
-            "implications": ["advance the bounded investigation"],
-        },
         "decision": decision,
     }
 
@@ -80,7 +71,6 @@ def routine_delta(version: int = 1, *, transition: str = "next", outcome: str | 
 def review_result(version: int, digest: str, *, action: str = "close", verdict: str = "pass"):
     return {
         "expected_state_version": version,
-        "risk": "routine",
         "review_result": {
             "action": action,
             "subject_digest": digest,

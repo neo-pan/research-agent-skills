@@ -12,16 +12,9 @@ HANDOFF_SOFT_BYTES = 20 * 1024
 HANDOFF_HARD_BYTES = 24 * 1024
 REVIEW_SOFT_BYTES = 32 * 1024
 REVIEW_HARD_BYTES = 48 * 1024
-ARTIFACT_LIFECYCLE_GUIDANCE = (
-    "Treat retired artifacts as historical rather than current decision-grade support. "
-    "Check whether each superseding snapshot and verifier actually support the claim. "
-    "Artifact drift establishes loss of the original binding; it does not by itself establish "
-    "a negative scientific result. Require an inconclusive outcome or narrower claim unless "
-    "independent evidence supports the stronger conclusion."
-)
 POST_NEXT_WRITE_THROUGH_GATE = (
     "Execute the instruction, freeze the smallest sufficient receipt or snapshot, then apply "
-    "the current round's evidence, interpretation, and decision before any transition."
+    "the current round's evidence and decision before any transition."
 )
 
 
@@ -29,7 +22,6 @@ def render_views(state: dict[str, Any]) -> dict[str, str]:
     views = {
         "mission.md": _mission(state),
         "progress.md": _progress(state),
-        "factors.md": _factors(state),
         "artifacts.json": json.dumps({"artifacts": state["artifacts"]}, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         "decision-ledger.md": _ledger(state),
     }
@@ -54,12 +46,10 @@ def subject_projection(state: dict[str, Any], action: str, deterministic_finding
         "mission": state["mission"],
         "mode": state["mode"],
         "progress": state["progress"],
-        "factors": state["factors"],
         "round": {
             "number": round_state["number"],
             "mode": round_state["mode"],
             "evidence": evidence,
-            "interpretation": round_state["interpretation"],
             "decision": round_state["decision"],
         },
         "artifacts": artifacts,
@@ -85,7 +75,7 @@ def _review_pack(
     projection = subject_projection(state, action, deterministic_findings)
     sections = {
         "mission": projection["mission"],
-        "session": {"mode": projection["mode"], "progress": projection["progress"], "factors": projection["factors"]},
+        "session": {"mode": projection["mode"], "progress": projection["progress"]},
         "action_context": projection.get("action_context"),
         "round": projection["round"],
         "artifacts": projection["artifacts"],
@@ -94,8 +84,6 @@ def _review_pack(
         "evidence_selection": projection["evidence_selection"],
         "prior_review_context": projection["prior_review_context"],
     }
-    if any("resolution" in item for item in projection["artifacts"]):
-        sections["artifact_lifecycle_guidance"] = ARTIFACT_LIFECYCLE_GUIDANCE
     pack = {
         "status": "ok",
         "session_id": state["session_id"],
@@ -258,25 +246,20 @@ def handoff(
     for item in state["artifacts"]:
         if item["id"] not in artifact_ids:
             continue
-        artifact = {
-            "id": item["id"],
-            "kind": item["kind"],
-            "path": item["path"],
-            "stability": item["stability"],
-            "integrity": {"size_bytes": item["size_bytes"], "sha256": item["sha256"]},
-        }
-        if "verifier" in item:
-            artifact["verifier"] = item["verifier"]
-        if "resolution" in item:
-            artifact["resolution"] = item["resolution"]
-        artifacts.append(artifact)
+        artifacts.append(
+            {
+                "id": item["id"],
+                "kind": item["kind"],
+                "path": item["path"],
+                "integrity": {"size_bytes": item["size_bytes"], "sha256": item["sha256"]},
+            }
+        )
     decision = round_state["decision"]
     if state["status"] != "active" and decision is not None:
         decision = {key: value for key, value in decision.items() if key != "next_step"}
     sections = {
         "mission": state["mission"],
         "progress": state["progress"],
-        "factors": state["factors"],
         "round": {
             "number": state["round"],
             "mode": state["mode"],
@@ -287,7 +270,6 @@ def handoff(
                 }
                 for item in current_evidence
             ],
-            "interpretation": round_state["interpretation"],
             "decision": decision,
         },
         "artifacts": artifacts,
@@ -318,7 +300,7 @@ def handoff(
     if full_size <= HANDOFF_HARD_BYTES:
         return result
 
-    read_sections = ["/mission", "/progress", "/factors"]
+    read_sections = ["/mission", "/progress"]
     if current_action is not None:
         read_sections.append(f"/rounds/{state['round'] - 2}")
     read_sections.extend(
@@ -329,7 +311,7 @@ def handoff(
             "/events",
         )
     )
-    omitted = ["mission", "progress", "factors", "round", "artifacts"]
+    omitted = ["mission", "progress", "round", "artifacts"]
     if current_action is not None:
         omitted.append("current_action")
     manifest = {
@@ -384,7 +366,6 @@ def handoff_diagnostics(
                 for key in (
                     "mission",
                     "progress",
-                    "factors",
                     "round",
                     "artifacts",
                     "readiness",
@@ -543,18 +524,6 @@ def _progress(state: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _factors(state: dict[str, Any]) -> str:
-    lines = ["# Factors", ""]
-    for key, entry in sorted(state["factors"].items()):
-        lines.extend((f"## {key}", "", f"- Category: {entry['category']}", f"- Value: {entry['value']}"))
-        if "uncertainty" in entry:
-            lines.append(f"- Uncertainty: {entry['uncertainty']}")
-        lines.append("")
-    if not state["factors"]:
-        lines.extend(("No factors recorded.", ""))
-    return "\n".join(lines)
-
-
 def _round(state: dict[str, Any], round_state: dict[str, Any]) -> str:
     evidence_by_id = {item["id"]: item for item in state["evidence"]}
     event_by_id = {item["id"]: item for item in state["events"]}
@@ -576,9 +545,6 @@ def _round(state: dict[str, Any], round_state: dict[str, Any]) -> str:
         )
     if not round_state["evidence_ids"]:
         lines.extend(("No evidence recorded.", ""))
-    interpretation = round_state["interpretation"]
-    if interpretation:
-        lines.extend(("## Interpretation", "", "### Shows", "", _bullets(interpretation["shows"]), "### Does Not Show", "", _bullets(interpretation["does_not_show"]), "### Uncertainty", "", _bullets(interpretation["uncertainty"]), "### Implications", "", _bullets(interpretation["implications"])))
     decision = round_state["decision"]
     if decision:
         lines.extend(("## Decision", "", f"- Kind: {decision['kind']}", f"- Subject: {decision['subject']}", f"- Evidence: {', '.join(decision['evidence_refs'])}", f"- Uncertainty: {decision['uncertainty']}", f"- Remaining unknowns: {'; '.join(decision['remaining_unknowns']) or 'none'}", f"- Next step: {decision['next_step']}", f"- Recommended transition: {decision['recommended_transition']}"))
@@ -716,23 +682,6 @@ def missing_review_reference_findings(state: dict[str, Any], round_state: dict[s
         for artifact_id in evidence["artifact_refs"]:
             if artifact_id not in artifact_by_id:
                 missing.add(("artifact", artifact_id))
-    pending = [
-        artifact_id
-        for evidence_id in selected_ids
-        for artifact_id in evidence_by_id.get(evidence_id, {}).get("artifact_refs", [])
-        if artifact_id in artifact_by_id
-    ]
-    seen: set[str] = set()
-    while pending:
-        artifact_id = pending.pop()
-        if artifact_id in seen:
-            continue
-        seen.add(artifact_id)
-        replacement_id = artifact_by_id[artifact_id].get("resolution", {}).get("replacement_artifact_id")
-        if replacement_id and replacement_id not in artifact_by_id:
-            missing.add(("artifact", replacement_id))
-        elif replacement_id:
-            pending.append(replacement_id)
     return [
         {
             "code": "missing_review_reference",
@@ -750,21 +699,8 @@ def _subject_artifact(item: dict[str, Any]) -> dict[str, Any]:
         "kind": item["kind"],
         "path": item["path"],
         "description": item["description"],
-        "stability": item["stability"],
         "size_bytes": item["size_bytes"],
         "sha256": item["sha256"],
-        **({"verifier": item["verifier"]} if "verifier" in item else {}),
-        **({"resolution": item["resolution"]} if "resolution" in item else {}),
-    }
-
-
-def direct_relevant_artifact_ids(state: dict[str, Any], round_state: dict[str, Any]) -> set[str]:
-    evidence_ids = _relevant_evidence_ids(state, round_state)
-    return {
-        ref
-        for evidence in state["evidence"]
-        if evidence["id"] in evidence_ids
-        for ref in evidence["artifact_refs"]
     }
 
 
@@ -773,18 +709,9 @@ def relevant_artifact_closure(state: dict[str, Any], round_state: dict[str, Any]
 
 
 def _artifact_closure_for_evidence_ids(state: dict[str, Any], evidence_ids: set[str]) -> set[str]:
-    artifact_ids = {
+    return {
         ref
         for evidence in state["evidence"]
         if evidence["id"] in evidence_ids
         for ref in evidence["artifact_refs"]
     }
-    artifacts = {item["id"]: item for item in state["artifacts"]}
-    pending = list(artifact_ids)
-    while pending:
-        artifact = artifacts.get(pending.pop())
-        replacement_id = (artifact or {}).get("resolution", {}).get("replacement_artifact_id")
-        if replacement_id and replacement_id not in artifact_ids:
-            artifact_ids.add(replacement_id)
-            pending.append(replacement_id)
-    return artifact_ids

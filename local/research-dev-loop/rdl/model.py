@@ -12,7 +12,6 @@ from typing import Any
 
 
 SCHEMA_VERSION = 2
-RISKS = frozenset({"routine", "material"})
 MODES = frozenset({"research", "build"})
 PROGRESS_STATUSES = frozenset(
     {"active", "completed", "blocked", "deferred", "open_question", "direction_tried"}
@@ -34,8 +33,7 @@ DECISION_KINDS = frozenset(
 MATERIAL_DECISIONS = frozenset({"accept", "reject", "pivot", "narrow", "broaden"})
 TRANSITIONS = frozenset({"next", "close", "none"})
 CLOSE_OUTCOMES = frozenset({"positive", "negative", "inconclusive", "abandoned"})
-STABILITIES = frozenset({"snapshot", "live"})
-ARTIFACT_RESOLUTION_KINDS = frozenset({"retired", "superseded"})
+ARTIFACT_KINDS = frozenset({"receipt", "script", "document"})
 BEARINGS = frozenset({"supports", "contradicts", "mixed", "context"})
 STRENGTHS = frozenset({"strong", "moderate", "weak", "contradicted", "inconclusive"})
 VERDICTS = frozenset({"pass", "pass_with_notes", "revise", "block", "inconclusive"})
@@ -117,38 +115,21 @@ def validate_delta(value: Any) -> dict[str, Any]:
     data = _object(value, "ApplyDelta")
     allowed = {
         "expected_state_version",
-        "risk",
         "artifacts",
-        "artifact_resolutions",
         "evidence",
-        "events",
         "progress_updates",
-        "factor_updates",
-        "interpretation",
         "decision",
         "review_trigger",
         "review_result",
     }
     _only(data, allowed, "ApplyDelta")
     version = _positive_int(data.get("expected_state_version"), "expected_state_version")
-    risk = _enum(data.get("risk"), RISKS, "risk")
-    normalized: dict[str, Any] = {"expected_state_version": version, "risk": risk}
+    normalized: dict[str, Any] = {"expected_state_version": version}
     normalized["artifacts"] = _map(data.get("artifacts", {}), "artifacts", _artifact)
-    normalized["artifact_resolutions"] = _map(
-        data.get("artifact_resolutions", {}), "artifact_resolutions", _artifact_resolution
-    )
     normalized["evidence"] = _map(data.get("evidence", {}), "evidence", _evidence)
-    normalized["events"] = _map(data.get("events", {}), "events", _event)
     normalized["progress_updates"] = _map(
         data.get("progress_updates", {}), "progress_updates", _progress, allow_null=True
     )
-    normalized["factor_updates"] = _map(
-        data.get("factor_updates", {}), "factor_updates", _factor, allow_null=True
-    )
-    if "interpretation" in data:
-        if data["interpretation"] is None:
-            raise RdlError("invalid_null", "interpretation cannot be null")
-        normalized["interpretation"] = _interpretation(data["interpretation"], "interpretation")
     if "decision" in data:
         if data["decision"] is None:
             raise RdlError("invalid_null", "decision cannot be null")
@@ -175,7 +156,6 @@ def new_state(session_id: str, start: dict[str, Any], start_request_digest: str)
         "round": 1,
         "mission": deepcopy(start["mission"]),
         "progress": {},
-        "factors": {},
         "artifacts": [],
         "evidence": [],
         "events": [],
@@ -209,12 +189,8 @@ def semantic_delta_present(delta: dict[str, Any]) -> bool:
     return any(
         (
             delta.get("artifacts"),
-            delta.get("artifact_resolutions"),
             delta.get("evidence"),
-            delta.get("events"),
             delta.get("progress_updates"),
-            delta.get("factor_updates"),
-            "interpretation" in delta,
             "decision" in delta,
             "review_trigger" in delta,
         )
@@ -231,7 +207,6 @@ def _new_round(number: int, mode: str) -> dict[str, Any]:
         "mode": mode,
         "evidence_ids": [],
         "event_ids": [],
-        "interpretation": None,
         "decision": None,
         "material_required": False,
         "review_history": [],
@@ -242,42 +217,12 @@ def _new_round(number: int, mode: str) -> dict[str, Any]:
 
 def _artifact(value: Any, field_name: str) -> dict[str, Any]:
     data = _object(value, field_name)
-    _only(data, {"kind", "path", "description", "stability", "verifier"}, field_name)
-    result = {
-        "kind": _text(data.get("kind"), f"{field_name}.kind"),
+    _only(data, {"kind", "path", "description"}, field_name)
+    return {
+        "kind": _enum(data.get("kind"), ARTIFACT_KINDS, f"{field_name}.kind"),
         "path": _relative_path(data.get("path"), f"{field_name}.path"),
         "description": _text(data.get("description"), f"{field_name}.description"),
-        "stability": _enum(data.get("stability", "snapshot"), STABILITIES, f"{field_name}.stability"),
     }
-    if "verifier" in data:
-        verifier = _object(data["verifier"], f"{field_name}.verifier")
-        _only(verifier, {"name", "status", "summary"}, f"{field_name}.verifier")
-        result["verifier"] = {
-            "name": _text(verifier.get("name"), f"{field_name}.verifier.name"),
-            "status": _text(verifier.get("status"), f"{field_name}.verifier.status"),
-            "summary": _text(verifier.get("summary"), f"{field_name}.verifier.summary"),
-        }
-    return result
-
-
-def _artifact_resolution(value: Any, field_name: str) -> dict[str, Any]:
-    data = _object(value, field_name)
-    _only(data, {"artifact_ref", "kind", "reason", "replacement_ref"}, field_name)
-    kind = _enum(data.get("kind"), ARTIFACT_RESOLUTION_KINDS, f"{field_name}.kind")
-    result = {
-        "artifact_ref": _reference(data.get("artifact_ref"), f"{field_name}.artifact_ref"),
-        "kind": kind,
-        "reason": _text(data.get("reason"), f"{field_name}.reason"),
-    }
-    if kind == "retired" and "replacement_ref" in data:
-        raise RdlError("invalid_artifact_resolution", "retired artifact resolution forbids replacement_ref")
-    if kind == "superseded":
-        if "replacement_ref" not in data:
-            raise RdlError("invalid_artifact_resolution", "superseded artifact resolution requires replacement_ref")
-        result["replacement_ref"] = _reference(
-            data.get("replacement_ref"), f"{field_name}.replacement_ref"
-        )
-    return result
 
 
 def _evidence(value: Any, field_name: str) -> dict[str, Any]:
@@ -290,16 +235,6 @@ def _evidence(value: Any, field_name: str) -> dict[str, Any]:
         "strength": _enum(data.get("strength"), STRENGTHS, f"{field_name}.strength"),
         "artifact_refs": _ref_list(data.get("artifact_refs", []), f"{field_name}.artifact_refs"),
         "uncertainty": _text(data.get("uncertainty", "none recorded"), f"{field_name}.uncertainty"),
-    }
-
-
-def _event(value: Any, field_name: str) -> dict[str, Any]:
-    data = _object(value, field_name)
-    _only(data, {"kind", "summary", "impact"}, field_name)
-    return {
-        "kind": _text(data.get("kind"), f"{field_name}.kind"),
-        "summary": _text(data.get("summary"), f"{field_name}.summary"),
-        "impact": _text(data.get("impact", "none"), f"{field_name}.impact"),
     }
 
 
@@ -321,29 +256,6 @@ def _progress(value: Any, field_name: str) -> dict[str, Any]:
     if "evidence_refs" in data:
         result["evidence_refs"] = _ref_list(data["evidence_refs"], f"{field_name}.evidence_refs")
     return result
-
-
-def _factor(value: Any, field_name: str) -> dict[str, Any]:
-    data = _object(value, field_name)
-    _only(data, {"category", "value", "uncertainty"}, field_name)
-    result = {
-        "category": _text(data.get("category"), f"{field_name}.category"),
-        "value": _text(data.get("value"), f"{field_name}.value"),
-    }
-    if "uncertainty" in data:
-        result["uncertainty"] = _text(data["uncertainty"], f"{field_name}.uncertainty")
-    return result
-
-
-def _interpretation(value: Any, field_name: str) -> dict[str, Any]:
-    data = _object(value, field_name)
-    _only(data, {"shows", "does_not_show", "uncertainty", "implications"}, field_name)
-    return {
-        "shows": _text_list(data.get("shows"), f"{field_name}.shows", required=True),
-        "does_not_show": _text_list(data.get("does_not_show", []), f"{field_name}.does_not_show"),
-        "uncertainty": _text_list(data.get("uncertainty"), f"{field_name}.uncertainty", required=True),
-        "implications": _text_list(data.get("implications", []), f"{field_name}.implications"),
-    }
 
 
 def _decision(value: Any, field_name: str) -> dict[str, Any]:
@@ -480,13 +392,6 @@ def _ref_list(value: Any, name: str, *, required: bool = False) -> list[str]:
         if not KEY_RE.fullmatch(ref):
             raise RdlError("invalid_reference", f"{name} contains an invalid reference: {ref}")
     return result
-
-
-def _reference(value: Any, name: str) -> str:
-    ref = _text(value, name)
-    if not KEY_RE.fullmatch(ref):
-        raise RdlError("invalid_reference", f"{name} contains an invalid reference: {ref}")
-    return ref
 
 
 def _enum(value: Any, allowed: set[str] | frozenset[str], name: str) -> str:

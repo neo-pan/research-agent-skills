@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from hashlib import sha256
 from unittest.mock import patch
 from pathlib import Path
 
@@ -51,7 +52,7 @@ class ReplayAndGateTests(unittest.TestCase):
             applied = engine.execute(
                 "apply",
                 session_id="close-projection-preflight",
-                request=routine_delta(transition="close", outcome="positive", risk="material"),
+                request=routine_delta(transition="close", outcome="positive", material=True),
             )
             engine.execute(
                 "apply",
@@ -97,7 +98,7 @@ class ReplayAndGateTests(unittest.TestCase):
     def test_stale_caller_has_zero_writes(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="stale", request=START)
-            engine.execute("apply", session_id="stale", request={"expected_state_version": 1, "risk": "routine"})
+            engine.execute("apply", session_id="stale", request={"expected_state_version": 1})
             before = engine.repository.current_generation("stale")
             with self.assertRaisesRegex(RdlError, "stale"):
                 engine.execute("next", session_id="stale", expected_state_version=1)
@@ -109,7 +110,7 @@ class ReplayAndGateTests(unittest.TestCase):
             applied = engine.execute(
                 "apply",
                 session_id="terminal-matrix",
-                request=routine_delta(transition="close", outcome="positive", risk="material"),
+                request=routine_delta(transition="close", outcome="positive", material=True),
             )
             engine.execute(
                 "apply",
@@ -126,10 +127,10 @@ class ReplayAndGateTests(unittest.TestCase):
                 closed,
             )
             probes = (
-                ("apply", {"request": {"expected_state_version": 4, "risk": "routine"}}, "terminal_session"),
+                ("apply", {"request": {"expected_state_version": 4}}, "terminal_session"),
                 ("next", {"expected_state_version": 4}, "terminal_session"),
                 ("close", {"expected_state_version": 4, "outcome": "positive"}, "terminal_session"),
-                ("apply", {"request": {"expected_state_version": 2, "risk": "routine"}}, "state_version_conflict"),
+                ("apply", {"request": {"expected_state_version": 2}}, "state_version_conflict"),
                 ("next", {"expected_state_version": 2}, "state_version_conflict"),
                 ("close", {"expected_state_version": 2, "outcome": "negative"}, "state_version_conflict"),
             )
@@ -149,7 +150,7 @@ class ReplayAndGateTests(unittest.TestCase):
         with project() as (_root, engine):
             engine.execute("start", session_id="upgrade", request=START)
             receipt = engine.execute(
-                "apply", session_id="upgrade", request=routine_delta(transition="next", risk="routine") | {"decision": routine_delta()["decision"] | {"kind": "pivot"}}
+                "apply", session_id="upgrade", request=routine_delta(transition="next") | {"decision": routine_delta()["decision"] | {"kind": "pivot"}}
             )
             self.assertEqual(receipt["effective_risk"], "material")
             self.assertEqual(receipt["risk_upgrade_reasons"], ["decision:pivot"])
@@ -158,7 +159,7 @@ class ReplayAndGateTests(unittest.TestCase):
     def test_scientific_close_is_always_material(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="close-upgrade", request=START)
-            delta = routine_delta(transition="close", outcome="inconclusive", risk="routine")
+            delta = routine_delta(transition="close", outcome="inconclusive")
             receipt = engine.execute("apply", session_id="close-upgrade", request=delta)
             self.assertEqual(receipt["effective_risk"], "material")
             self.assertEqual(receipt["risk_upgrade_reasons"], ["scientific_close:inconclusive"])
@@ -167,7 +168,7 @@ class ReplayAndGateTests(unittest.TestCase):
     def test_binding_only_apply_does_not_change_subject_digest(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="digest", request=START)
-            applied = engine.execute("apply", session_id="digest", request=routine_delta(risk="material"))
+            applied = engine.execute("apply", session_id="digest", request=routine_delta(material=True))
             pack = engine.execute("review", session_id="digest", action="next")
             engine.execute("apply", session_id="digest", request=review_result(2, pack["subject_digest"], action="next"))
             state = engine.repository.load("digest")
@@ -176,121 +177,10 @@ class ReplayAndGateTests(unittest.TestCase):
                 applied["review_subject_digest"],
             )
 
-    def test_artifact_resolution_changes_binding_and_exact_replay_is_idempotent(self):
-        with project() as (root, engine):
-            engine.execute("start", session_id="resolution-binding", request=START)
-            initial = routine_delta(transition="close", outcome="inconclusive", risk="material")
-            initial["artifacts"]["report"]["stability"] = "live"
-            first = engine.execute("apply", session_id="resolution-binding", request=initial)
-            stale_digest = first["review_subject_digest"]
-            (root / "artifacts" / "report.json").write_text('{"changed":true}\n', encoding="utf-8")
-            resolution_request = {
-                "expected_state_version": 2,
-                "risk": "routine",
-                "artifact_resolutions": {
-                    "retire": {
-                        "artifact_ref": "A000001",
-                        "kind": "retired",
-                        "reason": "The live report is historical after normal updates.",
-                    }
-                },
-            }
-            reconciled = engine.execute("apply", session_id="resolution-binding", request=resolution_request)
-            self.assertNotEqual(reconciled["review_subject_digest"], stale_digest)
-            self.assertEqual(
-                engine.execute("apply", session_id="resolution-binding", request=resolution_request),
-                reconciled,
-            )
-            state = engine.repository.load("resolution-binding")
-            self.assertEqual(len([item for item in state["artifacts"] if "resolution" in item]), 1)
-
-            with self.assertRaises(RdlError) as stale:
-                engine.execute(
-                    "apply",
-                    session_id="resolution-binding",
-                    request=review_result(3, stale_digest, action="close"),
-                )
-            self.assertEqual(stale.exception.code, "stale_review_result")
-            pack = engine.execute("review", session_id="resolution-binding", action="close")
-            bound = engine.execute(
-                "apply",
-                session_id="resolution-binding",
-                request=review_result(3, pack["subject_digest"], action="close"),
-            )
-            self.assertEqual(bound["transition_readiness"], "ready")
-
-    def test_pre_resolution_schema_v2_fixture_recovers_and_closes_without_migration(self):
-        fixture_path = Path(__file__).with_name("fixtures") / "pre_resolution_schema_v2.json"
-        legacy_state = json.loads(fixture_path.read_text(encoding="utf-8"))
-        self.assertNotIn("resolution", legacy_state["artifacts"][0])
-        self.assertNotEqual(
-            rendering.subject_digest(legacy_state, "close", []),
-            legacy_state["last_mutation"]["receipt"]["review_subject_digest"],
-        )
-        with project() as (root, _engine):
-            repository = Repository(root)
-            repository.commit(
-                "legacy-drift",
-                legacy_state,
-                rendering.render_views(legacy_state),
-            )
-            engine = RdlEngine(root, repository)
-            (root / "artifacts" / "report.json").write_text('{"changed":true}\n', encoding="utf-8")
-            self.assertIn(
-                "artifact_drift",
-                [item["code"] for item in engine.execute("doctor", session_id="legacy-drift")["findings"]],
-            )
-            reconciled = engine.execute(
-                "apply",
-                session_id="legacy-drift",
-                request={
-                    "expected_state_version": 2,
-                    "risk": "material",
-                    "artifact_resolutions": {
-                        "retire": {
-                            "artifact_ref": "A000001",
-                            "kind": "retired",
-                            "reason": "The mutable report is historical rather than current support.",
-                        }
-                    },
-                },
-            )
-            self.assertEqual(reconciled["transition_readiness"], "needs_review")
-            pack = engine.execute("review", session_id="legacy-drift", action="close")
-            bound = engine.execute(
-                "apply",
-                session_id="legacy-drift",
-                request=review_result(3, pack["subject_digest"], action="close", verdict="pass_with_notes"),
-            )
-            self.assertEqual(bound["transition_readiness"], "ready")
-            closed = engine.execute(
-                "close",
-                session_id="legacy-drift",
-                expected_state_version=4,
-                outcome="inconclusive",
-            )
-            self.assertEqual(closed["transition_readiness"], "terminal")
-            self.assertEqual(
-                engine.execute(
-                    "close",
-                    session_id="legacy-drift",
-                    expected_state_version=4,
-                    outcome="inconclusive",
-                ),
-                closed,
-            )
-            with self.assertRaises(RdlError) as terminal:
-                engine.execute(
-                    "apply",
-                    session_id="legacy-drift",
-                    request={"expected_state_version": 5, "risk": "routine"},
-                )
-            self.assertEqual(terminal.exception.code, "terminal_session")
-
     def test_accepted_blocking_finding_blocks_transition(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="finding", request=START)
-            applied = engine.execute("apply", session_id="finding", request=routine_delta(risk="material"))
+            applied = engine.execute("apply", session_id="finding", request=routine_delta(material=True))
             result = review_result(2, applied["review_subject_digest"], action="next")
             result["review_result"]["findings"] = [{
                 "severity": "blocking",
@@ -307,7 +197,7 @@ class ReplayAndGateTests(unittest.TestCase):
     def test_one_evidence_free_correction_then_new_evidence_cycle(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="cycles", request=START)
-            applied = engine.execute("apply", session_id="cycles", request=routine_delta(risk="material"))
+            applied = engine.execute("apply", session_id="cycles", request=routine_delta(material=True))
             first = review_result(2, applied["review_subject_digest"], action="next")
             first["decision"] = routine_delta()["decision"] | {"subject": "corrected fixture claim", "evidence_refs": ["E000001"]}
             corrected = engine.execute("apply", session_id="cycles", request=first)
@@ -341,69 +231,45 @@ class ReplayAndGateTests(unittest.TestCase):
             self.assertEqual(bound["transition_readiness"], "ready")
 
     def test_review_pack_preserves_known_defect_material(self):
-        cases = (
-            (
-                "live-binding",
-                "the source binding is decision-grade",
-                "the bound source is live and still requires a drift check",
-                "the receipt verifies binding metadata, not future source stability",
-                "live",
-            ),
-            (
-                "verifier-overclaim",
-                "the verifier proves end-to-end behavior",
-                "the verifier checks receipt shape only and cannot observe end-to-end behavior",
-                "schema-only verifier capability",
-                "snapshot",
-            ),
-        )
-        for name, claim, counterevidence, verifier_summary, stability in cases:
-            with self.subTest(name=name), project() as (_root, engine):
-                engine.execute("start", session_id=name, request=START)
-                delta = routine_delta(risk="material")
-                delta["artifacts"]["report"]["stability"] = stability
-                delta["artifacts"]["report"]["verifier"]["summary"] = verifier_summary
-                delta["evidence"]["result"]["claim"] = claim
-                delta["evidence"]["counter"] = {
-                    "claim": claim,
-                    "summary": counterevidence,
-                    "bearing": "contradicts",
-                    "strength": "contradicted",
-                    "artifact_refs": ["report"],
-                    "uncertainty": "semantic adjudication remains reviewer-owned",
-                }
-                delta["progress_updates"]["fixture"]["summary"] = claim
-                delta["decision"]["subject"] = claim
-                delta["decision"]["evidence_refs"] = ["result", "counter"]
-                engine.execute("apply", session_id=name, request=delta)
-                pack = engine.execute("review", session_id=name, action="next")
+        claim = "the receipt proves end-to-end behavior"
+        counterevidence = "the receipt checks shape only and cannot observe end-to-end behavior"
+        with project() as (_root, engine):
+            engine.execute("start", session_id="defect", request=START)
+            delta = routine_delta(material=True)
+            delta["evidence"]["result"]["claim"] = claim
+            delta["evidence"]["counter"] = {
+                "claim": claim,
+                "summary": counterevidence,
+                "bearing": "contradicts",
+                "strength": "contradicted",
+                "artifact_refs": ["report"],
+                "uncertainty": "semantic adjudication remains reviewer-owned",
+            }
+            delta["progress_updates"]["fixture"]["summary"] = claim
+            delta["decision"]["subject"] = claim
+            delta["decision"]["evidence_refs"] = ["result", "counter"]
+            engine.execute("apply", session_id="defect", request=delta)
+            pack = engine.execute("review", session_id="defect", action="next")
 
-                self.assertNotIn("artifact_lifecycle_guidance", pack)
-
-                evidence = pack["round"]["evidence"]
-                self.assertEqual([item["claim"] for item in evidence], [claim, claim])
-                self.assertEqual([item["bearing"] for item in evidence], ["supports", "contradicts"])
-                self.assertEqual(evidence[1]["summary"], counterevidence)
-                self.assertEqual(pack["round"]["decision"]["evidence_refs"], ["E000001", "E000002"])
-                artifact = pack["artifacts"][0]
-                self.assertEqual(
-                    set(artifact),
-                    {"id", "kind", "path", "description", "stability", "size_bytes", "sha256", "verifier"},
-                )
-                self.assertEqual(artifact["path"], "artifacts/report.json")
-                self.assertEqual(
-                    artifact["verifier"],
-                    {"name": "fixture", "status": "passed", "summary": verifier_summary},
-                )
-                self.assertEqual(artifact["stability"], stability)
-                self.assertEqual(pack["session"]["progress"]["fixture"]["summary"], claim)
-                size = len(json.dumps(pack, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8"))
-                self.assertLessEqual(size, rendering.REVIEW_HARD_BYTES)
+            evidence = pack["round"]["evidence"]
+            self.assertEqual([item["claim"] for item in evidence], [claim, claim])
+            self.assertEqual([item["bearing"] for item in evidence], ["supports", "contradicts"])
+            self.assertEqual(evidence[1]["summary"], counterevidence)
+            self.assertEqual(pack["round"]["decision"]["evidence_refs"], ["E000001", "E000002"])
+            artifact = pack["artifacts"][0]
+            self.assertEqual(
+                set(artifact),
+                {"id", "kind", "path", "description", "size_bytes", "sha256"},
+            )
+            self.assertEqual(artifact["path"], "artifacts/report.json")
+            self.assertEqual(pack["session"]["progress"]["fixture"]["summary"], claim)
+            size = len(json.dumps(pack, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+            self.assertLessEqual(size, rendering.REVIEW_HARD_BYTES)
 
     def test_review_pack_exposes_decisive_evidence_artifact_coverage_without_blocking(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="coverage", request=START)
-            delta = routine_delta(risk="material")
+            delta = routine_delta(material=True)
             delta["evidence"]["result"]["artifact_refs"] = []
             applied = engine.execute("apply", session_id="coverage", request=delta)
             self.assertEqual(applied["transition_readiness"], "needs_review")
@@ -427,7 +293,7 @@ class ReplayAndGateTests(unittest.TestCase):
     def test_review_selection_includes_displayed_and_counterevidence_and_reports_omissions(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="selection", request=START)
-            delta = routine_delta(risk="material")
+            delta = routine_delta(material=True)
             delta["evidence"].update(
                 {
                     "progress-only": {
@@ -474,32 +340,29 @@ class ReplayAndGateTests(unittest.TestCase):
                 },
             )
 
-    def test_snapshot_bytes_are_hidden_unless_bounded_content_is_in_verifier_summary(self):
+    def test_artifact_bytes_are_hidden_and_the_description_carries_bounded_content(self):
         with project() as (root, engine):
             engine.execute("start", session_id="artifact-visibility", request=START)
-            delta = routine_delta(risk="material")
-            secret = "A000014 raw snapshot body is not reviewer-visible"
+            delta = routine_delta(material=True)
+            secret = "A000014 raw artifact body is not reviewer-visible"
             (root / "artifacts" / "report.json").write_text(secret, encoding="utf-8")
-            delta["artifacts"]["report"].pop("verifier")
             first = engine.execute("apply", session_id="artifact-visibility", request=delta)
             pack = engine.execute("review", session_id="artifact-visibility", action="next")
             self.assertNotIn(secret, json.dumps(pack, ensure_ascii=False))
-            self.assertNotIn("verifier", pack["artifacts"][0])
+            self.assertEqual(pack["artifacts"][0]["sha256"], sha256(secret.encode("utf-8")).hexdigest())
 
             correction = review_result(2, first["review_subject_digest"], action="next", verdict="revise")
             correction["artifacts"] = {
                 "prepared": {
                     "kind": "receipt",
                     "path": "artifacts/report.json",
-                    "description": "A000015 bounded preparation receipt",
-                    "stability": "snapshot",
-                    "verifier": {"name": "preparation", "status": "passed", "summary": "A000015 decisive bounded summary"},
+                    "description": "A000015 decisive bounded description",
                 }
             }
             correction["evidence"] = {
                 "prepared": {
                     "claim": "bounded preparation is visible",
-                    "summary": "the verifier carries the decisive bounded content",
+                    "summary": "the description carries the decisive bounded content",
                     "bearing": "supports",
                     "strength": "strong",
                     "artifact_refs": ["prepared"],
@@ -509,12 +372,13 @@ class ReplayAndGateTests(unittest.TestCase):
             correction["decision"] = delta["decision"] | {"evidence_refs": ["prepared"]}
             engine.execute("apply", session_id="artifact-visibility", request=correction)
             rebound = engine.execute("review", session_id="artifact-visibility", action="next")
-            self.assertIn("A000015 decisive bounded summary", json.dumps(rebound, ensure_ascii=False))
+            self.assertIn("A000015 decisive bounded description", json.dumps(rebound, ensure_ascii=False))
+            self.assertNotIn(secret, json.dumps(rebound, ensure_ascii=False))
 
     def test_missing_selected_reference_is_a_deterministic_blocker(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="missing-review-ref", request=START)
-            engine.execute("apply", session_id="missing-review-ref", request=routine_delta(risk="material"))
+            engine.execute("apply", session_id="missing-review-ref", request=routine_delta(material=True))
             state = engine.repository.load("missing-review-ref")
             state["progress"]["fixture"]["evidence_refs"] = ["E999999"]
 
@@ -538,7 +402,7 @@ class ReplayAndGateTests(unittest.TestCase):
             start["mission"]["success_criteria"].append("unfinished work is explicit")
             engine.execute("start", session_id="action-questions", request=start)
 
-            first = routine_delta(risk="material")
+            first = routine_delta(material=True)
             first["decision"]["next_step"] = (
                 "Run the final bounded check; complete when its frozen receipt passes; "
                 "retain the terminal projection phase."
@@ -559,7 +423,7 @@ class ReplayAndGateTests(unittest.TestCase):
             second = engine.execute(
                 "apply",
                 session_id="action-questions",
-                request=routine_delta(version=4, transition="close", outcome="positive", risk="material"),
+                request=routine_delta(version=4, transition="close", outcome="positive", material=True),
             )
             close_pack = engine.execute("review", session_id="action-questions", action="close")
 
@@ -580,7 +444,7 @@ class ReplayAndGateTests(unittest.TestCase):
     def test_fresh_review_pack_preserves_same_round_prior_finding_adjudication(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="prior-finding", request=START)
-            applied = engine.execute("apply", session_id="prior-finding", request=routine_delta(risk="material"))
+            applied = engine.execute("apply", session_id="prior-finding", request=routine_delta(material=True))
             first = review_result(2, applied["review_subject_digest"], action="next", verdict="revise")
             finding = {
                 "severity": "blocking",
@@ -598,7 +462,6 @@ class ReplayAndGateTests(unittest.TestCase):
                 session_id="prior-finding",
                 request={
                     "expected_state_version": 3,
-                    "risk": "routine",
                     "evidence": {
                         "correction": {
                             "claim": "the bounded correction has a direct receipt",
@@ -663,6 +526,79 @@ class ReplayAndGateTests(unittest.TestCase):
         compact = rendering._compact_review_history(history)
 
         self.assertEqual([item["review_id"] for item in compact], ["R000003", "R000004"])
+
+    def _closed_session(self, engine, session_id, *, abandoned=False):
+        engine.execute("start", session_id=session_id, request=START)
+        if abandoned:
+            engine.execute("apply", session_id=session_id, request=routine_delta())
+            engine.execute(
+                "close",
+                session_id=session_id,
+                expected_state_version=2,
+                outcome="abandoned",
+                reason="the bounded fixture is no longer reachable",
+            )
+            return
+        delta = routine_delta(transition="close", outcome="positive", material=True)
+        applied = engine.execute("apply", session_id=session_id, request=delta)
+        engine.execute(
+            "apply",
+            session_id=session_id,
+            request=review_result(2, applied["review_subject_digest"], action="close"),
+        )
+        engine.execute("close", session_id=session_id, expected_state_version=3, outcome="positive")
+
+    def test_doctor_probes_a_terminal_session_without_finding_a_defect(self):
+        for abandoned in (False, True):
+            with self.subTest(abandoned=abandoned), project() as (_root, engine):
+                session_id = "abandoned" if abandoned else "closed"
+                self._closed_session(engine, session_id, abandoned=abandoned)
+
+                doctor = engine.execute("doctor", session_id=session_id)
+
+                self.assertEqual(doctor["findings"], [])
+                self.assertEqual(doctor["status"], "ok")
+                # The probes must not have advanced the session they inspected.
+                self.assertEqual(
+                    engine.repository.load(session_id)["state_version"],
+                    doctor["state_version"],
+                )
+
+    def test_doctor_reports_a_terminal_receipt_that_disagrees_with_its_state(self):
+        with project() as (_root, engine):
+            self._closed_session(engine, "damaged")
+            state = engine.repository.load("damaged")
+            state["last_mutation"]["receipt"]["state_version"] += 1
+
+            doctor = engine._doctor(state, False)
+
+            self.assertEqual(doctor["status"], "blocked")
+            self.assertIn("terminal_receipt_incoherent", [item["code"] for item in doctor["findings"]])
+
+    def test_doctor_reports_a_replay_mismatch_when_the_close_reason_no_longer_matches(self):
+        with project() as (_root, engine):
+            self._closed_session(engine, "rewritten", abandoned=True)
+            state = engine.repository.load("rewritten")
+            state["events"][-1]["summary"] = "a different reason than the one that closed this session"
+
+            doctor = engine._doctor(state, False)
+
+            self.assertEqual(doctor["status"], "blocked")
+            self.assertIn("terminal_replay_mismatch", [item["code"] for item in doctor["findings"]])
+
+    def test_doctor_reports_a_terminal_session_with_no_replayable_receipt(self):
+        with project() as (_root, engine):
+            self._closed_session(engine, "unreplayable")
+            state = engine.repository.load("unreplayable")
+            state["last_mutation"] = None
+
+            doctor = engine._doctor(state, False)
+
+            self.assertEqual(doctor["status"], "blocked")
+            self.assertEqual(
+                [item["code"] for item in doctor["findings"]],
+                ["terminal_replay_unavailable"],
+            )
 
 
 if __name__ == "__main__":

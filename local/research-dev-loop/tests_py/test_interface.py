@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 import argparse
+from hashlib import sha256
 
 from rdl import rendering
 from rdl.cli import build_parser
@@ -35,7 +36,7 @@ class InterfaceTests(unittest.TestCase):
     def test_post_next_handoff_exposes_the_accepted_action_and_durable_protocol(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="takeover", request=START)
-            delta = routine_delta(risk="material")
+            delta = routine_delta(material=True)
             instruction = (
                 "Run the focused CLI matrix and freeze its receipt; completion requires the focused and existing "
                 "integration suites to pass, then record a next decision for the independent terminal audit."
@@ -95,7 +96,7 @@ class InterfaceTests(unittest.TestCase):
                     ],
                     "write_through_gate": (
                         "Execute the instruction, freeze the smallest sufficient receipt or snapshot, then apply "
-                        "the current round's evidence, interpretation, and decision before any transition."
+                        "the current round's evidence and decision before any transition."
                     ),
                     "remaining_protocol": {
                         "success_criteria": START["mission"]["success_criteria"],
@@ -133,11 +134,11 @@ class InterfaceTests(unittest.TestCase):
                 session_id="takeover",
                 request={
                     "expected_state_version": 4,
-                    "risk": "routine",
-                    "factor_updates": {
+                    "progress_updates": {
                         "large-context": {
-                            "category": "projection",
-                            "value": "x" * 32000,
+                            "status": "active",
+                            "summary": "x" * 32000,
+                            "blocking": False,
                         }
                     },
                 },
@@ -145,16 +146,75 @@ class InterfaceTests(unittest.TestCase):
             compact = engine.execute("handoff", session_id="takeover")
             self.assertEqual(compact["projection_profile"], "compact_manifest")
             self.assertEqual(
-                compact["canonical_state"]["read_sections"][:5],
-                ["/mission", "/progress", "/factors", "/rounds/0", "/rounds/1"],
+                compact["canonical_state"]["read_sections"][:4],
+                ["/mission", "/progress", "/rounds/0", "/rounds/1"],
             )
             self.assertIn("current_action", compact["omitted_inline_sections"])
+
+    def test_handoff_answers_none_instead_of_blocking_when_no_session_exists(self):
+        with project() as (root, engine):
+            code, answered = run_cli(root, ["handoff"])
+
+            self.assertEqual((code, answered), (0, {"status": "ok", "session_status": "none", "warnings": []}))
+
+            # An explicitly named missing session is still a blocker.
+            code, blocked = run_cli(root, ["handoff", "--session-id", "absent"])
+            self.assertEqual(code, 2)
+            self.assertEqual(blocked["code"], "session_not_found")
+
+            engine.execute("start", session_id="present", request=START)
+            code, found = run_cli(root, ["handoff"])
+            self.assertEqual((code, found["session_id"]), (0, "present"))
+
+    def test_close_reason_is_required_for_abandon_and_ignored_elsewhere(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="reasoned", request=START)
+            applied = engine.execute(
+                "apply",
+                session_id="reasoned",
+                request=routine_delta(transition="close", outcome="negative", material=True),
+            )
+            engine.execute(
+                "apply",
+                session_id="reasoned",
+                request=review_result(2, applied["review_subject_digest"]),
+            )
+            closed = engine.execute(
+                "close",
+                session_id="reasoned",
+                expected_state_version=3,
+                outcome="negative",
+                reason="a harmless extra flag",
+            )
+            self.assertEqual(closed["transition_readiness"], "terminal")
+            self.assertEqual(engine.repository.load("reasoned")["status"], "closed-negative")
+
+        with project() as (_root, engine):
+            engine.execute("start", session_id="unreasoned", request=START)
+            with self.assertRaises(RdlError) as caught:
+                engine.execute(
+                    "close", session_id="unreasoned", expected_state_version=1, outcome="abandoned"
+                )
+            self.assertEqual(caught.exception.code, "missing_abandon_reason")
+
+    def test_start_warns_when_the_mission_exceeds_its_soft_budget(self):
+        with project() as (_root, engine):
+            lean = engine.execute("start", session_id="lean", request=START)
+            self.assertEqual(lean["warnings"], [])
+
+        with project() as (_root, engine):
+            bloated = {"mode": "research", "mission": START["mission"] | {"scope": ["x" * 3000]}}
+            heavy = engine.execute("start", session_id="heavy", request=bloated)
+
+            self.assertEqual(heavy["warnings"], ["mission_over_soft_budget"])
+            # A warning, never a gate: the session starts either way.
+            self.assertEqual(engine.repository.load("heavy")["status"], "active")
 
     def test_material_review_binding_and_scientific_close(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="material", request=START)
             applied = engine.execute(
-                "apply", session_id="material", request=routine_delta(transition="close", outcome="positive", risk="material")
+                "apply", session_id="material", request=routine_delta(transition="close", outcome="positive", material=True)
             )
             self.assertEqual(applied["effective_risk"], "material")
             self.assertEqual(applied["transition_readiness"], "needs_review")
@@ -225,7 +285,7 @@ class InterfaceTests(unittest.TestCase):
                         request=routine_delta(
                             transition="close",
                             outcome=outcome,
-                            risk="material",
+                            material=True,
                         ),
                     )
                     engine.execute(
@@ -268,7 +328,7 @@ class InterfaceTests(unittest.TestCase):
         with project() as (_root, engine):
             session_id = "active-close"
             engine.execute("start", session_id=session_id, request=START)
-            delta = routine_delta(transition="close", outcome="positive", risk="material")
+            delta = routine_delta(transition="close", outcome="positive", material=True)
             delta["progress_updates"]["pending"] = {
                 "status": "active",
                 "summary": "work remains",
@@ -294,7 +354,7 @@ class InterfaceTests(unittest.TestCase):
             with self.subTest(status=status), project() as (_root, engine):
                 session_id = f"reconciled-{status}"
                 engine.execute("start", session_id=session_id, request=START)
-                delta = routine_delta(transition="close", outcome="inconclusive", risk="material")
+                delta = routine_delta(transition="close", outcome="inconclusive", material=True)
                 progress = {
                     "status": status,
                     "summary": f"work is explicitly {status}",
@@ -326,7 +386,7 @@ class InterfaceTests(unittest.TestCase):
     def test_next_and_abandoned_allow_active_progress(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="active-next", request=START)
-            delta = routine_delta(transition="next", risk="material")
+            delta = routine_delta(transition="next", material=True)
             delta["progress_updates"]["pending"] = {
                 "status": "active",
                 "summary": "work remains for the next round",
@@ -361,7 +421,7 @@ class InterfaceTests(unittest.TestCase):
     def test_terminal_summary_lists_only_unfinished_progress(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="terminal-progress", request=START)
-            delta = routine_delta(transition="close", outcome="inconclusive", risk="material")
+            delta = routine_delta(transition="close", outcome="inconclusive", material=True)
             delta["progress_updates"].update(
                 {
                     "question": {"status": "open_question", "summary": "work remains uncertain", "blocking": False},
@@ -412,7 +472,7 @@ class InterfaceTests(unittest.TestCase):
     def test_terminal_compact_summary_references_unbounded_details_and_close_succeeds(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="terminal-compact-details", request=START)
-            delta = routine_delta(transition="close", outcome="inconclusive", risk="material")
+            delta = routine_delta(transition="close", outcome="inconclusive", material=True)
             delta["decision"]["next_step"] = "x" * 28000
             delta["progress_updates"].update(
                 {
@@ -472,7 +532,7 @@ class InterfaceTests(unittest.TestCase):
             applied = engine.execute(
                 "apply",
                 session_id="abandoned-after-review",
-                request=routine_delta(transition="close", outcome="positive", risk="material"),
+                request=routine_delta(transition="close", outcome="positive", material=True),
             )
             engine.execute(
                 "apply",
@@ -507,35 +567,47 @@ class InterfaceTests(unittest.TestCase):
             subparsers = next(action for action in build_parser()._actions if isinstance(action, argparse._SubParsersAction))
             self.assertEqual(set(subparsers.choices), {"start", "handoff", "apply", "review", "next", "close", "doctor"})
 
-    def test_progress_and_factors_null_delete_only_at_map_level(self):
+    def test_progress_null_delete_only_at_map_level(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="maps", request=START)
             first = {
                 "expected_state_version": 1,
-                "risk": "routine",
                 "progress_updates": {"p": {"status": "active", "summary": "work", "blocking": False}},
-                "factor_updates": {"f": {"category": "environment", "value": "fixture"}},
             }
             engine.execute("apply", session_id="maps", request=first)
             engine.execute(
                 "apply",
                 session_id="maps",
-                request={"expected_state_version": 2, "risk": "routine", "progress_updates": {"p": None}, "factor_updates": {"f": None}},
+                request={"expected_state_version": 2, "progress_updates": {"p": None}},
             )
             state = engine.repository.load("maps")
-            self.assertEqual((state["progress"], state["factors"]), ({}, {}))
+            self.assertEqual(state["progress"], {})
             with self.assertRaises(RdlError):
                 engine.execute(
                     "apply",
                     session_id="maps",
-                    request={"expected_state_version": 3, "risk": "routine", "interpretation": None},
+                    request={"expected_state_version": 3, "progress_updates": None},
                 )
+
+    def test_retired_delta_fields_are_rejected_as_unknown(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="retired", request=START)
+            for field in ("risk", "factor_updates", "interpretation", "events", "artifact_resolutions"):
+                with self.subTest(field=field):
+                    with self.assertRaises(RdlError) as caught:
+                        engine.execute(
+                            "apply",
+                            session_id="retired",
+                            request={"expected_state_version": 1, field: {}},
+                        )
+                    self.assertEqual(caught.exception.code, "unknown_field")
+                    self.assertEqual(caught.exception.details["fields"], [field])
 
     def test_oversized_handoff_returns_bounded_manifest(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="budget", request=START)
             huge = "x" * 32000
-            delta = routine_delta(risk="material")
+            delta = routine_delta(material=True)
             delta["progress_updates"]["fixture"]["summary"] = huge
             engine.execute("apply", session_id="budget", request=delta)
 
@@ -553,7 +625,6 @@ class InterfaceTests(unittest.TestCase):
                     "read_sections": [
                         "/mission",
                         "/progress",
-                        "/factors",
                         "/rounds/0",
                         "/evidence",
                         "/artifacts",
@@ -563,7 +634,7 @@ class InterfaceTests(unittest.TestCase):
             )
             self.assertEqual(
                 handoff["omitted_inline_sections"],
-                ["mission", "progress", "factors", "round", "artifacts"],
+                ["mission", "progress", "round", "artifacts"],
             )
             self.assertEqual(
                 handoff["warnings"],
@@ -576,11 +647,12 @@ class InterfaceTests(unittest.TestCase):
         with project() as (_root, engine):
             engine.execute("start", session_id="observed-budget", request=START)
             delta = routine_delta()
-            delta["factor_updates"] = {
-                "padding": {
-                    "category": "projection",
-                    "value": "x" * 22976,
-                }
+            # The smallest padding that crosses HANDOFF_HARD_BYTES, so the flip is
+            # decided by one byte rather than by a comfortable margin.
+            delta["progress_updates"]["padding"] = {
+                "status": "active",
+                "summary": "x" * 23128,
+                "blocking": False,
             }
             engine.execute("apply", session_id="observed-budget", request=delta)
 
@@ -602,11 +674,10 @@ class InterfaceTests(unittest.TestCase):
             with self.subTest(session_id=session_id), project() as (_root, engine):
                 engine.execute("start", session_id=session_id, request=START)
                 delta = routine_delta()
-                delta["factor_updates"] = {
-                    "padding": {
-                        "category": "projection",
-                        "value": value,
-                    }
+                delta["progress_updates"]["padding"] = {
+                    "status": "active",
+                    "summary": value,
+                    "blocking": False,
                 }
                 engine.execute("apply", session_id=session_id, request=delta)
 
@@ -642,14 +713,14 @@ class InterfaceTests(unittest.TestCase):
             checkpoint = engine.execute(
                 "apply",
                 session_id="review-budget-small",
-                request={"expected_state_version": 1, "risk": "routine"},
+                request={"expected_state_version": 1},
             )
             self.assertNotIn("review_budget", checkpoint)
 
             applied = engine.execute(
                 "apply",
                 session_id="review-budget-small",
-                request=routine_delta(version=2, risk="material"),
+                request=routine_delta(version=2, material=True),
             )
             handoff = engine.execute("handoff", session_id="review-budget-small")
             pack = engine.execute("review", session_id="review-budget-small", action="next")
@@ -679,7 +750,7 @@ class InterfaceTests(unittest.TestCase):
     def test_review_soft_budget_warns_without_blocking_the_pack(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="review-soft-budget", request=START)
-            delta = routine_delta(risk="material")
+            delta = routine_delta(material=True)
             delta["progress_updates"]["fixture"]["summary"] = "x" * 34000
             applied = engine.execute("apply", session_id="review-soft-budget", request=delta)
 
@@ -720,7 +791,7 @@ class InterfaceTests(unittest.TestCase):
     def test_review_hard_budget_fails_closed_while_the_session_remains_recoverable(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="review-hard-budget", request=START)
-            delta = routine_delta(risk="material")
+            delta = routine_delta(material=True)
             delta["progress_updates"]["fixture"]["summary"] = "x" * 52000
             applied = engine.execute("apply", session_id="review-hard-budget", request=delta)
 
@@ -754,40 +825,24 @@ class InterfaceTests(unittest.TestCase):
             )
             self.assertEqual(engine.repository.load("review-hard-budget")["state_version"], 2)
 
-    def test_handoff_preserves_full_mission_and_lifecycle_closure(self):
+    def test_handoff_preserves_full_mission_and_artifact_integrity(self):
         with project() as (root, engine):
-            engine.execute("start", session_id="handoff-lifecycle", request=START)
-            initial = routine_delta(transition="close", outcome="inconclusive", risk="material")
-            initial["artifacts"]["report"]["stability"] = "live"
-            engine.execute("apply", session_id="handoff-lifecycle", request=initial)
-            (root / "artifacts" / "report.json").write_text('{"changed":true}\n', encoding="utf-8")
-            engine.execute(
-                "apply",
-                session_id="handoff-lifecycle",
-                request={
-                    "expected_state_version": 2,
-                    "risk": "routine",
-                    "artifact_resolutions": {
-                        "retire": {
-                            "artifact_ref": "A000001",
-                            "kind": "retired",
-                            "reason": "The running report is historical only.",
-                        }
-                    },
-                },
-            )
-            handoff = engine.execute("handoff", session_id="handoff-lifecycle")
+            engine.execute("start", session_id="handoff-mission", request=START)
+            initial = routine_delta(transition="close", outcome="inconclusive", material=True)
+            engine.execute("apply", session_id="handoff-mission", request=initial)
+            frozen = (root / "artifacts" / "report.json").read_bytes()
+
+            handoff = engine.execute("handoff", session_id="handoff-mission")
+
             self.assertEqual(handoff["mission"], START["mission"])
             self.assertEqual(handoff["round"]["evidence"][0]["artifact_refs"], ["A000001"])
             self.assertEqual([item["id"] for item in handoff["artifacts"]], ["A000001"])
             artifact = handoff["artifacts"][0]
-            self.assertEqual(
-                set(artifact),
-                {"id", "kind", "path", "stability", "integrity", "verifier", "resolution"},
-            )
-            self.assertEqual(artifact["resolution"]["observed"]["status"], "drifted")
+            self.assertEqual(set(artifact), {"id", "kind", "path", "integrity"})
+            self.assertEqual(artifact["integrity"]["sha256"], sha256(frozen).hexdigest())
+            self.assertEqual(artifact["integrity"]["size_bytes"], len(frozen))
 
-    def test_representative_three_resolution_handoff_stays_within_frozen_budget(self):
+    def test_representative_three_phase_handoff_stays_within_frozen_budget(self):
         self.assertEqual(
             (
                 rendering.HANDOFF_SOFT_BYTES,
@@ -828,13 +883,7 @@ class InterfaceTests(unittest.TestCase):
                 artifacts[f"running-{index}"] = {
                     "kind": "receipt",
                     "path": f"artifacts/running-{index}.json",
-                    "description": f"phase {index} running receipt",
-                    "stability": "live",
-                    "verifier": {
-                        "name": "bounded-command-check",
-                        "status": "passed",
-                        "summary": f"phase {index} command and receipt shape were checked",
-                    },
+                    "description": f"phase {index} running receipt; the command and receipt shape were checked",
                 }
                 evidence[f"phase-{index}"] = {
                     "claim": f"phase {index} completed its bounded mechanics check",
@@ -856,23 +905,9 @@ class InterfaceTests(unittest.TestCase):
                 session_id="representative-budget",
                 request={
                     "expected_state_version": 1,
-                    "risk": "material",
                     "artifacts": artifacts,
                     "evidence": evidence,
                     "progress_updates": progress,
-                    "factor_updates": {
-                        "environment": {
-                            "category": "execution",
-                            "value": "isolated local fixture with deterministic receipts",
-                            "uncertainty": "does not establish production portability",
-                        }
-                    },
-                    "interpretation": {
-                        "shows": ["the bounded mechanics checks completed"],
-                        "does_not_show": ["production deployment correctness"],
-                        "uncertainty": ["the running receipts will continue changing"],
-                        "implications": ["freeze replacements before terminal review"],
-                    },
                     "decision": {
                         "kind": "accept",
                         "subject": "the bounded installer mechanics are ready for an inconclusive scoped close",
@@ -886,41 +921,27 @@ class InterfaceTests(unittest.TestCase):
                 },
             )
             replacements = {}
-            resolutions = {}
             for index in range(1, 4):
-                (root / "artifacts" / f"running-{index}.json").write_text(
+                (root / "artifacts" / f"final-{index}.json").write_text(
                     json.dumps({"phase": index, "status": "finished"}) + "\n", encoding="utf-8"
                 )
-                (root / "artifacts" / f"snapshot-{index}.json").write_text(
-                    json.dumps({"phase": index, "status": "finished"}) + "\n", encoding="utf-8"
-                )
-                replacements[f"snapshot-{index}"] = {
+                replacements[f"final-{index}"] = {
                     "kind": "receipt",
-                    "path": f"artifacts/snapshot-{index}.json",
-                    "description": f"frozen phase {index} receipt",
-                    "stability": "snapshot",
-                }
-                resolutions[f"supersede-{index}"] = {
-                    "artifact_ref": f"A{index:06d}",
-                    "kind": "superseded",
-                    "replacement_ref": f"snapshot-{index}",
-                    "reason": f"Bind phase {index} to its frozen final receipt.",
+                    "path": f"artifacts/final-{index}.json",
+                    "description": f"frozen phase {index} final receipt",
                 }
             engine.execute(
                 "apply",
                 session_id="representative-budget",
-                request={
-                    "expected_state_version": 2,
-                    "risk": "material",
-                    "artifacts": replacements,
-                    "artifact_resolutions": resolutions,
-                },
+                request={"expected_state_version": 2, "artifacts": replacements},
             )
             handoff = engine.execute("handoff", session_id="representative-budget")
             review = engine.execute("review", session_id="representative-budget", action="close")
             handoff_size = len(json.dumps(handoff, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode())
             review_size = len(json.dumps(review, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode())
-            self.assertGreater(handoff_size, 14 * 1024)
+            # A floor, so the fixture stays representative of a real session rather
+            # than shrinking into a toy that would clear any budget.
+            self.assertGreater(handoff_size, 12 * 1024)
             self.assertLess(handoff_size, rendering.HANDOFF_SOFT_BYTES)
             self.assertLess(review_size, rendering.REVIEW_HARD_BYTES)
 
@@ -929,12 +950,11 @@ class InterfaceTests(unittest.TestCase):
                 session_id="representative-budget",
                 request={
                     "expected_state_version": 3,
-                    "risk": "routine",
-                    "factor_updates": {
+                    "progress_updates": {
                         "maximum-existing-session-detail": {
-                            "category": "projection",
-                            "value": actual_session_detail * 50,
-                            "uncertainty": "synthetic maximum derived from the longest observed session sections",
+                            "status": "active",
+                            "summary": actual_session_detail * 50,
+                            "blocking": False,
                         }
                     },
                 },

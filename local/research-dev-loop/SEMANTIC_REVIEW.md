@@ -14,6 +14,8 @@ Raw-output schema:
 
 Use native schema or inline it; validate exact action/digest/adapter. Invalid output is an adapter failure; retry unchanged without applying it.
 
+Use one stable adapter label per configured reviewer. Never suffix it with `-v2`, `-corrected`, or `-final`; a review is already identified by its action, subject digest, and review id.
+
 The main agent preserves each finding, adds `disposition` and `rationale`, and applies one `review_result`. The reviewer never edits state or decides transition.
 
 On `ready`, transition with the receipt version. Apply required evidence before a changed-digest review. One valid review is allowed per action/digest; a second evidence-free correction requires new evidence.

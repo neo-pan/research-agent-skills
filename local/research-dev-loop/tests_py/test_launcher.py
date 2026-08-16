@@ -66,21 +66,26 @@ class LauncherTests(unittest.TestCase):
 
             result = self.run_launcher(second, project, "handoff", env={"PYTHONPATH": str(hostile)})
 
-            self.assertEqual(result.returncode, 2, result.stderr)
-            self.assertEqual(json.loads(result.stdout)["code"], "no_active_session")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["session_status"], "none")
             self.assertEqual(result.stderr, "")
 
     def test_launcher_preserves_cli_exit_codes_and_help_exception(self):
         with TemporaryDirectory() as tmp:
             project = Path(tmp)
             invalid = self.run_launcher(LAUNCHER, project)
-            blocked = self.run_launcher(LAUNCHER, project, "handoff")
+            # handoff answers "none" instead of blocking, so probe an exit code 2
+            # with a command that still requires a session.
+            blocked = self.run_launcher(LAUNCHER, project, "doctor")
+            answered = self.run_launcher(LAUNCHER, project, "handoff")
             help_result = self.run_launcher(LAUNCHER, project, "--help")
 
             self.assertEqual(invalid.returncode, 1)
             self.assertEqual(json.loads(invalid.stdout)["code"], "parser_error")
             self.assertEqual(blocked.returncode, 2)
             self.assertEqual(json.loads(blocked.stdout)["code"], "no_active_session")
+            self.assertEqual(answered.returncode, 0)
+            self.assertEqual(json.loads(answered.stdout)["session_status"], "none")
             self.assertEqual(help_result.returncode, 0)
             self.assertIn("usage:", help_result.stdout)
 
@@ -110,7 +115,7 @@ class LauncherTests(unittest.TestCase):
             launcher = source / "bin" / "rdl"
             result = self.run_launcher(launcher, Path(tmp), "handoff")
 
-            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(list(source.rglob("*.pyc")), [])
             self.assertEqual(list(source.rglob("__pycache__")), [])
 
