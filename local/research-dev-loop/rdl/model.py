@@ -185,18 +185,6 @@ def validate_loaded_state(state: Any, session_id: str) -> dict[str, Any]:
     return data
 
 
-def semantic_delta_present(delta: dict[str, Any]) -> bool:
-    return any(
-        (
-            delta.get("artifacts"),
-            delta.get("evidence"),
-            delta.get("progress_updates"),
-            "decision" in delta,
-            "review_trigger" in delta,
-        )
-    )
-
-
 def current_round(state: dict[str, Any]) -> dict[str, Any]:
     return state["rounds"][state["round"] - 1]
 

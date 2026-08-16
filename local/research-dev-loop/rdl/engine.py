@@ -700,19 +700,27 @@ class RdlEngine:
 
     def _deterministic_findings(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
-        transition_action = self._transition_action(state)
-        for key, entry in state["progress"].items():
-            if entry["status"] == "blocked" and entry["blocking"]:
-                findings.append({"code": "blocking_progress", "severity": "blocking", "location": key, "message": entry["summary"]})
-            if transition_action == "close" and entry["status"] == "active":
-                findings.append(
-                    {
-                        "code": "unreconciled_active_progress",
-                        "severity": "blocking",
-                        "location": key,
-                        "message": entry["summary"],
-                    }
-                )
+        # Progress gates a transition the current round has not made yet. A
+        # terminal round already transitioned, under whichever gate existed
+        # then, so re-running today's gate over it reports the gate's own
+        # history rather than the session's integrity; the terminal probes
+        # carry that. A missing reference is corruption in any era.
+        if state["status"] == "active":
+            transition_action = self._transition_action(state)
+            for key, entry in state["progress"].items():
+                if entry["status"] == "blocked" and entry["blocking"]:
+                    findings.append(
+                        {"code": "blocking_progress", "severity": "blocking", "location": key, "message": entry["summary"]}
+                    )
+                if transition_action == "close" and entry["status"] == "active":
+                    findings.append(
+                        {
+                            "code": "unreconciled_active_progress",
+                            "severity": "blocking",
+                            "location": key,
+                            "message": entry["summary"],
+                        }
+                    )
         round_state = current_round(state)
         findings.extend(rendering.missing_review_reference_findings(state, round_state))
         return sorted(

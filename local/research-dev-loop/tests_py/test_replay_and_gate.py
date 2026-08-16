@@ -564,6 +564,26 @@ class ReplayAndGateTests(unittest.TestCase):
                     doctor["state_version"],
                 )
 
+    def test_a_closed_session_is_not_regated_by_a_rule_it_predates(self):
+        with project() as (_root, engine):
+            self._closed_session(engine, "predates")
+            state = engine.repository.load("predates")
+            # A session closed before the readiness gate reached its current
+            # shape: the gate would refuse this round today, but it already
+            # transitioned, and no mutation can reconcile it now.
+            state["progress"]["fixture"]["status"] = "active"
+
+            doctor = engine._doctor(state, False)
+
+            self.assertEqual(doctor["findings"], [])
+            self.assertEqual(doctor["status"], "ok")
+            # The same state while still active must remain blocked.
+            state["status"] = "active"
+            self.assertIn(
+                "unreconciled_active_progress",
+                [item["code"] for item in engine._doctor(state, False)["findings"]],
+            )
+
     def test_doctor_reports_a_terminal_receipt_that_disagrees_with_its_state(self):
         with project() as (_root, engine):
             self._closed_session(engine, "damaged")
