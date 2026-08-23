@@ -16,8 +16,8 @@ report the tooling blocker instead of completing the review in the main agent.
 
 ## Review Targets
 
-- **Implementation**: changed code, tests, benchmarks, and completion claims
-  after a phase of work.
+- **Implementation**: changed code within a pinned comparison boundary, tests,
+  benchmarks, and completion claims after a phase of work.
 - **Plan**: implementation plan, draft, task breakdown, acceptance criteria, or
   milestone design before coding starts.
 - **Context proposal**: proposed approach described in conversation, with no
@@ -32,6 +32,10 @@ report the tooling blocker instead of completing the review in the main agent.
 1. Determine the review target and boundary.
    - Use the latest explicit user request as the primary scope.
    - Choose the smallest target that satisfies the wording.
+   - For implementation and final-gate reviews, pin the comparison boundary.
+     Use the user-supplied fixed point or relevant merge base; for working-tree
+     reviews, explicitly include staged, unstaged, and untracked changes. Record
+     the diff command and commit list when applicable.
    - State reviewed artifacts, unreviewed artifacts, assumed phase goal, and the
      decision being gated.
    - Ask for clarification only when the target cannot be inferred without high
@@ -40,16 +44,17 @@ report the tooling blocker instead of completing the review in the main agent.
      artifacts, assumed phase goal, and gated decision are explicit.
 
 2. Gather only target-relevant context.
-   - Implementation: original request or plan, claimed completion summary,
-     changed files or diff, and relevant verification.
+   - Implementation: original request or plan/spec, claimed completion summary,
+     pinned diff, applicable repository standards, and relevant verification.
    - Plan: original request, constraints, plan draft, acceptance criteria,
      sequencing, dependencies, and path boundaries.
    - Context proposal: proposal text, goals, assumptions, constraints, excluded
      work, and cited evidence.
    - Evidence: claim being evaluated, raw evidence, setup or commands, expected
      vs observed result, controls, and the decision it supports.
-   - Final gate: final diff, original scope, verification summary, known
-     deferrals, generated or local-only files, and merge or release constraints.
+   - Final gate: pinned final diff, original scope or spec, applicable repository
+     standards, verification summary, known deferrals, generated or local-only
+     files, and merge or release constraints.
    - Completion check: every artifact needed for the chosen target type has
      been read or listed as not reviewed.
 
@@ -88,8 +93,12 @@ report the tooling blocker instead of completing the review in the main agent.
    ```
 
 4. Apply the gates.
-   - **Plan alignment**: required acceptance items are complete or explicitly
-     pending.
+   - **Spec or plan alignment**: required acceptance items are complete or
+     explicitly pending; missing behavior, incorrect behavior, and unrequested
+     scope are distinct findings. For code targets, report these separately from
+     repository-standards findings.
+   - **Repository standards**: changed code follows the applicable documented
+     standards; skip checks already enforced by tooling.
    - **Correctness**: behavior, edge cases, and integration points match the
      intended contract.
    - **Plan quality**: goals, acceptance criteria, dependencies, sequencing,
