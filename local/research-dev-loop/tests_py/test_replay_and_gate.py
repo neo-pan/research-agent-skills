@@ -8,13 +8,24 @@ from pathlib import Path
 
 from rdl import rendering
 from rdl.engine import RdlEngine
-from rdl.model import RdlError
+from rdl.model import RdlError, state_digest
 from rdl.store import Repository
 
 from rdl_test_support import START, project, review_result, routine_delta
 
 
 class ReplayAndGateTests(unittest.TestCase):
+    @staticmethod
+    def rewrite_state(engine, session_id, mutate):
+        state = engine.repository.load(session_id)
+        mutate(state)
+        state["state_digest"] = state_digest(state)
+        generation = engine.repository.current_generation(session_id)
+        (generation / "state.json").write_text(
+            json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
     def test_transition_projection_failure_leaves_the_current_generation_unchanged(self):
         with project() as (_root, engine):
             engine.execute("start", session_id="projection-preflight", request=START)
@@ -340,7 +351,7 @@ class ReplayAndGateTests(unittest.TestCase):
                 },
             )
 
-    def test_artifact_bytes_are_hidden_and_the_description_carries_bounded_content(self):
+    def test_artifact_bytes_are_hidden_and_bounded_evidence_summary_is_visible(self):
         with project() as (root, engine):
             engine.execute("start", session_id="artifact-visibility", request=START)
             delta = routine_delta(material=True)
@@ -362,17 +373,18 @@ class ReplayAndGateTests(unittest.TestCase):
             correction["evidence"] = {
                 "prepared": {
                     "claim": "bounded preparation is visible",
-                    "summary": "the description carries the decisive bounded content",
+                    "summary": "the evidence summary carries the decisive bounded content",
                     "bearing": "supports",
                     "strength": "strong",
                     "artifact_refs": ["prepared"],
-                    "uncertainty": "raw bytes remain hidden",
+                    "uncertainty": "raw bytes remain hidden and the description is metadata only",
                 }
             }
             correction["decision"] = delta["decision"] | {"evidence_refs": ["prepared"]}
             engine.execute("apply", session_id="artifact-visibility", request=correction)
             rebound = engine.execute("review", session_id="artifact-visibility", action="next")
             self.assertIn("A000015 decisive bounded description", json.dumps(rebound, ensure_ascii=False))
+            self.assertIn("the evidence summary carries the decisive bounded content", json.dumps(rebound, ensure_ascii=False))
             self.assertNotIn(secret, json.dumps(rebound, ensure_ascii=False))
 
     def test_missing_selected_reference_is_a_deterministic_blocker(self):
@@ -382,7 +394,7 @@ class ReplayAndGateTests(unittest.TestCase):
             state = engine.repository.load("missing-review-ref")
             state["progress"]["fixture"]["evidence_refs"] = ["E999999"]
 
-            findings = rendering.missing_review_reference_findings(state, state["rounds"][0])
+            findings = rendering.missing_review_reference_findings(state)
 
             self.assertEqual(
                 findings,
@@ -391,10 +403,96 @@ class ReplayAndGateTests(unittest.TestCase):
                         "code": "missing_review_reference",
                         "severity": "blocking",
                         "location": "E999999",
-                        "message": "selected evidence reference is missing from canonical state",
+                        "message": "evidence reference is missing from canonical state",
                     }
                 ],
             )
+
+    def test_missing_decision_evidence_reference_is_typed_and_read_only(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="missing-decision-ref", request=START)
+            engine.execute("apply", session_id="missing-decision-ref", request=routine_delta(material=True))
+            state = engine.repository.load("missing-decision-ref")
+            state["rounds"][0]["decision"]["evidence_refs"] = ["E999999"]
+            pointer_before = engine.repository.current_generation("missing-decision-ref")
+
+            handoff = engine._handoff(state)
+            self.assertEqual(handoff["readiness"]["status"], "blocked")
+            self.assertIn("missing_review_reference", handoff["readiness"]["blockers"])
+
+            pack = rendering.subject_projection(
+                state,
+                "next",
+                rendering.missing_review_reference_findings(state),
+            )
+            self.assertEqual(
+                pack["evidence_coverage"],
+                [
+                    {
+                        "evidence_id": "E999999",
+                        "claim": None,
+                        "artifact_refs": [],
+                        "artifact_binding": "missing",
+                    }
+                ],
+            )
+
+            doctor = engine._doctor(state, False)
+            self.assertEqual(doctor["status"], "blocked")
+            self.assertIn("missing_review_reference", [item["code"] for item in doctor["findings"]])
+
+            with self.assertRaises(RdlError) as raised:
+                engine._review(state, "next")
+            self.assertEqual(raised.exception.code, "review_not_required")
+            self.assertEqual(engine.repository.current_generation("missing-decision-ref"), pointer_before)
+
+    def test_missing_prior_decision_reference_blocks_post_next_handoff(self):
+        with project() as (_root, engine):
+            engine.execute("start", session_id="missing-prior-ref", request=START)
+            applied = engine.execute(
+                "apply",
+                session_id="missing-prior-ref",
+                request=routine_delta(material=True),
+            )
+            engine.execute(
+                "apply",
+                session_id="missing-prior-ref",
+                request=review_result(2, applied["review_subject_digest"], action="next"),
+            )
+            engine.execute("next", session_id="missing-prior-ref", expected_state_version=3)
+            self.rewrite_state(
+                engine,
+                "missing-prior-ref",
+                lambda state: (
+                    state["rounds"][0]["decision"].update({"evidence_refs": ["E999999"]}),
+                    state["rounds"][0].update({"evidence_ids": ["E999999"]}),
+                ),
+            )
+            pointer_before = engine.repository.current_generation("missing-prior-ref")
+
+            handoff = engine.execute("handoff", session_id="missing-prior-ref")
+
+            self.assertEqual(handoff["readiness"]["status"], "blocked")
+            self.assertIn("missing_review_reference", handoff["readiness"]["blockers"])
+            self.assertEqual(
+                handoff["current_action"]["evidence"],
+                [
+                    {
+                        "id": "E999999",
+                        "claim": None,
+                        "summary": None,
+                        "bearing": None,
+                        "strength": None,
+                        "artifact_refs": [],
+                        "uncertainty": None,
+                        "reference_status": "missing",
+                    }
+                ],
+            )
+            doctor = engine.execute("doctor", session_id="missing-prior-ref")
+            self.assertEqual(doctor["status"], "blocked")
+            self.assertIn("missing_review_reference", [item["code"] for item in doctor["findings"]])
+            self.assertEqual(engine.repository.current_generation("missing-prior-ref"), pointer_before)
 
     def test_review_questions_are_action_specific_and_bind_the_accepted_action(self):
         with project() as (_root, engine):
@@ -564,26 +662,6 @@ class ReplayAndGateTests(unittest.TestCase):
                     doctor["state_version"],
                 )
 
-    def test_a_closed_session_is_not_regated_by_a_rule_it_predates(self):
-        with project() as (_root, engine):
-            self._closed_session(engine, "predates")
-            state = engine.repository.load("predates")
-            # A session closed before the readiness gate reached its current
-            # shape: the gate would refuse this round today, but it already
-            # transitioned, and no mutation can reconcile it now.
-            state["progress"]["fixture"]["status"] = "active"
-
-            doctor = engine._doctor(state, False)
-
-            self.assertEqual(doctor["findings"], [])
-            self.assertEqual(doctor["status"], "ok")
-            # The same state while still active must remain blocked.
-            state["status"] = "active"
-            self.assertIn(
-                "unreconciled_active_progress",
-                [item["code"] for item in engine._doctor(state, False)["findings"]],
-            )
-
     def test_doctor_reports_a_terminal_receipt_that_disagrees_with_its_state(self):
         with project() as (_root, engine):
             self._closed_session(engine, "damaged")
@@ -594,6 +672,22 @@ class ReplayAndGateTests(unittest.TestCase):
 
             self.assertEqual(doctor["status"], "blocked")
             self.assertIn("terminal_receipt_incoherent", [item["code"] for item in doctor["findings"]])
+
+    def test_terminal_handoff_blocks_a_missing_evidence_reference(self):
+        with project() as (_root, engine):
+            self._closed_session(engine, "terminal-ref")
+            self.rewrite_state(
+                engine,
+                "terminal-ref",
+                lambda state: state["rounds"][0]["decision"].update({"evidence_refs": ["E999999"]}),
+            )
+            pointer_before = engine.repository.current_generation("terminal-ref")
+
+            handoff = engine.execute("handoff", session_id="terminal-ref")
+
+            self.assertEqual(handoff["readiness"]["status"], "blocked")
+            self.assertIn("missing_review_reference", handoff["readiness"]["blockers"])
+            self.assertEqual(engine.repository.current_generation("terminal-ref"), pointer_before)
 
     def test_doctor_reports_a_replay_mismatch_when_the_close_reason_no_longer_matches(self):
         with project() as (_root, engine):

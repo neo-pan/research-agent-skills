@@ -467,17 +467,13 @@ class RdlEngine:
                         "message": "the required semantic review pack exceeds its soft budget",
                     }
                 )
-        # Views are a derived cache that the next mutation rewrites, so drift is
-        # only worth reporting where it can still be repaired. A terminal
-        # session's views are frozen output of whichever renderer wrote them;
-        # diffing those against today's renderer measures the renderer's own
-        # history, not the session's integrity, which state.json's digest carries.
+        # Derived views are repairable only while the session is active. A
+        # terminal generation is immutable output; state.json remains its
+        # authority and terminal probes cover the close receipt.
         if state["status"] == "active":
             expected_views = {key: value.encode("utf-8") for key, value in rendering.render_views(state).items()}
             actual_views = self.repository.read_views(state["session_id"])
-            # A file this renderer no longer emits is an older renderer's output,
-            # not a disagreement with state.json.
-            if any(actual_views.get(key) != value for key, value in expected_views.items()):
+            if actual_views != expected_views:
                 findings.append({"code": "derived_view_drift", "severity": "warning", "message": "derived views differ from state.json"})
         generation = self.repository.generation_diagnostics(state["session_id"], state["state_version"])
         if generation["temporary"] or generation["unreferenced"]:
@@ -634,15 +630,21 @@ class RdlEngine:
         *,
         deterministic_findings: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        if state["status"] != "active":
-            return {"status": "terminal", "blockers": [], "warnings": []}
-        if action not in {"next", "close"}:
-            return {"status": "needs_evidence", "blockers": ["missing_transition_decision"], "warnings": []}
-        round_state = current_round(state)
         findings = deterministic_findings
         if findings is None:
             findings = self._deterministic_findings(state)
         blockers = [item["code"] for item in findings if item["severity"] == "blocking"]
+        if state["status"] != "active":
+            return {
+                "status": "blocked" if blockers else "terminal",
+                "blockers": list(dict.fromkeys(blockers)),
+                "warnings": [],
+            }
+        if action not in {"next", "close"}:
+            if blockers:
+                return {"status": "blocked", "blockers": list(dict.fromkeys(blockers)), "warnings": []}
+            return {"status": "needs_evidence", "blockers": ["missing_transition_decision"], "warnings": []}
+        round_state = current_round(state)
         decision = round_state.get("decision")
         if not decision:
             blockers.append("missing_decision")
@@ -700,11 +702,9 @@ class RdlEngine:
 
     def _deterministic_findings(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
-        # Progress gates a transition the current round has not made yet. A
-        # terminal round already transitioned, under whichever gate existed
-        # then, so re-running today's gate over it reports the gate's own
-        # history rather than the session's integrity; the terminal probes
-        # carry that. A missing reference is corruption in any era.
+        # Progress gates transitions in active sessions; terminal integrity is
+        # checked by the close probes below. Missing references are always
+        # corruption because they invalidate the canonical record.
         if state["status"] == "active":
             transition_action = self._transition_action(state)
             for key, entry in state["progress"].items():
@@ -721,8 +721,7 @@ class RdlEngine:
                             "message": entry["summary"],
                         }
                     )
-        round_state = current_round(state)
-        findings.extend(rendering.missing_review_reference_findings(state, round_state))
+        findings.extend(rendering.missing_review_reference_findings(state))
         return sorted(
             findings,
             key=lambda item: (item.get("severity", ""), item.get("code", ""), item.get("location", ""), item.get("message", "")),

@@ -7,7 +7,8 @@ An apply that records a directional decision, a close, or a review trigger requi
 
 ## Gate
 
-- Inspect with `handoff`; use `doctor` for abnormal state. Do not run semantic review, `apply`, `next`, or `close` unless the user asks.
+- Inspect with `handoff`; use `doctor` for abnormal state.
+- Do not run semantic review, `apply`, `next`, or `close` unless the user asks. That request authorizes the current session's bounded operations; do not trigger transitions implicitly or ask again at every checkpoint. After context loss, reauthorize.
 - Resume the governing session; start one only when explicitly requested for durable handoff or evidence-bound work.
 - If a mission needs plan or phase review, obtain its PASS before `start`; replace missions only when `objective` or `success_criteria` change.
 - Mission items are one sentence each. Do not restate RDL's own guarantees — immutability, append-only history, review gating, and successor discipline are enforced by the protocol, not by mission text.
@@ -18,7 +19,7 @@ An apply that records a directional decision, a close, or a review trigger requi
 
 1. Start an authorized mission; otherwise use `handoff.current_action` as the takeover contract.
 2. Read `"$RDL" schema` before composing a delta rather than guessing an enum. Work at the smallest existing seam; execute its smallest evidence step. Do not precompute file sizes or checksums for artifact entries: `apply` records them. Verify claims; checksum-only commands such as `sha256sum` are redundant.
-3. At checkpoints or before external work, `apply`; retain receipt. See [OPERATIONS.md](OPERATIONS.md).
+3. At checkpoints or before external work, `apply`; retain receipt. For external work use `intent apply → execute → result apply → review/transition`; see [OPERATIONS.md](OPERATIONS.md).
 4. On `review_required`, follow [SEMANTIC_REVIEW.md](SEMANTIC_REVIEW.md) and apply the result. Transition only with the ready version.
 5. Before `next`, persist the action, completion condition, remaining phases, and retry unlock in `decision.next_step`.
 6. Before a non-abandoned close, resolve each `active` progress item to `completed`, `deferred`, or `open_question`.

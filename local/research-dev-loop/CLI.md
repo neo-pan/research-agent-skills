@@ -13,7 +13,7 @@ Resolve this loaded skill's absolute `bin/rdl` as `RDL` and invoke `"$RDL"`; a b
 "$RDL" doctor [--session-id ID] [--diagnostics]
 ```
 
-`schema` needs no session, mutates nothing, and prints every closed value set, the rule that decides when review is required, and the mission soft budget. Read it rather than guessing an enum; the prose here summarizes it and is not the source.
+`schema` needs no session, mutates nothing, and prints closed value sets, the rule that decides when review is required, and the mission soft budget. Read it rather than guessing an enum; the prose here summarizes it and is not the source.
 
 Start input has `mode: research|build` and a mission with `objective`, non-empty `scope` and `success_criteria`, plus optional `out_of_scope`, `invariants`, and `abort_criteria`. Keep mission items to one sentence each and out of RDL's own guarantees; see [SKILL.md](SKILL.md). `start` warns past the mission soft budget, because every review resends it.
 
@@ -21,7 +21,7 @@ An ApplyDelta requires `expected_state_version`. Optional: append-only `artifact
 
 Artifacts carry a closed `kind`, project-relative `path`, and `description`; `apply` records size and sha256 for the bytes present at registration. Evidence carries `claim`, `summary`, `bearing`, `strength`, artifact refs, and uncertainty. A decision carries `kind`, `subject`, evidence refs, uncertainty, remaining unknowns, next step, `recommended_transition`, optional next mode, and a scientific close outcome when closing. Delta-local refs resolve before durable `A/E/EV/R` IDs are assigned.
 
-`handoff` returns `current_action` after `next`, `terminal_summary` after close, or a bounded `compact_manifest` when oversized; see [OPERATIONS.md](OPERATIONS.md). With no active session and no explicit `--session-id` it answers `{"status":"ok","session_status":"none"}` at exit `0` — absence is a fact, not a blocker. Every other command still blocks with `no_active_session`.
+`handoff` returns `current_action` after `next`, `terminal_summary` after close, or a bounded `compact_manifest` when large; see [OPERATIONS.md](OPERATIONS.md). With no active session and no explicit `--session-id` it answers `{"status":"ok","session_status":"none"}` at exit `0` — absence is a fact, not a blocker. Every other command still blocks with `no_active_session`.
 
 `close --reason` is required for `abandoned` and ignored for every other outcome.
 

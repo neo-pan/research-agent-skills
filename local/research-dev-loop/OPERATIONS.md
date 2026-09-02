@@ -30,6 +30,10 @@ Research — register a frozen receipt and its bounded claim:
 {"expected_state_version":4,"artifacts":{"probe":{"kind":"receipt","path":"evidence/probe.json","description":"frozen probe receipt"}},"evidence":{"probe-result":{"claim":"the bounded probe completed","summary":"the receipt records the command and result","bearing":"supports","strength":"moderate","artifact_refs":["probe"],"uncertainty":"fixture-scoped"}}}
 ```
 
+When a review trigger depends on decisive content, put a bounded summary in the existing
+evidence `summary` and reference the raw receipt artifact from `artifact_refs`. This is a
+caller workflow convention; RDL does not parse the receipt or judge semantic sufficiency.
+
 Build — write through passing verification and the next action:
 
 ```json
@@ -50,12 +54,16 @@ build: failing receipt -> apply -> implement/verify -> passing receipt + decisio
 review: exact action/digest/adapter + adjudicated findings -> apply review_result
 ```
 
+For an external action, keep the sequence `intent apply -> execute -> result apply`.
+Transport retries may share one result receipt only when canonical input, policy, source
+identity, and budget are unchanged; otherwise the caller records a new arm or confounder.
+
 Use `"$RDL" apply --input <file>` for each payload. Do not copy placeholder values into a session.
 
 ## Compact handoff
 
-Handoff normally returns the complete inline projection. Above 24 KiB it returns a bounded `compact_manifest` with the immutable generation's authoritative `state.json`, state digest, required JSON sections, omitted inline sections, and full-projection byte accounting. Read those sections before acting. The 20 KiB target is diagnostic only. Semantic review remains complete and all-inline: 32 KiB is a diagnostic soft budget and 48 KiB is the fail-closed hard budget.
+Handoff may return a bounded `compact_manifest` with the immutable generation's authoritative `state.json`, state digest, required JSON sections, omitted inline sections, and full-projection accounting. Read the returned sections before acting. This does not provide compact review recovery. Semantic review remains complete and all-inline; if its internal hard limit is exceeded, inspect the returned size/section details and use the existing round/session recovery path.
 
-When an active round has a `next` or `close` decision, ordinary apply and handoff receipts include the same compact `review_budget` estimate. A soft or hard crossing adds `review_pack_soft_budget_exceeded` or `review_pack_over_budget` to `warnings`; these are early signals, while formal `review` retains the 48 KiB fail-closed gate. When transition readiness is `needs_review`, detailed section accounting is available from `doctor --diagnostics`.
+When an active round has a `next` or `close` decision, ordinary apply and handoff receipts may include a compact `review_budget` estimate. A crossing adds a warning; formal `review` remains fail-closed when its internal limit is exceeded. Detailed section accounting is available from `doctor --diagnostics`.
 
 Terminal handoff has no `current_action`. Its full-inline `terminal_summary` reports outcome, the review binding that authorized that outcome, unfinished progress, and labels the old next-step text as `pre_close_instruction`. A compact manifest keeps only fixed facts, status counts, and canonical section pointers; arbitrary text and lists remain in `state.json`/`final-report.md`. Abandoned sessions have no final review binding.

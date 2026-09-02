@@ -176,15 +176,28 @@ def _evidence_coverage(round_projection: dict[str, Any]) -> list[dict[str, Any]]
     if not decision:
         return []
     evidence = {item["id"]: item for item in round_projection["evidence"]}
-    return [
-        {
-            "evidence_id": evidence_id,
-            "claim": evidence[evidence_id]["claim"],
-            "artifact_refs": evidence[evidence_id]["artifact_refs"],
-            "artifact_binding": "present" if evidence[evidence_id]["artifact_refs"] else "absent",
-        }
-        for evidence_id in decision["evidence_refs"]
-    ]
+    coverage = []
+    for evidence_id in decision["evidence_refs"]:
+        item = evidence.get(evidence_id)
+        if item is None:
+            coverage.append(
+                {
+                    "evidence_id": evidence_id,
+                    "claim": None,
+                    "artifact_refs": [],
+                    "artifact_binding": "missing",
+                }
+            )
+            continue
+        coverage.append(
+            {
+                "evidence_id": evidence_id,
+                "claim": item["claim"],
+                "artifact_refs": item["artifact_refs"],
+                "artifact_binding": "present" if item["artifact_refs"] else "absent",
+            }
+        )
+    return coverage
 
 
 def _compact_prior_reviews(round_state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -396,10 +409,7 @@ def _post_next_current_action(state: dict[str, Any]) -> tuple[dict[str, Any] | N
     evidence_ids = set(decision["evidence_refs"])
     evidence_by_id = {item["id"]: item for item in state["evidence"]}
     evidence = [
-        {
-            key: evidence_by_id[evidence_id][key]
-            for key in ("id", "claim", "summary", "bearing", "strength", "artifact_refs", "uncertainty")
-        }
+        _current_action_evidence(evidence_by_id, evidence_id)
         for evidence_id in decision["evidence_refs"]
     ]
     unfinished_progress = _unfinished_progress(state, compact=False)
@@ -529,7 +539,17 @@ def _round(state: dict[str, Any], round_state: dict[str, Any]) -> str:
     event_by_id = {item["id"]: item for item in state["events"]}
     lines = [f"# Round {round_state['number']:03d}", "", f"Mode: {round_state['mode']}", "", "## Evidence", ""]
     for evidence_id in round_state["evidence_ids"]:
-        item = evidence_by_id[evidence_id]
+        item = evidence_by_id.get(evidence_id)
+        if item is None:
+            lines.extend(
+                (
+                    f"### {evidence_id}: missing evidence reference",
+                    "",
+                    "The referenced evidence is missing from canonical state.",
+                    "",
+                )
+            )
+            continue
         lines.extend(
             (
                 f"### {item['id']}: {item['claim']}",
@@ -669,12 +689,21 @@ def _evidence_selection_manifest(
     }
 
 
-def missing_review_reference_findings(state: dict[str, Any], round_state: dict[str, Any]) -> list[dict[str, Any]]:
+def missing_review_reference_findings(state: dict[str, Any]) -> list[dict[str, Any]]:
     evidence_by_id = {item["id"]: item for item in state["evidence"]}
     artifact_by_id = {item["id"]: item for item in state["artifacts"]}
-    selected_ids = _relevant_evidence_ids(state, round_state)
+    referenced_ids = {
+        reference
+        for entry in state["progress"].values()
+        for reference in entry.get("evidence_refs", [])
+    }
+    for candidate in state["rounds"]:
+        referenced_ids.update(candidate.get("evidence_ids", []))
+        decision = candidate.get("decision")
+        if decision:
+            referenced_ids.update(decision.get("evidence_refs", []))
     missing: set[tuple[str, str]] = set()
-    for evidence_id in selected_ids:
+    for evidence_id in referenced_ids:
         evidence = evidence_by_id.get(evidence_id)
         if evidence is None:
             missing.add(("evidence", evidence_id))
@@ -687,10 +716,29 @@ def missing_review_reference_findings(state: dict[str, Any], round_state: dict[s
             "code": "missing_review_reference",
             "severity": "blocking",
             "location": reference,
-            "message": f"selected {kind} reference is missing from canonical state",
+            "message": f"{kind} reference is missing from canonical state",
         }
         for kind, reference in sorted(missing)
     ]
+
+
+def _current_action_evidence(evidence_by_id: dict[str, dict[str, Any]], evidence_id: str) -> dict[str, Any]:
+    item = evidence_by_id.get(evidence_id)
+    if item is None:
+        return {
+            "id": evidence_id,
+            "claim": None,
+            "summary": None,
+            "bearing": None,
+            "strength": None,
+            "artifact_refs": [],
+            "uncertainty": None,
+            "reference_status": "missing",
+        }
+    return {
+        key: item[key]
+        for key in ("id", "claim", "summary", "bearing", "strength", "artifact_refs", "uncertainty")
+    }
 
 
 def _subject_artifact(item: dict[str, Any]) -> dict[str, Any]:
