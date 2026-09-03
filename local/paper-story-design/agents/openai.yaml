@@ -1,0 +1,7 @@
+interface:
+  display_name: "Paper Story Design"
+  short_description: "Align paper claims, methods, experiments, and evidence."
+  default_prompt: "Use $paper-story-design to build a bounded paper thesis and claim-to-evidence plan."
+
+policy:
+  allow_implicit_invocation: false

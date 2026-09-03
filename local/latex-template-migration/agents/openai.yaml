@@ -1,0 +1,7 @@
+interface:
+  display_name: "LaTeX Template Migration"
+  short_description: "Migrate a paper to a selected venue template safely."
+  default_prompt: "Use $latex-template-migration to migrate the paper template while preserving content and template integrity."
+
+policy:
+  allow_implicit_invocation: false

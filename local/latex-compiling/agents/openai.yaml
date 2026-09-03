@@ -1,0 +1,7 @@
+interface:
+  display_name: "LaTeX Compiling"
+  short_description: "Compile LaTeX with isolated outputs and verification."
+  default_prompt: "Use $latex-compiling to compile and verify the paper without contaminating its source tree."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Conference Rebuttal"
+  short_description: "Draft concise, evidence-grounded reviewer responses."
+  default_prompt: "Use $conference-rebuttal to draft a concise rebuttal grounded in the paper and supplied evidence."
+
+policy:
+  allow_implicit_invocation: false

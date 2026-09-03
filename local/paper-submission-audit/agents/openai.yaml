@@ -1,0 +1,7 @@
+interface:
+  display_name: "Paper Submission Audit"
+  short_description: "Audit a paper submission without modifying it."
+  default_prompt: "Use $paper-submission-audit to perform a read-only venue and PDF risk audit."
+
+policy:
+  allow_implicit_invocation: false

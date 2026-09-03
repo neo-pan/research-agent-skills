@@ -1,0 +1,7 @@
+interface:
+  display_name: "Overleaf Project Sync"
+  short_description: "Compare or explicitly update a local Overleaf project."
+  default_prompt: "Use $overleaf-project-sync to check an Overleaf project; update only after explicit overwrite authorization."
+
+policy:
+  allow_implicit_invocation: false

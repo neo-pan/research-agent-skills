@@ -109,3 +109,7 @@ echo "RDL command installer ok"
 bash "${ROOT_DIR}/tests/check-removed-check-modes.sh" >/dev/null
 
 echo "Removed check modes ok"
+
+python3 "${ROOT_DIR}/tests/check-paper-skills.py" >/dev/null
+
+echo "Paper skills ok"

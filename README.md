@@ -209,3 +209,14 @@ The current local skills are:
 - `research-dev-loop` - durable normalized evidence state and a seven-command
   Research Development Loop CLI.
 - `rdl-orchestrator` - manual terminal RDL loop with material-only semantic review.
+- `latex-compiling` - isolated LaTeX compilation and build verification.
+- `overleaf-project-sync` - explicit, non-destructive Overleaf comparison and
+  update workflow.
+- `latex-template-migration` - controlled migration to an explicitly selected
+  venue template while preserving paper content.
+- `paper-submission-audit` - read-only venue, anonymity, PDF, and desk-reject
+  risk audit.
+- `conference-rebuttal` - concise reviewer responses grounded in supplied
+  paper evidence.
+- `paper-story-design` - central thesis and claim-to-evidence planning without
+  imposing a venue-specific template.
