@@ -1,5 +1,8 @@
 # Submission Requirements Memo
 
+Use the rows relevant to the target stage and task. Reuse a current project memo;
+resolve rules from official sources rather than maintaining venue snapshots here.
+
 ## Target venue
 
 - Venue / track:
@@ -40,5 +43,4 @@
 
 - Requirement:
   - Why unclear:
-  - Conservative handling:
-  - User confirmation needed:
+  - Evidence or decision needed to resolve it:

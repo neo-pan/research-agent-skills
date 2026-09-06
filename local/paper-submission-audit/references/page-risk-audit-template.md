@@ -1,29 +1,27 @@
 # Page Risk Audit
 
-## Build information
+## Conclusion and scope
 
-- PDF:
-- Render command:
-- Page count:
+- Conclusion: requirements satisfied / findings remain / verification incomplete
+- PDF and build identity:
+- Page count / pages inspected:
+- Render command and inspection directory:
 - Target venue and stage:
 - Requirements memo:
 - Audit date:
 
-## Global risks
+## Coverage
 
-| Risk | Check method | Result | Action |
+Summarize checks of page/file rules, template integrity, stage-specific identity
+and links, evidence completeness, and visual quality. Mark categories `OK`,
+`N/A`, `Finding`, or `Unverified`; name the missing rule or artifact for the last.
+
+## Findings
+
+| Location | Finding and evidence | Impact / applicable rule | Minimal remediation |
 | --- | --- | --- | --- |
-| Identity in PDF metadata/source ZIP | `pdfinfo`, source inspection | TODO | TODO |
-| Official template files modified | pristine/current diff | TODO | TODO |
-| Global font, margin, line spacing, or text block changed | preamble/template diff | TODO | TODO |
-| Required files missing | requirements memo | TODO | TODO |
+| [page/section/file] | [observed issue] | [requirement or presentation concern] | [action] |
 
-## Per-page risks
-
-| Page | Identity/link leak | Header/footer/line no. | Caption placement | Compression | Overlap/overflow | Formula/table/figure quality | Missing evidence | Main-body blank/short-tail | Template-sensitive region | Action |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | TODO | TODO | TODO | TODO | TODO | TODO | TODO | TODO | TODO | None |
-
-Use `OK`, `N/A`, or a precise finding with a page/section locator. Do not use
-this table to justify modifying the manuscript; findings are inputs to a
-separate implementation or review step.
+Include only concrete findings; distinguish submission blockers from optional
+presentation improvements. Add a per-page matrix only if requested or useful
+for tracking many findings. List unresolved checks and what would resolve them.

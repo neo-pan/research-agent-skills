@@ -12,18 +12,18 @@ loop papers; it does not assume one paper type.
 
 ## Core workflow
 
-1. State the intended audience, paper stage, scope, and the central question in
-   one sentence. Identify the capability or evidence gap, not only the object
-   or system being presented.
+1. Read the available draft and research evidence. Establish audience, stage,
+   and scope, then state the central question in one sentence. Identify the
+   capability or evidence gap and distinguish observed results from plans.
 2. Choose the paper type and map each major challenge to a method choice,
    metric/experiment, and analysis or case. Remove challenges that have no
    downstream evidence or add a concrete missing check.
-3. Plan the argument: related-work distinction, method overview, data or task
-   definition, evaluation protocol, main result, ablation, analysis, case, and
-   conclusion. The order and number of sections remain venue/project choices.
+3. Plan the argument using sections that serve this paper: related-work
+   distinction, method or task definition, evaluation, results, analysis, and
+   conclusion. Include ablations or cases where they answer a research question.
 4. Check every major claim for evidence, scope, reproducibility, baseline
    fairness, invalid handling, and terminology consistency. Mark unsupported
-   claims as gaps; do not invent data, results, citations, or terminology.
+   claims as gaps; keep proposed experiments distinct from supporting evidence.
 5. Produce the smallest useful outline or revision proposal. Separate semantic
    writing decisions from later LaTeX layout, asset, and submission-compliance
    work.
@@ -49,12 +49,8 @@ loop papers; it does not assume one paper type.
   drafting a Markdown outline, figure/table plan, or section skeleton.
 - Read [references/section-logic-checklist.md](references/section-logic-checklist.md)
   when restructuring particular sections or experiments.
-- Read [references/latex-evidence-details.md](references/latex-evidence-details.md)
-  only when concrete table, layout, appendix-case, citation, or logo guidance
-  is requested.
-- Read [references/layout-and-assets.md](references/layout-and-assets.md) only
-  when the user asks for LaTeX layout, visual assets, or paper styling.
 
-For source/template migration use `latex-template-migration`; for PDF and venue
-compliance use `paper-submission-audit`; for evidence-bound experimental
-decisions use RDL and `phase-review` rather than duplicating their gates here.
+Template migration and submission audit are separate tasks covered by
+`latex-template-migration` and `paper-submission-audit`. If an authorized RDL
+session governs this task, record material evidence and decisions there;
+otherwise include them in the outline or revision proposal.

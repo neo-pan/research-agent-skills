@@ -17,8 +17,7 @@ data, or backups that must not participate in sync, add narrow project-specific
 patterns, for example:
 
 ```bash
---ignore '*.py' --ignore '*.md' --ignore 'raw/**' --ignore 'context/**' \
---ignore 'backups/**' --ignore 'latex_cache/**'
+--ignore 'build/latex/**' --ignore 'backups/**'
 ```
 
 Do not use broad ignores to hide paper source files accidentally. Use
@@ -28,7 +27,11 @@ For DNS, timeout, or proxy failures, inspect the current proxy environment and
 retry only with an approved network configuration; do not put credentials in a
 retry command or change long-lived shell configuration from this workflow.
 
-## Script check
+## Directory layout
 
-After changing the helper, run `python3 -m py_compile` and `--help`; for a
-material sync, retain the comparison and post-update diff as receipts.
+Preserve ZIP paths by default: `latex/main.tex` stays `latex/main.tex` under the
+target. If the archive instead has a known wrapper such as
+`downloaded-project/latex/main.tex`, pass `--strip-single-root` to both `check`
+and `update` to remove that wrapper. The flag requires a single top-level
+directory. It replaces the former default stripping behavior and
+`--no-strip-single-root` option.

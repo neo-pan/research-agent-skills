@@ -17,9 +17,9 @@ Overleaf project. The helper script is read-only by default.
 - Run `check` first. `update` without `--overwrite` is still a dry run.
 - Only `update --overwrite` writes existing local files; local-only files are
   never deleted. Inspect `git diff --check` and `git status` afterwards.
-- Existing symlink or non-file destinations are rejected before any copy.
-- The script does not change `PATH`, shell configuration, Git history, or
-  install packages. Temporary downloads are cleaned automatically.
+- Existing symlink or non-file destinations, including non-directory ancestors,
+  are rejected before any copy. This preflight does not provide rollback for
+  later I/O failures; use a recoverable local baseline when overwriting.
 
 ## Commands
 
@@ -36,14 +36,16 @@ python3 /path/to/overleaf-project-sync/scripts/overleaf_sync.py update \
 
 The URL and Cookie may instead be supplied with `--url`, `--cookie-file`, or
 the corresponding environment variables. Only same-origin redirects are
-allowed. Add `--ignore` for project-specific generated files; use
-`--no-default-ignores` when the defaults would hide a file that must be compared.
+allowed. ZIP paths are preserved by default. Use `--strip-single-root` only
+after confirming that the ZIP has one packaging directory outside the project;
+use the same option for comparison and update. Add `--ignore` for generated
+files; use `--no-default-ignores` when the defaults hide a file to be compared.
 Read [references/operational-details.md](references/operational-details.md) for
 browser parameter acquisition and narrow ignore patterns when needed.
 
-For a material paper build, preserve the comparison output and post-update Git
-diff as receipts in RDL. A sync receipt does not authorize unrelated source
-changes or replace phase/project review.
+Report compared paths, copied files, and any remaining differences. If an
+authorized RDL session governs this task, record the comparison and post-update
+diff there; otherwise include them in the handoff.
 
 ## Failure handling
 

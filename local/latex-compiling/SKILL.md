@@ -10,25 +10,26 @@ TeX toolchain while keeping generated files out of the source tree.
 
 ## Contract
 
-- Prefer an existing system `latexmk`/`pdflatex` (or the compiler required by
-  the venue); do not install system packages implicitly.
+- Start with the project's build command and configuration. Identify the entry
+  file, working directory, compiler, and bibliography tool before adapting it.
+  Use the existing TeX environment; installation is a separate action.
 - Put the PDF, intermediate files, logs, and TeX caches in a project-local
   build directory such as `build/latex/`.
 - Set writable `TEXMFVAR` and `TEXMFCONFIG` below that build directory.
 - Do not edit source files, templates, or bibliography data merely to make a
   compile pass. Report the smallest failure and its evidence.
-- Do not place credentials, private links, or downloaded packages in the
-  project tree.
 
-## Standard command
+## Example command
 
-From the project root, assuming the entry file is `latex/main.tex`:
+If no build command exists, this example runs from the project root with
+`latex/main.tex` as the entry file. `-cd` makes relative inputs resolve from
+`latex/`; use the project's actual working-directory convention:
 
 ```bash
 mkdir -p build/latex/texmf-var build/latex/texmf-config
 TEXMFVAR="$PWD/build/latex/texmf-var" \
 TEXMFCONFIG="$PWD/build/latex/texmf-config" \
-latexmk -pdf -interaction=nonstopmode -halt-on-error \
+latexmk -cd -pdf -interaction=nonstopmode -halt-on-error \
   -outdir="$PWD/build/latex" latex/main.tex
 ```
 
@@ -38,31 +39,29 @@ than guessing a different bibliography workflow.
 
 ## Verification
 
-Check the exit status and inspect the log for fatal errors, emergency stops,
+Check the exit status and current build log for fatal errors, emergency stops,
 undefined control sequences, missing figures, undefined references/citations,
-overfull boxes, and bibliography failures. Confirm that the expected PDF is in
-the build directory and inspect its page count and rendered pages when layout
-matters:
+overfull boxes, and bibliography failures. Confirm that the expected PDF in the
+build directory belongs to this successful build, rather than an earlier run.
+When layout matters, inspect page count and render the relevant pages:
 
 ```bash
 pdfinfo build/latex/main.pdf | sed -n '1,80p'
-pdftoppm -png -r 180 build/latex/main.pdf build/latex/page
+pdftoppm -f 1 -l 1 -png -r 180 build/latex/main.pdf build/latex/page
 ```
 
-Keep the command, exit status, decisive log lines, PDF path, page count, and
-visual-check result together as a small receipt. For a material build, record
-that receipt and the PDF/log/page images through the active RDL session before
-claiming a transition or close. A compile receipt proves compilation only; it
-does not replace `phase-review` or the configured project reviewer.
+Adjust the page range to the change; inspect all pages for a final layout check.
+Report the working directory, command, exit status, PDF path, decisive warnings,
+and any visual checks performed. Distinguish compilation success from unresolved
+reference or layout problems. If an authorized RDL session governs this task,
+record the receipt there; otherwise include it in the handoff.
 
 ## Cleanup
 
-Use `latexmk -c -outdir="$PWD/build/latex" latex/main.tex` to remove
-intermediates while keeping the PDF, or replace `-c` with `-C` when the PDF
-should also be removed. Never
-run a bare compiler in the source directory unless the project explicitly
-requires it and the generated files are immediately isolated or cleaned.
+For this example, `latexmk -cd -c -outdir="$PWD/build/latex" latex/main.tex`
+removes intermediates while keeping the PDF. Use `-C` to remove the PDF too.
+Keep the same build paths and project configuration.
 
-If a package/style is missing, report the missing dependency and ask for the
-approved environment change. If TeX cache creation fails, verify that the two
-`TEXMF*` directories are writable before changing anything else.
+If a package/style is missing, use an already authorized setup step, or report
+it and request the specific environment change needed. For cache failures,
+check that the two `TEXMF*` directories are writable.

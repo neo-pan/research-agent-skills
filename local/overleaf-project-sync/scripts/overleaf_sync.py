@@ -64,7 +64,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target", default=".")
     parser.add_argument("--ignore", action="append", default=[])
     parser.add_argument("--no-default-ignores", action="store_true")
-    parser.add_argument("--no-strip-single-root", action="store_true")
+    parser.add_argument(
+        "--strip-single-root", action="store_true",
+        help="Remove a known single wrapper directory from the ZIP; default: preserve paths.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--timeout", type=float, default=60.0)
@@ -137,7 +140,7 @@ def choose_remote_root(extract_dir: Path, strip_single_root: bool) -> Path:
     dirs = [p for p in entries if p.is_dir()]
     if len(dirs) == 1 and not any(p.is_file() for p in entries):
         return dirs[0]
-    return extract_dir
+    raise SystemExit("Expected a single ZIP wrapper directory for --strip-single-root.")
 
 
 def is_ignored(rel_path: str, patterns: tuple[str, ...], is_dir: bool = False) -> bool:
@@ -197,11 +200,10 @@ def safe_destination(target_root: Path, relative: str) -> Path:
         current /= part
         if current.is_symlink():
             raise SystemExit(f"Refusing symlink target: {relative}")
+        if current != destination and current.exists() and not current.is_dir():
+            raise SystemExit(f"Refusing non-directory parent: {current}")
     if destination.exists() and not destination.is_file():
         raise SystemExit(f"Refusing non-file target: {relative}")
-    parent = destination.parent
-    if parent.exists() and not parent.is_dir():
-        raise SystemExit(f"Refusing non-directory parent: {parent}")
     return destination
 
 
@@ -220,7 +222,7 @@ def main() -> int:
         extract_dir.mkdir()
         download_zip(url, cookie, zip_path, args.timeout)
         safe_extract(zip_path, extract_dir)
-        remote_root = choose_remote_root(extract_dir, not args.no_strip_single_root)
+        remote_root = choose_remote_root(extract_dir, args.strip_single_root)
         changed, missing, extra, remote_files = compare_files(remote_root, target_root, patterns)
         print_group("Changed files:", changed)
         print_group("Missing locally, present in Overleaf:", missing)

@@ -14,7 +14,7 @@ Before finalizing, check each substantive response:
   recorded.
 - Citations are real, relevant, allowed by the venue, and not used to replace
   the direct answer.
-- The draft has no author, institution, private path, token, private URL, or
-  other identity clue.
+- Identity and links follow the current stage's rules; private paths,
+  credentials, and confidential material are excluded from the response.
 - The final text fits the venue's word/format limit and contains no unsupported
   promise about code, data, or future results.

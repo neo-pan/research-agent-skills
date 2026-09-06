@@ -6,9 +6,9 @@ description: Draft or audit an evidence-grounded, concise conference rebuttal or
 # Conference rebuttal
 
 Use this skill when preparing a reviewer response, rebuttal, author response,
-discussion reply, or a factual note to an area chair. Confirm the venue's
-format, word limit, anonymity rules, and whether new experiments or citations
-are allowed before drafting.
+discussion reply, or a factual note to an area chair. Establish the current
+stage's format, word limit, identity policy, and rules for new experiments or
+citations from supplied instructions or official sources before finalizing.
 
 ## Core workflow
 
@@ -35,8 +35,8 @@ are allowed before drafting.
   state a factual mismatch only with a precise paper locator and evidence.
 - Use small tables or bullets only for naturally parallel evidence. Keep the
   response primarily readable prose rather than a template-shaped form.
-- Do not run experiments, alter the manuscript, or submit the response unless
-  the user explicitly requests that separate action.
+- Running experiments, editing the manuscript, and submitting the response
+  require authorization for those actions; use authorization already given.
 - Do not add external links or identity clues in an anonymous response unless
   the venue explicitly permits them.
 
@@ -47,6 +47,6 @@ are allowed before drafting.
 - Read [references/evidence-consistency-checklist.md](references/evidence-consistency-checklist.md)
   when checking numbers, claims, settings, citations, and commitments.
 
-For a material experimental claim, record the supporting receipt through the
-active RDL session. Use `phase-review` for an independent final gate; this skill
-organizes the response and does not replace evidence or review protocols.
+If an authorized RDL session governs this task, record supporting evidence
+there; otherwise include evidence locators and gaps with the draft. Run an
+independent final review only when required by the user or project workflow.
