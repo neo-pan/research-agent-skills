@@ -74,9 +74,7 @@ assert_setting "${RDL_SKILL_AGENT}" '  short_description: "Operate explicit mult
 assert_contains "${RDL_SKILL_AGENT}" '$research-dev-loop'
 assert_setting "${PHASE_REVIEW_AGENT}" '  allow_implicit_invocation: false'
 assert_setting "${RDL_ORCHESTRATOR_AGENT}" '  allow_implicit_invocation: false'
-if grep -Fq 'allow_implicit_invocation: false' "${RDL_SKILL_AGENT}"; then
-  fail "research-dev-loop must remain available for implicit invocation"
-fi
+assert_setting "${RDL_SKILL_AGENT}" '  allow_implicit_invocation: false'
 if grep -Fq 'disable-model-invocation' "${PHASE_REVIEW}" "${RDL_ORCHESTRATOR_SKILL}"; then
   fail "manual skill invocation policy must live in agents/openai.yaml"
 fi

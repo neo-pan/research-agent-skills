@@ -12,7 +12,11 @@ Use the cheapest gate that can falsify the current change: focused red → local
 
 Work at the smallest existing seam and require evidence sufficient for the bounded claim; record unrelated uncertainty as an untested boundary. Add abstractions, compatibility or defensive branches, and general-readiness gates only for a supported contract or observed failure. Keep correctness, provenance, and fail-closed protocol checks authoritative.
 
-For large-context LLM calls, hardware experiments, long profiling, or broad benchmarks, add one real confirmation after deterministic green. Before another real attempt, apply the prior result and identify new evidence, a materially changed hypothesis/input/implementation, a low-cost check proving that change, or a directly relevant environment change. Do not set a global retry count.
+For large-context LLM calls, hardware experiments, long profiling, or broad benchmarks, validate with one real execution after deterministic green, within the authorized scope and budget. This is an execution check, not a new user-approval checkpoint. Before another real attempt, apply the prior result and identify new evidence, a materially changed hypothesis/input/implementation, a low-cost check proving that change, or a directly relevant environment change. Do not set a global retry count.
+
+## User steering
+
+Treat corrections as updates to the active task unless the user cancels or replaces it. Before the next external action, reconcile the correction with the mission and `decision.next_step`. Preserve completed evidence; apply changed decisions and progress before proceeding, and obtain a current action/digest-bound review when required. Replace the mission only when its objective or success criteria change. Record completed or in-flight action results with their actual scope; a correction does not make those results disappear or establish a new claim. Recover existing authorization from conversation or handoff context; ask only for missing authority or work beyond its scope or budget.
 
 ## Material build project review
 

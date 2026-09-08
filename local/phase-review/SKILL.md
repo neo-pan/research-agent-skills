@@ -5,226 +5,93 @@ description: Manual independent review gate for research engineering plans, impl
 
 # Phase Review
 
-Run a skeptical, bounded review before proceeding. This is a review-only gate:
-do not edit files, implement fixes, broaden scope, or introduce new
-requirements.
+Review the smallest boundary that satisfies the user's request, using an
+independent review-only subagent. The reviewer returns findings and does not
+edit files, implement fixes, broaden scope, or introduce requirements.
 
-Infer the smallest review target that satisfies the user's invocation, state the
-boundary explicitly, then spawn an independent review-only Codex subagent. If a
-subagent cannot be created under the active tool policy or runtime, stop and
-report the tooling blocker instead of completing the review in the main agent.
-
-## Review Targets
-
-- **Implementation**: changed code within a pinned comparison boundary, tests,
-  benchmarks, and completion claims after a phase of work.
-- **Plan**: implementation plan, draft, task breakdown, acceptance criteria, or
-  milestone design before coding starts.
-- **Context proposal**: proposed approach described in conversation, with no
-  file or diff yet.
-- **Evidence**: tests, benchmarks, profiling, root-cause analysis, ablations, or
-  other evidence used to justify a decision.
-- **Final gate**: pre-merge, pre-submit, or pre-finish check across the final
-  relevant diff, verification, deferrals, and scope.
+After reporting findings, the main agent continues any implementation already
+authorized by the user as a separate step. A review-only request ends with the
+report; authorization for review alone does not authorize fixes.
 
 ## Workflow
 
-1. Determine the review target and boundary.
-   - Use the latest explicit user request as the primary scope.
-   - Choose the smallest target that satisfies the wording.
-   - For implementation and final-gate reviews, pin the comparison boundary.
-     Use the user-supplied fixed point or relevant merge base; for working-tree
-     reviews, explicitly include staged, unstaged, and untracked changes. Record
-     the diff command and commit list when applicable.
-   - State reviewed artifacts, unreviewed artifacts, assumed phase goal, and the
-     decision being gated.
-   - Ask for clarification only when the target cannot be inferred without high
-     risk of reviewing the wrong artifact.
-   - Completion check: target type, boundary, reviewed artifacts, unreviewed
-     artifacts, assumed phase goal, and gated decision are explicit.
+1. **Pin the target.** Infer the target from the active request and retained
+   scope, incorporating user corrections. State the phase goal and decision
+   gated. Ask only if ambiguity could cause review of the wrong artifact.
+   For implementation or final-gate reviews, use the supplied fixed point or
+   relevant merge base; include staged, unstaged, and relevant untracked changes
+   in working-tree reviews. Record the comparison command and commit list when
+   applicable. Complete when the target, boundary, and comparison are explicit.
 
-2. Gather only target-relevant context.
-   - Implementation: original request or plan/spec, claimed completion summary,
-     pinned diff, applicable repository standards, and relevant verification.
-   - Plan: original request, constraints, plan draft, acceptance criteria,
-     sequencing, dependencies, and path boundaries.
-   - Context proposal: proposal text, goals, assumptions, constraints, excluded
-     work, and cited evidence.
-   - Evidence: claim being evaluated, raw evidence, setup or commands, expected
-     vs observed result, controls, and the decision it supports.
-   - Final gate: pinned final diff, original scope or spec, applicable repository
-     standards, verification summary, known deferrals, generated or local-only
-     files, and merge or release constraints.
-   - Completion check: every artifact needed for the chosen target type has
-     been read or listed as not reviewed.
+2. **Gather bounded context.** Supply the artifacts for the selected target:
+   - Implementation: original request/spec, pinned diff, repository standards,
+     verification receipts, and completion claims.
+   - Plan or context proposal: proposal, goals, constraints, acceptance criteria,
+     dependencies, assumptions, excluded work, and any cited evidence.
+   - Evidence: claim, raw results, setup/commands, expected and observed behavior,
+     controls, uncertainty, and decision supported.
+   - Final gate: original scope, final diff, standards, verification, deferrals,
+     generated or local-only files, and merge/release constraints.
+   Complete when required artifacts are supplied or identified as unreviewed.
 
-3. Delegate to a subagent.
-   - Spawn a review-only Codex subagent in a new thread with no inherited
-     conversation turns (`fork_turns="none"`), or use the runtime's equivalent
-     clean-spawn option.
-   - Tell the subagent not to edit files, run destructive commands, broaden the
-     task, or introduce new requirements.
-   - Include the inferred target, explicit boundary, relevant artifacts, and the
-     rubric below.
-   - Treat subagent findings as review input, not automatic truth; verify enough
-     context to avoid passing through false positives.
-   - Give it only the explicit review boundary and target artifacts. Do not pass
-     the parent transcript, search logs, or another agent's working output.
-   - If a clean-spawn subagent cannot be created, return `BLOCKED` with the
-     tooling blocker and do not continue the review in the main agent.
-   - Completion check: subagent findings have been received, or the review has
-     stopped with a tooling blocker.
+3. **Delegate independently.** Spawn one review-only Codex subagent with
+   `fork_turns="none"`, or an equivalent clean-spawn option. Give it the target,
+   boundary, relevant artifacts, and applicable criteria below. Exclude the
+   parent transcript, search logs, and other agents' working output. Require
+   evidence-located findings classified as blocking, non-blocking, or out of
+   scope; the reviewer must not edit, run destructive commands, or broaden work.
+   If independent review is unavailable under the runtime or tool policy, return
+   `BLOCKED` with the tooling reason; do not substitute a main-agent review.
+   Complete when findings arrive or the tooling blocker is established.
 
-   Suggested subagent prompt:
+4. **Adjudicate and report.** Check enough source context to resolve suspected
+   false positives. Keep spec alignment separate from repository standards.
+   Use existing verification receipts where they cover the reviewed state;
+   run proportionate checks only for missing evidence, changed artifacts, or an
+   unresolved concern. Complete when each finding has a supported disposition
+   and the report states coverage and remaining gaps.
 
-   ```text
-   You are an independent review-only Codex subagent. Review the provided target
-   within the stated boundary. Do not edit files. Do not run destructive
-   commands. Do not introduce new requirements. Do not broaden the task.
+## Review criteria
 
-   If the target is code, review it against the plan, diff, tests, and stated
-   verification. If the target is a plan or proposal, review feasibility,
-   completeness, sequencing, acceptance criteria, assumptions, unnecessary
-   complexity, compatibility or fallback work, and scope control. If the target
-   is evidence, review whether the evidence supports the claim. If the target is
-   a final gate, review final scope, verification, deferrals, and readiness.
+Apply only criteria relevant to the target; skip rules already enforced by
+verified tooling.
 
-   Classify findings as blocking, non-blocking, or out of scope.
-   ```
+- **Alignment:** required behavior and acceptance items are complete. Distinguish
+  missing or incorrect behavior from unrequested scope. For code, assess the
+  documented repository standards separately.
+- **Correctness and feasibility:** behavior, edge cases, and integration respect
+  the contract. Plans have workable sequencing, dependencies, resources, and
+  testable acceptance criteria.
+- **Evidence:** claims have sufficient, reproducible support with controls,
+  provenance, uncertainty, and untested boundaries. Check staleness, baseline
+  fairness, cherry-picking, and overclaiming where relevant.
+- **Minimality:** changes serve the requested scope. Flag speculative
+  abstractions, generalized machinery, compatibility shims, defensive branches,
+  or fallback paths only when unsupported by a real contract or observed need.
+- **Final readiness:** required work and proportionate verification are complete;
+  deferrals and merge/release constraints are explicit. Identify unrelated
+  changes, generated churn, local-only files, or exposed credentials.
 
-4. Apply the gates.
-   - **Spec or plan alignment**: required acceptance items are complete or
-     explicitly pending; missing behavior, incorrect behavior, and unrequested
-     scope are distinct findings. For code targets, report these separately from
-     repository-standards findings.
-   - **Repository standards**: changed code follows the applicable documented
-     standards; skip checks already enforced by tooling.
-   - **Correctness**: behavior, edge cases, and integration points match the
-     intended contract.
-   - **Plan quality**: goals, acceptance criteria, dependencies, sequencing,
-     validation, and path boundaries are clear enough to execute.
-   - **Feasibility**: the proposal can plausibly be implemented with available
-     repository patterns, tools, and constraints.
-   - **Evidence quality**: measurements, diagnostics, or root-cause claims
-     support the decision without cherry-picking, stale assumptions, missing
-     controls, or overclaiming.
-   - **Final readiness**: the final state matches the requested scope, has no
-     unresolved blocking deferrals, and has proportionate verification.
-   - **Minimality**: no speculative abstraction, broad framework, extra
-     configuration, or generalized machinery unless required by the plan or
-     existing architecture.
-   - **Compatibility discipline**: no redundant legacy fallback, unused
-     compatibility path, defensive branch, migration shim, or permissive parsing
-     unless justified by a real supported input or existing contract.
-   - Completion check: every applicable gate has been applied to the chosen
-     target and boundary.
+Blocking findings prevent the bounded decision: violated requirements,
+incorrect behavior, decisive evidence gaps, infeasibility, or harmful
+complexity. Non-blocking findings improve the result without preventing it.
+Out-of-scope observations do not become new acceptance requirements.
 
-5. Classify findings.
-   - **Blocking**: violates the plan, breaks correctness, hides a material test
-     or evidence gap, is infeasible, is too ambiguous to execute, or adds harmful
-     complexity that should be removed before proceeding.
-   - **Non-blocking**: useful cleanup, clarification, or future hardening that
-     does not affect this phase's acceptance or decision.
-   - **Out of scope**: unrelated improvements, style preferences, broad
-     rewrites, or new requirements.
-   - Completion check: each finding is classified as blocking, non-blocking, or
-     out of scope.
+## Report
 
-6. Return findings only.
-   - Do not fix issues inside this review.
-   - If blocking fixes are needed, return `BLOCKED` and the required changes.
-   - If the user wants fixes, they should start a separate implementation step
-     or explicitly ask to continue after the review.
-   - Completion check: the response starts with findings and uses exactly one
-     verdict: `PASS`, `PASS_WITH_NOTES`, or `BLOCKED`.
+Start with `PASS`, `PASS_WITH_NOTES`, or `BLOCKED`, followed by the principal
+finding. Include:
 
-## Rubric
+- Scope: target, comparison, decision gated, reviewed and unreviewed artifacts.
+- Findings: severity, precise locator, evidence, impact, and required resolution.
+  Distinguish spec findings from standards findings when both apply.
+- Verification: evidence used, unresolved checks, and independent-review status.
 
-For all targets:
+Use concise prose or bullets for small reviews. Expand into separate alignment,
+minimality, evidence, and readiness sections only when the review warrants it;
+omit empty sections. Use file/line, proposal section, or evidence IDs as locators.
 
-- What exactly is being reviewed, and what is outside the boundary?
-- Does the target satisfy the user's current request without silently deferring
-  required work?
-- Are assumptions, dependencies, and excluded work explicit enough?
-- Is there speculative abstraction, generalized machinery, or broad
-  compatibility work that is not justified?
-- Are validation steps concrete and proportional to risk?
-
-For implementation reviews:
-
-- Are all changed files necessary for this phase?
-- Is any new abstraction used by only one caller without a clear reason?
-- Is any fallback or compatibility branch unreachable, untested, or unsupported?
-- Did the code preserve existing repository patterns instead of introducing a
-  parallel style?
-- Are tests or benchmarks targeted to the behavior that changed?
-- Did the implementation touch generated files, local-only files, credentials,
-  or unrelated surfaces?
-
-For plan or proposal reviews:
-
-- Is the goal precise enough to drive implementation?
-- Are acceptance criteria testable and complete?
-- Are milestones ordered so risk is retired early?
-- Are path boundaries clear: maximum scope, minimum viable scope, allowed
-  choices, and rejected choices?
-- Does the plan avoid prescribing unnecessary architecture before the codebase
-  demands it?
-- Does it avoid compatibility, migration, fallback, or configurability work that
-  lacks a concrete supported scenario?
-
-For evidence or final-gate reviews:
-
-- Does the evidence support the stated conclusion without overclaiming?
-- Are benchmark, profiling, test, or diagnostic results reproducible enough for
-  the decision being made?
-- Are controls, baselines, setup, and raw artifacts sufficient to trust the
-  interpretation?
-- Are unresolved deferrals explicit and genuinely non-blocking?
-- Did the final state avoid unrelated changes, local-only files, generated
-  churn, and unrequested cleanup?
-
-## Output Format
-
-Return findings first. Keep the response concise and actionable.
-
-```markdown
-Verdict: PASS | PASS_WITH_NOTES | BLOCKED
-
-Review Target:
-- Type: implementation | plan | context-proposal | evidence | final-gate
-- Boundary:
-- Reviewed artifacts:
-- Not reviewed:
-- Decision gated:
-
-Blocking Findings:
-- [severity] location - issue, why it matters, required fix
-
-Non-Blocking Notes:
-- location - note or follow-up
-
-Alignment / Scope:
-- Satisfied:
-- Pending:
-- Out of scope:
-
-Minimality / Compatibility:
-- Unnecessary complexity found: yes/no
-- Redundant compatibility found: yes/no
-- Required removals:
-
-Verification / Evidence:
-- Checks or evidence reviewed:
-- Checks or evidence still needed:
-- Subagent review status:
-```
-
-Use `location` as `file:line` for code or file-backed plans, and as a plan
-section, bullet name, evidence artifact, or conversation reference for
-context-only reviews.
-
-Use `PASS` only when the target satisfies the requested boundary and no blocking
-findings remain. Use `PASS_WITH_NOTES` when only non-blocking notes remain. Use
-`BLOCKED` when required work, correctness, verification, feasibility, evidence,
-or complexity issues must be fixed before continuing.
+`PASS` means the boundary is satisfied with no unresolved findings;
+`PASS_WITH_NOTES` permits only non-blocking findings. Use `BLOCKED` when required
+work, evidence, correctness, feasibility, or independent tooling is missing.
+Report the blocker without treating it as authorization to fix or bypass it.

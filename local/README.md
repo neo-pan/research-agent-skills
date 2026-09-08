@@ -9,7 +9,7 @@ notes out of tracked files.
 Current local skills:
 
 - `phase-review` - manual independent review gate.
-- `research-dev-loop` - normalized evidence state and a seven-command RDL CLI.
+- `research-dev-loop` - normalized evidence state and an RDL CLI.
 - `rdl-orchestrator` - manual terminal RDL loop with material-only review.
 - `latex-compiling` - isolated LaTeX compilation and verification receipts.
 - `overleaf-project-sync` - explicit Overleaf comparison and update workflow.

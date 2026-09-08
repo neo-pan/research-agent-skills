@@ -15,6 +15,9 @@ Overleaf project. The helper script is read-only by default.
 - Prefer `OVERLEAF_COOKIE`/`OVERLEAF_ZIP_URL` in the local shell or a temporary
   cookie file with restrictive permissions.
 - Run `check` first. `update` without `--overwrite` is still a dry run.
+- Reuse explicit overwrite authorization already given for this target. After
+  comparison and baseline preparation, continue the authorized update; clarify
+  only local conflicts or overwrite scope that the authorization does not cover.
 - Only `update --overwrite` writes existing local files; local-only files are
   never deleted. Inspect `git diff --check` and `git status` afterwards.
 - Existing symlink or non-file destinations, including non-directory ancestors,

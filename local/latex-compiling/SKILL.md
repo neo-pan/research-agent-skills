@@ -16,8 +16,11 @@ TeX toolchain while keeping generated files out of the source tree.
 - Put the PDF, intermediate files, logs, and TeX caches in a project-local
   build directory such as `build/latex/`.
 - Set writable `TEXMFVAR` and `TEXMFCONFIG` below that build directory.
-- Do not edit source files, templates, or bibliography data merely to make a
-  compile pass. Report the smallest failure and its evidence.
+- For compile-only requests, report the smallest failure and its evidence
+  without editing source, templates, or bibliography. If the user also
+  authorized fixing compilation errors, preserve the failing receipt, make
+  the smallest in-scope repair, and verify the result. Preserve research
+  content and official template integrity.
 
 ## Example command
 

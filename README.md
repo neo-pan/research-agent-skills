@@ -207,7 +207,7 @@ The current local skills are:
 
 - `phase-review` - manual independent gate for research engineering plans,
   implementation phases, evidence, and final readiness.
-- `research-dev-loop` - durable normalized evidence state and a seven-command
+- `research-dev-loop` - durable normalized evidence state and a
   Research Development Loop CLI.
 - `rdl-orchestrator` - manual terminal RDL loop with material-only semantic review.
 - `latex-compiling` - isolated LaTeX compilation and build verification.
