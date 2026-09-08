@@ -198,6 +198,7 @@ The current selected upstream skills are:
 - `grilling`
 - `handoff`
 - `to-questionnaire`
+- `wait-what`
 - `writing-for-agents`
 
 ## Local Skills
